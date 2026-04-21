@@ -1,0 +1,12 @@
+{
+  "name": "ig-automated-investment-programme",
+  "version": "1.0.0",
+  "description": "IG Index automated investment dashboard with DCA, rule engine and rebalancer",
+  "private": true,
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

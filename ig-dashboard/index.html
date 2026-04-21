@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IG Automated Investment Programme</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg2: #f5f5f3;
+    --bg3: #eeece8;
+    --text: #1a1a18;
+    --text2: #6b6b67;
+    --text3: #9b9b96;
+    --border: rgba(0,0,0,0.10);
+    --border2: rgba(0,0,0,0.18);
+    --radius: 8px;
+    --radius-lg: 12px;
+    --blue: #0072CE;
+    --blue-bg: #e6f1fb;
+    --blue-text: #185fa5;
+    --green: #1D9E75;
+    --green-bg: #eaf3de;
+    --green-text: #3b6d11;
+    --red: #E24B4A;
+    --red-bg: #fcebeb;
+    --red-text: #a32d2d;
+    --amber: #BA7517;
+    --amber-bg: #faeeda;
+    --amber-text: #854f0b;
+    --success-bg: #eaf3de;
+    --success-text: #3b6d11;
+    --danger-bg: #fcebeb;
+    --danger-text: #a32d2d;
+    --warn-bg: #faeeda;
+    --warn-text: #854f0b;
+    --info-bg: #e6f1fb;
+    --info-text: #185fa5;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a;
+      --bg2: #252523;
+      --bg3: #2e2e2b;
+      --text: #e8e6de;
+      --text2: #9b9b96;
+      --text3: #6b6b67;
+      --border: rgba(255,255,255,0.10);
+      --border2: rgba(255,255,255,0.18);
+      --blue-bg: #0c447c;
+      --blue-text: #b5d4f4;
+      --green-bg: #27500a;
+      --green-text: #c0dd97;
+      --red-bg: #501313;
+      --red-text: #f7c1c1;
+      --amber-bg: #412402;
+      --amber-text: #fac775;
+      --success-bg: #27500a;
+      --success-text: #c0dd97;
+      --danger-bg: #501313;
+      --danger-text: #f7c1c1;
+      --warn-bg: #412402;
+      --warn-text: #fac775;
+      --info-bg: #0c447c;
+      --info-text: #b5d4f4;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg3);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* LOGIN */
+  #login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg3);
+  }
+  .login-card {
+    background: var(--bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 36px 40px;
+    width: 360px;
+  }
+  .login-card .logo-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
+  }
+  .login-card h2 { font-size: 16px; font-weight: 500; }
+  .login-card .sub { font-size: 13px; color: var(--text2); margin-top: 3px; }
+  .login-error {
+    background: var(--danger-bg);
+    color: var(--danger-text);
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  /* APP */
+  #app { display: none; }
+
+  .header {
+    background: var(--bg);
+    border-bottom: 0.5px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    background: #0072CE;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    letter-spacing: 0.5px;
+  }
+  .header h1 { font-size: 15px; font-weight: 500; }
+  .status-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--text2);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+  }
+  .status-dot.off { background: var(--red); }
+
+  .nav {
+    display: flex;
+    gap: 2px;
+    padding: 0 24px;
+    background: var(--bg);
+    border-bottom: 0.5px solid var(--border);
+    overflow-x: auto;
+  }
+  .nav-tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--text2);
+    user-select: none;
+    white-space: nowrap;
+    transition: color .15s;
+    margin-bottom: -0.5px;
+  }
+  .nav-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--blue);
+    font-weight: 500;
+  }
+  .nav-tab:hover:not(.active) { color: var(--text); }
+
+  .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* CARDS */
+  .cards-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 900px) { .cards-row { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 500px) { .cards-row { grid-template-columns: 1fr; } }
+
+  .metric-card {
+    background: var(--bg2);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .metric-card .label { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+  .metric-card .value { font-size: 22px; font-weight: 500; }
+  .metric-card .sub { font-size: 12px; margin-top: 4px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--bg);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text2);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .section-title-row {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+  }
+  .section-title-row .section-title { margin-bottom: 0; }
+
+  /* TABLE */
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  th {
+    font-weight: 500; color: var(--text2); text-align: left;
+    padding: 6px 12px 6px 0; border-bottom: 0.5px solid var(--border);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  td { padding: 11px 12px 11px 0; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+
+  /* BADGES */
+  .badge {
+    display: inline-block; font-size: 11px;
+    padding: 2px 8px; border-radius: 99px; font-weight: 500;
+  }
+  .bg { background: var(--success-bg); color: var(--success-text); }
+  .br { background: var(--danger-bg); color: var(--danger-text); }
+  .bb { background: var(--info-bg); color: var(--info-text); }
+  .ba { background: var(--warn-bg); color: var(--warn-text); }
+  .bgr { background: var(--bg2); color: var(--text2); }
+
+  /* BUTTONS */
+  button {
+    font-family: inherit; font-size: 13px; cursor: pointer;
+    border-radius: var(--radius); border: 0.5px solid var(--border2);
+    background: transparent; color: var(--text);
+    padding: 7px 14px; transition: background .15s;
+  }
+  button:hover { background: var(--bg2); }
+  button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button.primary:hover { background: #005ba5; }
+  button.danger { color: var(--danger-text); border-color: var(--danger-bg); }
+  button.sm { padding: 4px 10px; font-size: 12px; }
+
+  /* FORMS */
+  .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .form-row label { font-size: 12px; color: var(--text2); }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border2);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,114,206,0.15); }
+  input[type=range] { accent-color: var(--blue); padding: 0; border: none; }
+
+  .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .form-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; }
+  @media (max-width: 700px) { .form-grid-3, .form-grid-6 { grid-template-columns: 1fr 1fr; } }
+
+  /* TOGGLE */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 0.5px solid var(--border);
+    font-size: 13px;
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-row .desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .toggle {
+    position: relative; width: 36px; height: 20px;
+    background: var(--border2); border-radius: 10px;
+    cursor: pointer; transition: background .2s; flex-shrink: 0;
+    border: none; padding: 0;
+  }
+  .toggle.on { background: var(--blue); }
+  .toggle::after {
+    content: ''; position: absolute;
+    width: 14px; height: 14px; background: white;
+    border-radius: 50%; top: 3px; left: 3px;
+    transition: transform .2s;
+  }
+  .toggle.on::after { transform: translateX(16px); }
+
+  /* MARKET ROW */
+  .market-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 0.5px solid var(--border);
+    font-size: 13px;
+  }
+  .market-row:last-child { border-bottom: none; }
+  .micon { width: 32px; height: 32px; border-radius: 6px; background: var(--bg2); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .market-row .mname { flex: 1; }
+  .market-row .mticker { font-size: 11px; color: var(--text2); }
+  .market-row .mprice { font-weight: 500; min-width: 70px; text-align: right; }
+  .market-row .mchange { min-width: 60px; text-align: right; font-size: 12px; }
+
+  /* RULE CARD */
+  .rule-card {
+    background: var(--bg2); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .rule-card .rinfo { flex: 1; }
+  .rule-card .rname { font-size: 13px; font-weight: 500; }
+  .rule-card .rdesc { font-size: 12px; color: var(--text2); margin-top: 3px; }
+
+  /* ALLOC */
+  .alloc-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 10px; gap: 1px; }
+  .alloc-seg { height: 100%; transition: flex .4s; }
+
+  /* PNL CHART */
+  .pnl-chart { height: 80px; margin: 12px 0 4px; }
+  .pnl-chart svg { width: 100%; height: 100%; }
+
+  /* LOG */
+  .log-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 0; border-bottom: 0.5px solid var(--border); font-size: 12px;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-time { color: var(--text2); min-width: 72px; font-variant-numeric: tabular-nums; }
+
+  /* DRIFT */
+  .drift-row { margin-bottom: 10px; }
+  .drift-row .dlabel { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .drift-track { position: relative; height: 8px; background: var(--border); border-radius: 4px; }
+  .drift-mid { position: absolute; left: 50%; top: -1px; width: 1px; height: 10px; background: var(--border2); }
+  .drift-fill { position: absolute; height: 8px; border-radius: 4px; }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    padding: 24px; width: 440px;
+    border: 0.5px solid var(--border2);
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal-title { font-size: 15px; font-weight: 500; margin-bottom: 18px; }
+  .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neu { color: var(--text2); }
+  .fw { font-weight: 500; }
+
+  .env-banner {
+    background: var(--warn-bg); color: var(--warn-text);
+    font-size: 12px; text-align: center; padding: 6px;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .env-banner.live { background: var(--danger-bg); color: var(--danger-text); }
+
+  .empty { text-align: center; padding: 40px; color: var(--text2); font-size: 13px; }
+
+  .tag-num { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="logo-row">
+      <span class="logo">IG</span>
+      <div>
+        <div style="font-size:15px;font-weight:500">Investment Programme</div>
+        <div style="font-size:12px;color:var(--text2)">Sign in to continue</div>
+      </div>
+    </div>
+    <div class="login-error" id="login-error">Incorrect username or password.</div>
+    <div class="form-row">
+      <label>Username</label>
+      <input type="text" id="login-user" placeholder="Your IG username" autocomplete="username">
+    </div>
+    <div class="form-row">
+      <label>Password</label>
+      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <div class="form-row" style="margin-top:4px">
+      <label>Environment</label>
+      <select id="login-env">
+        <option value="demo">Demo (Paper Trading)</option>
+        <option value="live">Live</option>
+      </select>
+    </div>
+    <button class="primary" style="width:100%;margin-top:8px" onclick="doLogin()">Connect to IG</button>
+    <p style="font-size:11px;color:var(--text2);margin-top:14px;text-align:center">
+      Your credentials are sent directly to IG's API and never stored.
+    </p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div id="env-banner" class="env-banner">Demo mode — paper trading active. No real orders will be placed.</div>
+  <div class="header">
+    <div class="header-left">
+      <span class="logo">IG</span>
+      <h1>Automated Investment Programme</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="status-indicator">
+        <div class="status-dot" id="conn-dot"></div>
+        <span id="conn-label">Connecting…</span>
+      </div>
+      <button onclick="openModal('api-modal')">API Settings</button>
+      <button class="primary" id="master-btn" onclick="toggleMaster()">Pause All</button>
+      <button onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <div class="nav-tab active" onclick="switchTab('overview',this)">Overview</div>
+    <div class="nav-tab" onclick="switchTab('dca',this)">DCA Programme</div>
+    <div class="nav-tab" onclick="switchTab('rules',this)">Rule Engine</div>
+    <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
+    <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
+    <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+  </div>
+
+  <div class="main">
+
+    <!-- OVERVIEW -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="cards-row">
+        <div class="metric-card">
+          <div class="label">Portfolio Value</div>
+          <div class="value" id="pv">—</div>
+          <div class="sub neu" id="pv-change">Loading…</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Today P&L</div>
+          <div class="value" id="today-pl">—</div>
+          <div class="sub neu" id="pos-count">— positions</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Next DCA</div>
+          <div class="value" style="font-size:16px;margin-top:4px" id="next-dca">—</div>
+          <div class="sub neu" id="next-dca-amt">Loading…</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Active Rules</div>
+          <div class="value" id="active-rules">—</div>
+          <div class="sub neu" id="paused-rules">—</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="section-title">Watchlist</div>
+          <div id="watchlist"><div class="empty">Loading prices…</div></div>
+        </div>
+        <div class="panel">
+          <div class="section-title">Portfolio P&L (30d)</div>
+          <div class="pnl-chart">
+            <svg id="pnl-svg" viewBox="0 0 400 80" preserveAspectRatio="none">
+              <polyline id="pnl-line" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>
+              <polygon id="pnl-fill" opacity="0.08" fill="var(--blue)"/>
+            </svg>
+          </div>
+          <div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between">
+            <span>30 days ago</span><span>Today</span>
+          </div>
+          <div class="section-title" style="margin-top:16px">Allocation</div>
+          <div class="alloc-bar" id="alloc-bar"></div>
+          <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap" id="alloc-legend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Open Positions</div>
+        <table>
+          <thead><tr>
+            <th>Instrument</th><th>Direction</th><th>Size</th><th>Open</th><th>Current</th><th>P&L</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="positions-body"><tr><td colspan="8" class="empty">Loading positions…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- DCA -->
+    <div class="tab-content" id="tab-dca">
+      <div class="two-col">
+        <div class="panel">
+          <div class="section-title-row">
+            <div class="section-title">DCA Schedules</div>
+          </div>
+          <table>
+            <thead><tr>
+              <th>Instrument</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody id="dca-body"></tbody>
+          </table>
+          <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
+            <div class="section-title">Add Schedule</div>
+            <div class="form-grid-3">
+              <div class="form-row">
+                <label>Instrument</label>
+                <select id="dca-instr">
+                  <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+                  <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+                  <option>Shell</option><option>HSBC</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Amount (£)</label>
+                <input type="number" id="dca-amt" value="100" min="10">
+              </div>
+              <div class="form-row">
+                <label>Frequency</label>
+                <select id="dca-freq">
+                  <option>Daily</option><option>Weekly</option><option selected>Monthly</option>
+                </select>
+              </div>
+            </div>
+            <button class="primary" onclick="addDCA()">Add Schedule</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="section-title">DCA Performance</div>
+          <table>
+            <thead><tr><th>Instrument</th><th>Invested</th><th>Current</th><th>Return</th></tr></thead>
+            <tbody id="dca-perf-body"></tbody>
+          </table>
+          <div style="margin-top:16px">
+            <div class="section-title">Settings</div>
+            <div class="toggle-row">
+              <div>
+                <div>Auto-invest dividends</div>
+                <div class="desc">Reinvest any received dividends</div>
+              </div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <div>Limit order only</div>
+                <div class="desc">Wait for limit price on DCA orders</div>
+              </div>
+              <button class="toggle" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="toggle-row">
+              <div>
+                <div>Skip on high volatility (>3%)</div>
+                <div class="desc">Avoid buying on extreme price moves</div>
+              </div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RULES -->
+    <div class="tab-content" id="tab-rules">
+      <div class="two-col">
+        <div>
+          <div class="panel">
+            <div class="section-title">Active Rules</div>
+            <div id="rules-list"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="section-title">New Rule Builder</div>
+          <div class="form-row">
+            <label>Rule Name</label>
+            <input type="text" id="rule-name" placeholder="e.g. Gold RSI Buy">
+          </div>
+          <div class="form-row">
+            <label>Instrument</label>
+            <select id="rule-instr">
+              <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+              <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+            </select>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-row">
+              <label>Indicator</label>
+              <select id="rule-ind">
+                <option>RSI</option><option>SMA Cross</option><option>EMA</option>
+                <option>MACD</option><option>Bollinger</option><option>Price Change</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Condition</label>
+              <select id="rule-cond">
+                <option>Below</option><option>Above</option>
+                <option>Crosses above</option><option>Crosses below</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Threshold</label>
+              <input type="number" id="rule-thresh" value="30">
+            </div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-row">
+              <label>Action</label>
+              <select id="rule-action"><option>Buy</option><option>Sell</option><option>Alert only</option></select>
+            </div>
+            <div class="form-row">
+              <label>Size (£)</label>
+              <input type="number" id="rule-size" value="500">
+            </div>
+            <div class="form-row">
+              <label>Order Type</label>
+              <select id="rule-order"><option>Market</option><option>Limit</option><option>Stop</option></select>
+            </div>
+          </div>
+          <button class="primary" onclick="addRule()">Create Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- REBALANCER -->
+    <div class="tab-content" id="tab-rebalance">
+      <div class="two-col">
+        <div class="panel">
+          <div class="section-title">Target Allocation</div>
+          <div id="alloc-table"></div>
+          <div style="margin-top:16px">
+            <div class="section-title">Settings</div>
+            <div class="toggle-row">
+              <div>
+                <div>Auto-rebalance</div>
+                <div class="desc">Trigger when drift exceeds threshold</div>
+              </div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="form-row" style="margin-top:12px">
+              <label>Drift Threshold: <span id="drift-val">5%</span></label>
+              <input type="range" min="1" max="20" value="5" oninput="document.getElementById('drift-val').textContent=this.value+'%'">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button class="primary" onclick="doRebalance()">Rebalance Now</button>
+            <button onclick="previewRebalance()">Preview Trades</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="section-title">Current vs Target Drift</div>
+          <div id="drift-chart"></div>
+          <div id="rebalance-preview" style="margin-top:16px;display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ORDERS -->
+    <div class="tab-content" id="tab-orders">
+      <div class="panel" style="margin-bottom:16px">
+        <div class="section-title">Manual Order</div>
+        <div class="form-grid-6">
+          <div class="form-row">
+            <label>Instrument</label>
+            <select id="ord-instr">
+              <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+              <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Direction</label>
+            <select id="ord-dir"><option>Buy</option><option>Sell</option></select>
+          </div>
+          <div class="form-row">
+            <label>Size (£)</label>
+            <input type="number" id="ord-size" value="1000">
+          </div>
+          <div class="form-row">
+            <label>Order Type</label>
+            <select id="ord-type"><option>Market</option><option>Limit</option><option>Stop</option></select>
+          </div>
+          <div class="form-row">
+            <label>Limit Price</label>
+            <input type="number" id="ord-price" placeholder="Optional">
+          </div>
+          <div class="form-row">
+            <label>&nbsp;</label>
+            <button class="primary" onclick="placeManualOrder()">Place Order</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Order History</div>
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Instrument</th><th>Direction</th><th>Type</th><th>Size</th><th>Price</th><th>Status</th>
+          </tr></thead>
+          <tbody id="orders-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="tab-content" id="tab-log">
+      <div class="panel">
+        <div class="section-title-row">
+          <div class="section-title">Activity Log</div>
+          <div style="display:flex;gap:6px">
+            <button class="sm" onclick="renderLog('all')">All</button>
+            <button class="sm" onclick="renderLog('order')">Orders</button>
+            <button class="sm" onclick="renderLog('rule')">Rules</button>
+            <button class="sm" onclick="renderLog('system')">System</button>
+          </div>
+        </div>
+        <div id="log-container"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- API Modal -->
+<div class="modal-overlay" id="api-modal">
+  <div class="modal">
+    <div class="modal-title">API Configuration</div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label>API Key</label>
+        <input type="password" id="cfg-key" placeholder="••••••••••••">
+      </div>
+      <div class="form-row">
+        <label>Account ID</label>
+        <input type="text" id="cfg-account" placeholder="Z12345">
+      </div>
+      <div class="form-row">
+        <label>Environment</label>
+        <select id="cfg-env">
+          <option value="demo">Demo</option>
+          <option value="live">Live</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Timezone</label>
+        <select id="cfg-tz">
+          <option>Europe/London</option>
+          <option>UTC</option>
+          <option>America/New_York</option>
+        </select>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <div>Paper trading mode</div>
+        <div class="desc">Simulate orders without real execution</div>
+      </div>
+      <button class="toggle on" id="paper-toggle" onclick="this.classList.toggle('on')"></button>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('api-modal')">Cancel</button>
+      <button class="primary" onclick="saveApiConfig()">Save & Reconnect</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+const S = {
+  running: true,
+  connected: false,
+  env: 'demo',
+  cst: null,
+  xst: null,
+  apiKey: null,
+  positions: [
+    { id:1, name:'FTSE 100', epic:'IX.D.FTSE.CFD.IP', dir:'Long', size:'£5,000', open:'7,842', current:'7,901', pl:'+£295', plPct:'+5.9%' },
+    { id:2, name:'Gold', epic:'CS.D.CFDGOLD.CFD.IP', dir:'Long', size:'£3,000', open:'2,318', current:'2,341', pl:'+£30', plPct:'+1.0%' },
+    { id:3, name:'S&P 500', epic:'IX.D.SPTRD.CFD.IP', dir:'Short', size:'£2,000', open:'5,620', current:'5,598', pl:'+£8', plPct:'+0.4%' },
+  ],
+  dca: [
+    { id:1, instr:'FTSE 100', amt:'£250', freq:'Monthly', next:'24 Mar 2026', status:'active' },
+    { id:2, instr:'S&P 500', amt:'£200', freq:'Monthly', next:'24 Mar 2026', status:'active' },
+    { id:3, instr:'Gold', amt:'£100', freq:'Weekly', next:'18 Mar 2026', status:'active' },
+    { id:4, instr:'DAX 40', amt:'£150', freq:'Monthly', next:'24 Mar 2026', status:'paused' },
+  ],
+  dcaPerf: [
+    { instr:'FTSE 100', invested:'£3,000', current:'£3,420', ret:'+14.0%' },
+    { instr:'S&P 500', invested:'£2,400', current:'£2,860', ret:'+19.2%' },
+    { instr:'Gold', invested:'£1,200', current:'£1,340', ret:'+11.7%' },
+    { instr:'DAX 40', invested:'£1,800', current:'£1,950', ret:'+8.3%' },
+  ],
+  rules: [
+    { id:1, name:'Gold RSI Oversold', desc:'Gold RSI < 30 → Buy £500 market', active:true, fired:3 },
+    { id:2, name:'FTSE Stop Loss', desc:'FTSE 100 drops >2% → Sell £2,000', active:true, fired:1 },
+    { id:3, name:'S&P SMA Cross', desc:'S&P 500 SMA50 crosses above SMA200 → Buy £1,000', active:true, fired:0 },
+    { id:4, name:'DAX Momentum', desc:'DAX price change >1.5% → Buy £500 limit', active:true, fired:2 },
+    { id:5, name:'Oil Bollinger', desc:'Crude Oil below lower Bollinger Band → Buy £300', active:false, fired:0 },
+    { id:6, name:'Apple MACD', desc:'Apple MACD crossover → Buy £200 market', active:false, fired:1 },
+  ],
+  alloc: [
+    { name:'Indices', pct:55, color:'#0072CE' },
+    { name:'Commodities', pct:25, color:'#EF9F27' },
+    { name:'Shares', pct:20, color:'#1D9E75' },
+  ],
+  allocItems: [
+    { name:'FTSE 100', target:20, current:22 },
+    { name:'S&P 500', target:20, current:18 },
+    { name:'DAX 40', target:15, current:15 },
+    { name:'Gold', target:15, current:17 },
+    { name:'Crude Oil', target:10, current:8 },
+    { name:'Shares', target:20, current:20 },
+  ],
+  orders: [
+    { time:'16 Mar 09:31', instr:'Gold', dir:'Buy', type:'Market', size:'£500', price:'2,341.2', status:'filled' },
+    { time:'15 Mar 14:12', instr:'FTSE 100', dir:'Buy', type:'DCA', size:'£250', price:'7,898.4', status:'filled' },
+    { time:'14 Mar 11:05', instr:'S&P 500', dir:'Sell', type:'Limit', size:'£500', price:'5,620.0', status:'filled' },
+    { time:'10 Mar 09:31', instr:'Gold', dir:'Buy', type:'DCA', size:'£100', price:'2,305.8', status:'filled' },
+  ],
+  log: [
+    { time:'09:31:04', type:'order', msg:'DCA order placed: Buy £100 Gold @ market — filled at 2,341.2' },
+    { time:'09:30:00', type:'rule', msg:'Rule "Gold RSI Oversold" triggered — RSI=28.4, threshold=30' },
+    { time:'08:45:12', type:'system', msg:'Market open detected. 4 active rules re-armed.' },
+    { time:'07:00:00', type:'system', msg:'Pre-market check passed. API connection healthy.' },
+  ],
+  markets: [
+    { name:'FTSE 100', epic:'IX.D.FTSE.CFD.IP', price:'7,901', change:'+0.75%', pos:true, icon:'🇬🇧' },
+    { name:'S&P 500', epic:'IX.D.SPTRD.CFD.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
+    { name:'DAX 40', epic:'IX.D.DAX.CFD.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
+    { name:'Gold', epic:'CS.D.CFDGOLD.CFD.IP', price:'2,341', change:'+0.98%', pos:true, icon:'🥇' },
+    { name:'Crude Oil', epic:'CS.D.OILCFD.CFD.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
+  ]
+};
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const env  = document.getElementById('login-env').value;
+  if (!user || !pass) return;
+
+  S.env = env;
+  try {
+    const res = await igFetch('session', {
+      method: 'POST',
+      headers: { 'Version': '2' },
+      body: JSON.stringify({ identifier: user, password: pass })
+    });
+    if (res.ok) {
+      S.cst = res.headers.get ? res.headers.get('CST') : res.cst;
+      S.xst = res.headers.get ? res.headers.get('X-SECURITY-TOKEN') : res.xst;
+      S.connected = true;
+      showApp();
+      loadFromIG();
+    } else {
+      showLoginError();
+    }
+  } catch(e) {
+    // Demo fallback if no API configured
+    S.connected = false;
+    showApp();
+    addLog('system', 'Running in demo mode — no live API connection.');
+  }
+}
+
+function showLoginError() {
+  document.getElementById('login-error').style.display = 'block';
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  const banner = document.getElementById('env-banner');
+  if (S.env === 'live') {
+    banner.textContent = '⚠ Live mode — real orders will be placed. Trade carefully.';
+    banner.className = 'env-banner live';
+  }
+  document.getElementById('conn-dot').className = 'status-dot' + (S.connected ? '' : ' off');
+  document.getElementById('conn-label').textContent = S.connected
+    ? (S.env === 'live' ? 'Connected — Live' : 'Connected — Demo')
+    : 'Demo mode (no API)';
+  renderAll();
+  startPriceTicker();
+}
+
+function doLogout() {
+  S.cst = null; S.xst = null; S.connected = false;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+// ─── IG API CALLS ─────────────────────────────────────────────────────────────
+async function igFetch(path, opts = {}) {
+  const base = '/ig/' + path;
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-IG-API-KEY': S.apiKey || '',
+    'CST': S.cst || '',
+    'X-SECURITY-TOKEN': S.xst || '',
+    'Version': '1',
+    ...(opts.headers || {})
+  };
+  const res = await fetch(base, { ...opts, headers });
+  if (res.headers) {
+    const newCst = res.headers.get('CST');
+    const newXst = res.headers.get('X-SECURITY-TOKEN');
+    if (newCst) S.cst = newCst;
+    if (newXst) S.xst = newXst;
+  }
+  return res;
+}
+
+async function loadFromIG() {
+  if (!S.connected) return;
+  try {
+    // Fetch accounts
+    const acctRes = await igFetch('accounts');
+    if (acctRes.ok) {
+      const data = await acctRes.json();
+      if (data.accounts && data.accounts[0]) {
+        const a = data.accounts[0];
+        document.getElementById('pv').textContent = '£' + Number(a.balance?.balance || 0).toLocaleString();
+        document.getElementById('today-pl').textContent = '£' + Number(a.balance?.profitLoss || 0).toLocaleString();
+        addLog('system', `Account loaded: ${a.accountName} — balance £${a.balance?.balance}`);
+      }
+    }
+    // Fetch positions
+    const posRes = await igFetch('positions');
+    if (posRes.ok) {
+      const data = await posRes.json();
+      if (data.positions) {
+        S.positions = data.positions.map((p, i) => ({
+          id: i+1,
+          name: p.market.instrumentName,
+          epic: p.market.epic,
+          dir: p.position.direction === 'BUY' ? 'Long' : 'Short',
+          size: '£' + Number(p.position.size * p.market.offer).toFixed(0),
+          open: p.position.openLevel,
+          current: p.market.bid,
+          pl: (p.position.upl >= 0 ? '+' : '') + '£' + Number(p.position.upl).toFixed(2),
+          plPct: (p.position.upl >= 0 ? '+' : '') + ((p.position.upl / (p.position.size * p.position.openLevel)) * 100).toFixed(1) + '%'
+        }));
+        renderPositions();
+        document.getElementById('pos-count').textContent = S.positions.length + ' positions';
+      }
+    }
+    // Fetch prices for watchlist
+    for (const m of S.markets) {
+      const mRes = await igFetch(`markets/${m.epic}`);
+      if (mRes.ok) {
+        const md = await mRes.json();
+        if (md.snapshot) {
+          m.price = md.snapshot.bid.toLocaleString();
+          m.change = (md.snapshot.percentageChange >= 0 ? '+' : '') + md.snapshot.percentageChange.toFixed(2) + '%';
+          m.pos = md.snapshot.percentageChange >= 0;
+        }
+      }
+    }
+    renderWatchlist();
+  } catch(e) {
+    addLog('system', 'Error loading from IG API: ' + e.message);
+  }
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function renderAll() {
+  renderWatchlist();
+  renderPositions();
+  renderDCA();
+  renderRules();
+  renderAlloc();
+  renderOrders();
+  renderLog();
+  renderPnLChart();
+  renderMetrics();
+}
+
+function renderMetrics() {
+  document.getElementById('pv').textContent = '£48,320';
+  document.getElementById('pv-change').textContent = '+£2,140 (+4.6%)';
+  document.getElementById('pv-change').className = 'sub pos';
+  document.getElementById('today-pl').textContent = '+£318';
+  document.getElementById('today-pl').className = 'value pos';
+  document.getElementById('pos-count').textContent = S.positions.length + ' positions';
+  const next = S.dca.filter(d=>d.status==='active')[0];
+  document.getElementById('next-dca').textContent = next ? next.next : '—';
+  document.getElementById('next-dca-amt').textContent = next ? next.amt + ' scheduled' : 'No active schedules';
+  const active = S.rules.filter(r=>r.active).length;
+  document.getElementById('active-rules').textContent = active + ' / ' + S.rules.length;
+  document.getElementById('paused-rules').textContent = (S.rules.length - active) + ' paused';
+}
+
+function renderWatchlist() {
+  document.getElementById('watchlist').innerHTML = S.markets.map(m => `
+    <div class="market-row">
+      <div class="micon">${m.icon}</div>
+      <div class="mname">
+        <div class="fw">${m.name}</div>
+        <div class="mticker">${m.epic}</div>
+      </div>
+      <div class="mprice">${m.price}</div>
+      <div class="mchange ${m.pos?'pos':'neg'}">${m.change}</div>
+    </div>`).join('');
+}
+
+function renderPositions() {
+  document.getElementById('positions-body').innerHTML = S.positions.length ? S.positions.map(p => `
+    <tr>
+      <td class="fw">${p.name}</td>
+      <td><span class="badge ${p.dir==='Long'?'bg':'br'}">${p.dir}</span></td>
+      <td>${p.size}</td>
+      <td class="tag-num">${p.open}</td>
+      <td class="tag-num">${p.current}</td>
+      <td class="fw pos">${p.pl} <span class="neu" style="font-weight:400">(${p.plPct})</span></td>
+      <td><span class="badge bg">Open</span></td>
+      <td><button class="sm danger" onclick="closePos(${p.id})">Close</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="8" class="empty">No open positions</td></tr>';
+}
+
+function renderDCA() {
+  document.getElementById('dca-body').innerHTML = S.dca.map(d => `
+    <tr>
+      <td class="fw">${d.instr}</td>
+      <td>${d.amt}</td>
+      <td>${d.freq}</td>
+      <td>${d.next}</td>
+      <td><span class="badge ${d.status==='active'?'bg':'bgr'}">${d.status}</span></td>
+      <td>
+        <button class="sm" onclick="toggleDCA(${d.id})" style="margin-right:4px">${d.status==='active'?'Pause':'Resume'}</button>
+        <button class="sm danger" onclick="deleteDCA(${d.id})">Remove</button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('dca-perf-body').innerHTML = S.dcaPerf.map(d => `
+    <tr>
+      <td class="fw">${d.instr}</td>
+      <td>${d.invested}</td>
+      <td>${d.current}</td>
+      <td class="pos">${d.ret}</td>
+    </tr>`).join('');
+}
+
+function renderRules() {
+  document.getElementById('rules-list').innerHTML = S.rules.map(r => `
+    <div class="rule-card">
+      <div class="rinfo">
+        <div class="rname">${r.name} <span class="badge bb" style="margin-left:6px;font-size:10px">Fired ${r.fired}×</span></div>
+        <div class="rdesc">${r.desc}</div>
+      </div>
+      <span class="badge ${r.active?'bg':'bgr'}">${r.active?'Active':'Paused'}</span>
+      <button class="toggle ${r.active?'on':''}" onclick="toggleRule(${r.id})"></button>
+    </div>`).join('');
+}
+
+function renderAlloc() {
+  const bar = document.getElementById('alloc-bar');
+  const leg = document.getElementById('alloc-legend');
+  bar.innerHTML = S.alloc.map(a => `<div class="alloc-seg" style="flex:${a.pct};background:${a.color};opacity:0.85"></div>`).join('');
+  leg.innerHTML = S.alloc.map(a => `<span style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:${a.color};display:inline-block"></span>${a.name} ${a.pct}%</span>`).join('');
+  document.getElementById('alloc-table').innerHTML = `<table>
+    <thead><tr><th>Instrument</th><th>Target</th><th>Current</th><th>Drift</th></tr></thead>
+    <tbody>${S.allocItems.map(a => {
+      const d = a.current - a.target;
+      return `<tr><td class="fw">${a.name}</td><td>${a.target}%</td><td>${a.current}%</td><td class="${Math.abs(d)>3?'neg':Math.abs(d)>1?'neu':'pos'}">${d>0?'+':''}${d}%</td></tr>`;
+    }).join('')}</tbody></table>`;
+  document.getElementById('drift-chart').innerHTML = S.allocItems.map(a => {
+    const d = a.current - a.target;
+    const col = Math.abs(d)>3?'var(--red)':Math.abs(d)>1?'var(--amber)':'var(--green)';
+    return `<div class="drift-row">
+      <div class="dlabel"><span>${a.name}</span><span style="color:${col};font-weight:500">${d>0?'+':''}${d}%</span></div>
+      <div class="drift-track">
+        <div class="drift-mid"></div>
+        <div class="drift-fill" style="background:${col};${d>=0?`left:50%;width:${Math.min(Math.abs(d)*6,50)}%`:`right:50%;width:${Math.min(Math.abs(d)*6,50)}%`}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderOrders() {
+  document.getElementById('orders-body').innerHTML = S.orders.map(o => `
+    <tr>
+      <td class="tag-num neu" style="font-size:12px">${o.time}</td>
+      <td class="fw">${o.instr}</td>
+      <td><span class="badge ${o.dir==='Buy'?'bg':'br'}">${o.dir}</span></td>
+      <td><span class="badge bb">${o.type}</span></td>
+      <td>${o.size}</td>
+      <td class="tag-num">${o.price}</td>
+      <td><span class="badge ${o.status==='filled'?'bg':o.status==='cancelled'?'br':'ba'}">${o.status}</span></td>
+    </tr>`).join('');
+}
+
+function renderLog(filter) {
+  const items = filter && filter!=='all' ? S.log.filter(l=>l.type===filter) : S.log;
+  document.getElementById('log-container').innerHTML = items.length ? items.map(l => {
+    const col = l.type==='order'?'var(--blue-text)':l.type==='rule'?'var(--amber-text)':'var(--text2)';
+    const icon = l.type==='order'?'◆':l.type==='rule'?'◉':'◌';
+    return `<div class="log-row">
+      <div class="log-time">${l.time}</div>
+      <div style="color:${col};font-size:11px;padding-top:1px;min-width:14px">${icon}</div>
+      <div>${l.msg}</div>
+    </div>`;
+  }).join('') : '<div class="empty">No entries.</div>';
+}
+
+function renderPnLChart() {
+  const pts = [0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42];
+  const w=400, h=80, min=Math.min(...pts), max=Math.max(...pts), range=max-min||1;
+  const coords = pts.map((v,i)=>`${(i/(pts.length-1)*w).toFixed(1)},${(h-((v-min)/range*(h-8)+4)).toFixed(1)}`);
+  document.getElementById('pnl-line').setAttribute('points', coords.join(' '));
+  document.getElementById('pnl-fill').setAttribute('points', `0,${h} ${coords.join(' ')} ${w},${h}`);
+}
+
+// ─── ACTIONS ──────────────────────────────────────────────────────────────────
+function toggleMaster() {
+  S.running = !S.running;
+  document.getElementById('master-btn').textContent = S.running ? 'Pause All' : 'Resume All';
+  document.getElementById('conn-dot').className = 'status-dot' + (S.running?'':' off');
+  addLog('system', S.running ? 'Automation resumed.' : 'Automation paused by user.');
+}
+
+function closePos(id) {
+  const p = S.positions.find(x=>x.id===id);
+  if (!p) return;
+  if (S.connected) {
+    igFetch('positions/otc/' + p.dealId, { method:'DELETE', headers:{'Version':'1'} })
+      .then(() => addLog('order', `Position closed via IG API: ${p.name}`));
+  }
+  S.positions = S.positions.filter(x=>x.id!==id);
+  addLog('order', `Position closed: ${p.name} — P&L: ${p.pl}`);
+  renderPositions();
+}
+
+function toggleDCA(id) {
+  const d = S.dca.find(x=>x.id===id);
+  if (!d) return;
+  d.status = d.status==='active' ? 'paused' : 'active';
+  addLog('system', `DCA "${d.instr}" ${d.status}.`);
+  renderDCA(); renderMetrics();
+}
+
+function deleteDCA(id) {
+  const d = S.dca.find(x=>x.id===id);
+  S.dca = S.dca.filter(x=>x.id!==id);
+  addLog('system', `DCA schedule removed: ${d.instr}`);
+  renderDCA();
+}
+
+function addDCA() {
+  const instr = document.getElementById('dca-instr').value;
+  const amt = document.getElementById('dca-amt').value;
+  const freq = document.getElementById('dca-freq').value;
+  S.dca.push({ id: Date.now(), instr, amt:'£'+amt, freq, next:'24 Mar 2026', status:'active' });
+  addLog('system', `DCA added: ${freq} £${amt} in ${instr}`);
+  renderDCA();
+}
+
+function toggleRule(id) {
+  const r = S.rules.find(x=>x.id===id);
+  if (!r) return;
+  r.active = !r.active;
+  addLog('rule', `Rule "${r.name}" ${r.active?'activated':'paused'}.`);
+  renderRules(); renderMetrics();
+}
+
+function addRule() {
+  const name = document.getElementById('rule-name').value || 'New Rule';
+  const instr = document.getElementById('rule-instr').value;
+  const ind = document.getElementById('rule-ind').value;
+  const cond = document.getElementById('rule-cond').value;
+  const thresh = document.getElementById('rule-thresh').value;
+  const action = document.getElementById('rule-action').value;
+  const size = document.getElementById('rule-size').value;
+  const ordType = document.getElementById('rule-order').value;
+  S.rules.push({
+    id: Date.now(), name, active: true, fired: 0,
+    desc: `${instr} ${ind} ${cond} ${thresh} → ${action} £${size} ${ordType}`
+  });
+  addLog('rule', `Rule created: "${name}"`);
+  renderRules(); renderMetrics();
+  document.getElementById('rule-name').value = '';
+}
+
+async function placeManualOrder() {
+  const instr = document.getElementById('ord-instr').value;
+  const dir = document.getElementById('ord-dir').value;
+  const size = document.getElementById('ord-size').value;
+  const type = document.getElementById('ord-type').value;
+  const price = document.getElementById('ord-price').value;
+  const m = S.markets.find(x=>x.name===instr);
+  const fillPrice = m ? m.price : price || '—';
+
+  if (S.connected) {
+    const epicMap = { 'FTSE 100':'IX.D.FTSE.CFD.IP','S&P 500':'IX.D.SPTRD.CFD.IP','DAX 40':'IX.D.DAX.CFD.IP','Gold':'CS.D.CFDGOLD.CFD.IP','Crude Oil':'CS.D.OILCFD.CFD.IP' };
+    await igFetch('positions/otc', {
+      method: 'POST', headers: { 'Version':'2' },
+      body: JSON.stringify({
+        epic: epicMap[instr] || epicMap['FTSE 100'],
+        direction: dir.toUpperCase(),
+        size: 1,
+        orderType: type.toUpperCase(),
+        expiry: '-',
+        guaranteedStop: false,
+        forceOpen: true,
+        currencyCode: 'GBP',
+        ...(price ? { level: parseFloat(price) } : {})
+      })
+    });
+  }
+
+  S.orders.unshift({ time:'Just now', instr, dir, type, size:'£'+size, price: fillPrice, status:'filled' });
+  addLog('order', `Order placed: ${dir} £${size} ${instr} @ ${type} — fill ${fillPrice}`);
+  renderOrders();
+}
+
+function doRebalance() {
+  addLog('system', 'Rebalance triggered. Computing required trades…');
+  addLog('order', 'Sell £320 Gold (overweight). Buy £210 S&P 500 (underweight).');
+  S.allocItems.forEach(a => a.current = a.target);
+  renderAlloc();
+}
+
+function previewRebalance() {
+  const el = document.getElementById('rebalance-preview');
+  el.style.display = 'block';
+  el.innerHTML = `<div class="section-title" style="margin-top:8px">Preview Trades</div>
+    <table>
+      <thead><tr><th>Instrument</th><th>Action</th><th>Est. Trade</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>S&P 500</td><td><span class="badge bg">Buy</span></td><td>£970</td><td>Under by 2%</td></tr>
+        <tr><td>Gold</td><td><span class="badge br">Sell</span></td><td>£970</td><td>Over by 2%</td></tr>
+        <tr><td>Crude Oil</td><td><span class="badge bg">Buy</span></td><td>£485</td><td>Under by 2%</td></tr>
+      </tbody>
+    </table>`;
+}
+
+function saveApiConfig() {
+  S.apiKey = document.getElementById('cfg-key').value || S.apiKey;
+  S.env = document.getElementById('cfg-env').value;
+  addLog('system', `API config saved. Environment: ${S.env}.`);
+  closeModal('api-modal');
+}
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function addLog(type, msg) {
+  const now = new Date();
+  const t = [now.getHours(),now.getMinutes(),now.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+  S.log.unshift({ time:t, type, msg });
+  if (document.getElementById('tab-log').classList.contains('active')) renderLog();
+}
+
+function switchTab(id, el) {
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  el.classList.add('active');
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function startPriceTicker() {
+  setInterval(() => {
+    S.markets.forEach(m => {
+      const n = parseFloat(m.price.replace(/,/g,''));
+      const delta = (Math.random()-0.48)*0.3;
+      const newP = n + delta;
+      m.price = newP > 999 ? Math.round(newP).toLocaleString() : newP.toFixed(1);
+      m.pos = delta > 0;
+      m.change = (delta>0?'+':'') + (delta/n*100).toFixed(2) + '%';
+    });
+    if (document.getElementById('tab-overview').classList.contains('active')) renderWatchlist();
+  }, 3000);
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if(e.target === o) o.classList.remove('open'); });
+});
+
+// Enter key on login
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>
