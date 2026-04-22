@@ -1,16 +1,13 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/ig/:path*", "destination": "/api/ig?path=:path*" }
-  ],
-  "headers": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
+      "src": "/ig/(.*)",
+      "dest": "/api/ig?path=$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
