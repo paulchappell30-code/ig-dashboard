@@ -24,6 +24,7 @@ module.exports = async (req, res) => {
 
   console.log(`[IG Proxy] ${req.method} ${igUrl}`);
   console.log(`[IG Proxy] API key present: ${!!apiKey}`);
+  console.log(`[IG Proxy] API key value: ${apiKey.substring(0, 6)}...`);
 
   const igHeaders = {
     'Content-Type': 'application/json',
@@ -35,30 +36,28 @@ module.exports = async (req, res) => {
   if (req.headers['x-security-token']) igHeaders['X-SECURITY-TOKEN'] = req.headers['x-security-token'];
 
   try {
-    let bodyData;
-    if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
-      bodyData = await new Promise((resolve) => {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => resolve(body));
-      });
+    // Vercel auto-parses the body — use req.body directly
+    let bodyString;
+    if (['POST', 'PUT', 'DELETE'].includes(req.method) && req.body) {
+      bodyString = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     }
 
-    console.log(`[IG Proxy] Request body: ${bodyData}`);
+    console.log(`[IG Proxy] Body: ${bodyString}`);
 
     const igRes = await fetch(igUrl, {
       method: req.method,
       headers: igHeaders,
-      body: bodyData || undefined,
+      body: bodyString || undefined,
     });
 
     const responseText = await igRes.text();
 
+    console.log(`[IG Proxy] IG status: ${igRes.status}`);
+    console.log(`[IG Proxy] IG body: ${responseText}`);
+
     const cst = igRes.headers.get('cst') || igRes.headers.get('CST');
     const xst = igRes.headers.get('x-security-token') || igRes.headers.get('X-SECURITY-TOKEN');
 
-    console.log(`[IG Proxy] IG responded: ${igRes.status}`);
-    console.log(`[IG Proxy] IG body: ${responseText}`);
     console.log(`[IG Proxy] CST present: ${!!cst}`);
     console.log(`[IG Proxy] XST present: ${!!xst}`);
 
@@ -69,6 +68,7 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     console.error('[IG Proxy] Error:', err.message);
+    console.error('[IG Proxy] Stack:', err.stack);
     res.status(500).json({ error: err.message });
   }
 };
