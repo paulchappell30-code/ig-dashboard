@@ -44,24 +44,27 @@ module.exports = async (req, res) => {
       });
     }
 
+    console.log(`[IG Proxy] Request body: ${bodyData}`);
+
     const igRes = await fetch(igUrl, {
       method: req.method,
       headers: igHeaders,
       body: bodyData || undefined,
     });
 
-    console.log(`[IG Proxy] IG responded: ${igRes.status}`);
+    const responseText = await igRes.text();
 
     const cst = igRes.headers.get('cst') || igRes.headers.get('CST');
     const xst = igRes.headers.get('x-security-token') || igRes.headers.get('X-SECURITY-TOKEN');
 
+    console.log(`[IG Proxy] IG responded: ${igRes.status}`);
+    console.log(`[IG Proxy] IG body: ${responseText}`);
     console.log(`[IG Proxy] CST present: ${!!cst}`);
     console.log(`[IG Proxy] XST present: ${!!xst}`);
 
     if (cst) res.setHeader('CST', cst);
     if (xst) res.setHeader('X-SECURITY-TOKEN', xst);
 
-    const responseText = await igRes.text();
     res.status(igRes.status).send(responseText);
 
   } catch (err) {
@@ -69,4 +72,3 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
