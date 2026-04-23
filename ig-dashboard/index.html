@@ -926,11 +926,14 @@ async function loadFromIG() {
     const acctRes = await igFetch('accounts');
     if (acctRes.ok) {
       const data = await acctRes.json();
-      if (data.accounts && data.accounts[0]) {
-        const a = data.accounts[0];
-        document.getElementById('pv').textContent = '£' + Number(a.balance?.balance || 0).toLocaleString();
-        document.getElementById('today-pl').textContent = '£' + Number(a.balance?.profitLoss || 0).toLocaleString();
-        addLog('system', `Account loaded: ${a.accountName} — balance £${a.balance?.balance}`);
+      if (data.accounts) {
+        const a = data.accounts.find(x => x.accountType === 'SPREADBET') || data.accounts[0];
+        document.getElementById('pv').textContent = '£' + Number(a.balance.balance || 0).toLocaleString();
+        document.getElementById('pv-change').textContent = 'P&L: £' + Number(a.balance.profitLoss || 0).toLocaleString();
+        document.getElementById('pv-change').className = 'sub ' + (a.balance.profitLoss >= 0 ? 'pos' : 'neg');
+        document.getElementById('today-pl').textContent = '£' + Number(a.balance.available || 0).toLocaleString();
+        document.getElementById('pos-count').textContent = 'Available funds';
+        addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + a.balance.balance);
       }
     }
     // Fetch positions
