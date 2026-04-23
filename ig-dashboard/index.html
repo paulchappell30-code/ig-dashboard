@@ -868,7 +868,8 @@ async function doLogin() {
       S.lsEndpoint = data.lightstreamerEndpoint || 'https://demo-apd.marketdatasystems.com';
       addLog('system', 'Logged in — Account: ' + S.accountId + ' Balance: £' + (data.accountInfo && data.accountInfo.balance));
       showApp();
-      loadFromIG();
+      // Small delay to let IG session fully initialise before REST calls
+      setTimeout(() => loadFromIG(), 1500);
     } else {
       console.error('Login failed — no CST token returned');
       showLoginError();
