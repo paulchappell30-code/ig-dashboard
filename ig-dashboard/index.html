@@ -1078,10 +1078,10 @@ function renderPositions() {
     <tr>
       <td class="fw">${p.name}</td>
       <td><span class="badge ${p.dir==='Long'?'bg':'br'}">${p.dir}</span></td>
-      <td>${p.size}</td>
-      <td class="tag-num">${p.open}</td>
-      <td class="tag-num">${p.current}</td>
-      <td class="fw pos">${p.pl} <span class="neu" style="font-weight:400">(${p.plPct})</span></td>
+      <td>${p.sizeDisplay||p.size+' units'}</td>
+      <td class="tag-num">${Number(p.open).toLocaleString('en-GB')}</td>
+      <td class="tag-num">${Number(p.current).toLocaleString('en-GB')}</td>
+      <td class="fw ${p.upl>=0?'pos':'neg'}">${p.pl} <span class="neu" style="font-weight:400">(${p.plPct})</span></td>
       <td><span class="badge bg">Open</span></td>
       <td><button class="sm danger" onclick="closePos(${p.id})">Close</button></td>
     </tr>`).join('')
