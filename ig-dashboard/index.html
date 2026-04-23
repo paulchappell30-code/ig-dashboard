@@ -358,6 +358,10 @@
   .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
   .pos { color: var(--green); }
+  .flash-up { animation: flashUp 0.6s ease-out; }
+  .flash-down { animation: flashDown 0.6s ease-out; }
+  @keyframes flashUp { 0%{background:rgba(29,158,117,0.3)} 100%{background:transparent} }
+  @keyframes flashDown { 0%{background:rgba(226,75,74,0.3)} 100%{background:transparent} }
   .neg { color: var(--red); }
   .neu { color: var(--text2); }
   .fw { font-weight: 500; }
@@ -373,6 +377,7 @@
 
   .tag-num { font-variant-numeric: tabular-nums; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lightstreamer-client-web/9.1.2/lightstreamer.min.js"></script>
 </head>
 <body>
 
@@ -858,7 +863,10 @@ async function doLogin() {
       S.xst = xst;
       S.connected = true;
       const data = await res.json();
-      addLog('system', 'Logged in — Balance: £' + (data.accountInfo && data.accountInfo.balance));
+      const sbAcct = data.accounts && data.accounts.find(a => a.accountType === 'SPREADBET');
+      S.accountId = sbAcct ? sbAcct.accountId : data.currentAccountId;
+      S.lsEndpoint = data.lightstreamerEndpoint || 'https://demo-apd.marketdatasystems.com';
+      addLog('system', 'Logged in — Account: ' + S.accountId + ' Balance: £' + (data.accountInfo && data.accountInfo.balance));
       showApp();
       loadFromIG();
     } else {
@@ -1340,18 +1348,115 @@ function switchTab(id, el) {
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
+// ─── LIGHTSTREAMER ───────────────────────────────────────────────────────────
+let lsClient = null;
+
 function startPriceTicker() {
-  setInterval(() => {
-    S.markets.forEach(m => {
-      const n = parseFloat(m.price.replace(/,/g,''));
-      const delta = (Math.random()-0.48)*0.3;
-      const newP = n + delta;
-      m.price = newP > 999 ? Math.round(newP).toLocaleString() : newP.toFixed(1);
-      m.pos = delta > 0;
-      m.change = (delta>0?'+':'') + (delta/n*100).toFixed(2) + '%';
+  if (S.connected && S.cst && S.xst) {
+    startLightstreamer();
+  } else {
+    startFallbackTicker();
+  }
+}
+
+function startLightstreamer() {
+  try {
+    // Lightstreamer endpoint from IG session
+    const lsEndpoint = S.lsEndpoint || 'https://demo-apd.marketdatasystems.com';
+    lsClient = new LightstreamerClient(lsEndpoint, 'ISIMDS');
+    lsClient.connectionDetails.setUser(S.accountId || '');
+    lsClient.connectionDetails.setPassword('CST-' + S.cst + '|XST-' + S.xst);
+
+    lsClient.addListener({
+      onStatusChange: function(status) {
+        console.log('[LS] Status:', status);
+        if (status.startsWith('CONNECTED')) {
+          addLog('system', 'Lightstreamer connected — live prices active.');
+          document.getElementById('conn-label').textContent = 'Live prices ●';
+        } else if (status.startsWith('DISCONNECTED')) {
+          addLog('system', 'Lightstreamer disconnected — falling back to polling.');
+          startFallbackTicker();
+        }
+      },
+      onServerError: function(code, msg) {
+        console.warn('[LS] Server error:', code, msg);
+        addLog('system', 'Lightstreamer error — falling back to polling.');
+        startFallbackTicker();
+      }
     });
-    if (document.getElementById('tab-overview').classList.contains('active')) renderWatchlist();
-  }, 3000);
+
+    lsClient.connect();
+
+    // Subscribe to prices for each market
+    const epics = S.markets.map(m => m.epic + ':5'); // :5 = 5 second merge
+    const sub = new Subscription('MERGE', epics, ['BID', 'OFFER', 'CHANGE_PCT', 'MARKET_STATE']);
+    
+    sub.addListener({
+      onItemUpdate: function(update) {
+        const epic = update.getItemName().replace(':5', '');
+        const m = S.markets.find(x => x.epic === epic);
+        if (!m) return;
+
+        const bid = parseFloat(update.getValue('BID'));
+        const pct = parseFloat(update.getValue('CHANGE_PCT'));
+        const state = update.getValue('MARKET_STATE');
+
+        if (!isNaN(bid)) {
+          const prevPrice = parseFloat(m.price.replace(/,/g,''));
+          m.flash = bid > prevPrice ? 'up' : bid < prevPrice ? 'down' : null;
+          m.price = bid > 999 ? Math.round(bid).toLocaleString('en-GB') : bid.toFixed(2);
+          m.pos = pct >= 0;
+          m.change = (!isNaN(pct) ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : m.change);
+          m.marketState = state || 'TRADEABLE';
+
+          // Also update open position current prices
+          S.positions.forEach(pos => {
+            if (pos.epic === epic) {
+              pos.current = bid;
+              const upl = pos.dir === 'Long'
+                ? (bid - pos.open) * pos.size
+                : (pos.open - bid) * pos.size;
+              pos.upl = upl;
+              pos.pl = (upl >= 0 ? '+' : '') + '£' + upl.toFixed(2);
+              const notional = pos.size * pos.open;
+              pos.plPct = (upl >= 0 ? '+' : '') + (notional ? (upl/notional*100).toFixed(2) : '0.00') + '%';
+            }
+          });
+
+          if (document.getElementById('tab-overview').classList.contains('active')) {
+            renderWatchlist();
+            renderPositions();
+          }
+        }
+      }
+    });
+
+    lsClient.subscribe(sub);
+    addLog('system', 'Lightstreamer subscription started for ' + S.markets.length + ' instruments.');
+  } catch(e) {
+    console.error('[LS] Failed to start:', e.message);
+    addLog('system', 'Lightstreamer unavailable — using polling fallback.');
+    startFallbackTicker();
+  }
+}
+
+function startFallbackTicker() {
+  // Polling fallback — refreshes prices every 10 seconds via REST API
+  addLog('system', 'Starting polling fallback (10s interval).');
+  setInterval(async () => {
+    if (!S.connected) return;
+    await loadPrices();
+    if (document.getElementById('tab-overview').classList.contains('active')) {
+      renderWatchlist();
+    }
+  }, 10000);
+}
+
+function stopLightstreamer() {
+  if (lsClient) {
+    lsClient.disconnect();
+    lsClient = null;
+  }
 }
 
 // Close modals on overlay click
