@@ -778,9 +778,9 @@ const S = {
   xst: null,
   apiKey: null,
   positions: [
-    { id:1, name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', dir:'Long', size:'£5,000', open:'7,842', current:'7,901', pl:'+£295', plPct:'+5.9%' },
-    { id:2, name:'Gold', epic:'CS.D.GOLD.DAILY.IP', dir:'Long', size:'£3,000', open:'2,318', current:'2,341', pl:'+£30', plPct:'+1.0%' },
-    { id:3, name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', dir:'Short', size:'£2,000', open:'5,620', current:'5,598', pl:'+£8', plPct:'+0.4%' },
+    { id:1, name:'FTSE 100', epic:'IX.D.FTSE.CFD.IP', dir:'Long', size:'£5,000', open:'7,842', current:'7,901', pl:'+£295', plPct:'+5.9%' },
+    { id:2, name:'Gold', epic:'CS.D.CFDGOLD.CFD.IP', dir:'Long', size:'£3,000', open:'2,318', current:'2,341', pl:'+£30', plPct:'+1.0%' },
+    { id:3, name:'S&P 500', epic:'IX.D.SPTRD.CFD.IP', dir:'Short', size:'£2,000', open:'5,620', current:'5,598', pl:'+£8', plPct:'+0.4%' },
   ],
   dca: [
     { id:1, instr:'FTSE 100', amt:'£250', freq:'Monthly', next:'24 Mar 2026', status:'active' },
@@ -831,18 +831,18 @@ const S = {
     { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', price:'7,901', change:'+0.75%', pos:true, icon:'🇬🇧' },
     { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
     { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
-    { name:'Gold', epic:'CS.D.GOLD.DAILY.IP', price:'2,341', change:'+0.98%', pos:true, icon:'🥇' },
-    { name:'Crude Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
+    { name:'Gold', epic:'CS.D.CFDGOLD.DAILY.IP', price:'2,341', change:'+0.98%', pos:true, icon:'🥇' },
+    { name:'Crude Oil', epic:'CS.D.OILCFD.DAILY.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
   ]
 };
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 async function doLogin() {
-  async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
   const env  = document.getElementById('login-env').value;
   if (!user || !pass) return;
+
   S.env = env;
   try {
     const res = await fetch('/ig/session', {
@@ -1199,7 +1199,7 @@ async function placeManualOrder() {
   const fillPrice = m ? m.price : price || '—';
 
   if (S.connected) {
-    const epicMap = { 'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Gold':'CS.D.GOLD.DAILY.IP','Crude Oil':'CC.D.LCO.USS.IP' };
+    const epicMap = { 'FTSE 100':'IX.D.FTSE.CFD.IP','S&P 500':'IX.D.SPTRD.CFD.IP','DAX 40':'IX.D.DAX.CFD.IP','Gold':'CS.D.CFDGOLD.CFD.IP','Crude Oil':'CS.D.OILCFD.CFD.IP' };
     await igFetch('positions/otc', {
       method: 'POST', headers: { 'Version':'2' },
       body: JSON.stringify({
