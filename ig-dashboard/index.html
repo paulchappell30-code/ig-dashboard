@@ -423,7 +423,7 @@
         <span id="conn-label">Connecting…</span>
       </div>
       <button onclick="openModal('api-modal')">API Settings</button>
-      <button class="primary" id="master-btn" onclick="toggleMaster()">Pause All</button>
+      <button onclick="refreshAll()">↻ Refresh</button><button class="primary" id="master-btn" onclick="toggleMaster()">Pause All</button>
       <button onclick="doLogout()">Sign out</button>
     </div>
   </div>
@@ -921,56 +921,114 @@ async function igFetch(path, opts = {}) {
 
 async function loadFromIG() {
   if (!S.connected) return;
+  addLog('system', 'Loading account data from IG...');
+  await loadAccount();
+  await loadPositions();
+  await loadOrders();
+  await loadPrices();
+}
+
+async function loadAccount() {
   try {
-    // Fetch accounts
-    const acctRes = await igFetch('accounts');
-    if (acctRes.ok) {
-      const data = await acctRes.json();
-      if (data.accounts) {
-        const a = data.accounts.find(x => x.accountType === 'SPREADBET') || data.accounts[0];
-        document.getElementById('pv').textContent = '£' + Number(a.balance.balance || 0).toLocaleString();
-        document.getElementById('pv-change').textContent = 'P&L: £' + Number(a.balance.profitLoss || 0).toLocaleString();
-        document.getElementById('pv-change').className = 'sub ' + (a.balance.profitLoss >= 0 ? 'pos' : 'neg');
-        document.getElementById('today-pl').textContent = '£' + Number(a.balance.available || 0).toLocaleString();
-        document.getElementById('pos-count').textContent = 'Available funds';
-        addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + a.balance.balance);
-      }
-    }
-    // Fetch positions
-    const posRes = await igFetch('positions');
-    if (posRes.ok) {
-      const data = await posRes.json();
-      if (data.positions) {
-        S.positions = data.positions.map((p, i) => ({
-          id: i+1,
-          name: p.market.instrumentName,
-          epic: p.market.epic,
-          dir: p.position.direction === 'BUY' ? 'Long' : 'Short',
-          size: '£' + Number(p.position.size * p.market.offer).toFixed(0),
-          open: p.position.openLevel,
-          current: p.market.bid,
-          pl: (p.position.upl >= 0 ? '+' : '') + '£' + Number(p.position.upl).toFixed(2),
-          plPct: (p.position.upl >= 0 ? '+' : '') + ((p.position.upl / (p.position.size * p.position.openLevel)) * 100).toFixed(1) + '%'
-        }));
-        renderPositions();
-        document.getElementById('pos-count').textContent = S.positions.length + ' positions';
-      }
-    }
-    // Fetch prices for watchlist
+    const res = await igFetch('accounts');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.accounts) return;
+    const a = data.accounts.find(x => x.accountType === 'SPREADBET') || data.accounts[0];
+    S.accountData = a;
+    const bal = a.balance.balance;
+    const pl = a.balance.profitLoss;
+    const avail = a.balance.available;
+    document.getElementById('pv').textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    document.getElementById('pv-change').textContent = 'Available: £' + Number(avail).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    document.getElementById('pv-change').className = 'sub neu';
+    document.getElementById('today-pl').textContent = (pl >= 0 ? '+' : '') + '£' + Number(pl).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    document.getElementById('today-pl').className = 'value ' + (pl >= 0 ? 'pos' : 'neg');
+    addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + bal + ', P&L £' + pl);
+  } catch(e) {
+    addLog('system', 'Error loading account: ' + e.message);
+  }
+}
+
+async function loadPositions() {
+  try {
+    const res = await igFetch('positions');
+    if (!res.ok) return;
+    const data = await res.json();
+    const positions = data.positions || [];
+    S.positions = positions.map((p, i) => {
+      const upl = p.position.upl || 0;
+      const openLevel = p.position.openLevel;
+      const size = p.position.size;
+      const notional = size * openLevel;
+      const plPct = notional ? ((upl / notional) * 100).toFixed(2) : '0.00';
+      return {
+        id: i + 1,
+        dealId: p.position.dealId,
+        name: p.market.instrumentName,
+        epic: p.market.epic,
+        dir: p.position.direction === 'BUY' ? 'Long' : 'Short',
+        size: size,
+        sizeDisplay: size + ' units',
+        open: openLevel,
+        current: p.market.bid || p.market.offer || openLevel,
+        upl: upl,
+        pl: (upl >= 0 ? '+' : '') + '£' + Number(upl).toFixed(2),
+        plPct: (upl >= 0 ? '+' : '') + plPct + '%',
+        currency: p.position.currency || 'GBP',
+        createdDate: p.position.createdDateUTC || ''
+      };
+    });
+    const totalUpl = S.positions.reduce((sum, p) => sum + p.upl, 0);
+    document.getElementById('pos-count').textContent = S.positions.length + ' open position' + (S.positions.length !== 1 ? 's' : '');
+    renderPositions();
+    addLog('system', S.positions.length + ' positions loaded — Total UPL: £' + totalUpl.toFixed(2));
+  } catch(e) {
+    addLog('system', 'Error loading positions: ' + e.message);
+  }
+}
+
+async function loadOrders() {
+  try {
+    const res = await igFetch('history/activity?maxSpanSeconds=604800', { headers: { 'Version': '3' } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const activities = data.activities || [];
+    if (activities.length === 0) return;
+    S.orders = activities.slice(0, 20).map(a => ({
+      time: a.date ? a.date.replace('T', ' ').substring(0, 16) : '—',
+      instr: a.epic || a.instrumentName || '—',
+      dir: a.details && a.details.direction ? a.details.direction.charAt(0) + a.details.direction.slice(1).toLowerCase() : '—',
+      type: a.type || 'Market',
+      size: a.details && a.details.size ? a.details.size + ' units' : '—',
+      price: a.details && a.details.level ? a.details.level : '—',
+      status: a.status ? a.status.toLowerCase() : '—'
+    }));
+    renderOrders();
+    addLog('system', activities.length + ' recent orders loaded from IG.');
+  } catch(e) {
+    addLog('system', 'Error loading order history: ' + e.message);
+  }
+}
+
+async function loadPrices() {
+  try {
     for (const m of S.markets) {
-      const mRes = await igFetch(`markets/${m.epic}`);
-      if (mRes.ok) {
-        const md = await mRes.json();
-        if (md.snapshot) {
-          m.price = md.snapshot.bid.toLocaleString();
-          m.change = (md.snapshot.percentageChange >= 0 ? '+' : '') + md.snapshot.percentageChange.toFixed(2) + '%';
-          m.pos = md.snapshot.percentageChange >= 0;
-        }
+      const res = await igFetch('markets/' + m.epic);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.snapshot) {
+        const bid = data.snapshot.bid;
+        const pct = data.snapshot.percentageChange;
+        m.price = bid > 999 ? Math.round(bid).toLocaleString('en-GB') : Number(bid).toFixed(2);
+        m.change = (pct >= 0 ? '+' : '') + Number(pct).toFixed(2) + '%';
+        m.pos = pct >= 0;
       }
     }
     renderWatchlist();
+    addLog('system', 'Live prices loaded for ' + S.markets.length + ' instruments.');
   } catch(e) {
-    addLog('system', 'Error loading from IG API: ' + e.message);
+    addLog('system', 'Error loading prices: ' + e.message);
   }
 }
 
@@ -988,12 +1046,11 @@ function renderAll() {
 }
 
 function renderMetrics() {
-  document.getElementById('pv').textContent = '£48,320';
-  document.getElementById('pv-change').textContent = '+£2,140 (+4.6%)';
-  document.getElementById('pv-change').className = 'sub pos';
-  document.getElementById('today-pl').textContent = '+£318';
-  document.getElementById('today-pl').className = 'value pos';
-  document.getElementById('pos-count').textContent = S.positions.length + ' positions';
+  // Account balance updated by loadAccount() — don't overwrite here
+  if (!S.connected) {
+    document.getElementById('pv').textContent = '—';
+    document.getElementById('today-pl').textContent = '—';
+  }
   const next = S.dca.filter(d=>d.status==='active')[0];
   document.getElementById('next-dca').textContent = next ? next.next : '—';
   document.getElementById('next-dca-amt').textContent = next ? next.amt + ' scheduled' : 'No active schedules';
@@ -1123,6 +1180,15 @@ function renderPnLChart() {
 }
 
 // ─── ACTIONS ──────────────────────────────────────────────────────────────────
+async function refreshAll() {
+  addLog('system', 'Manual refresh triggered.');
+  await loadAccount();
+  await loadPositions();
+  await loadOrders();
+  await loadPrices();
+  renderMetrics();
+}
+
 function toggleMaster() {
   S.running = !S.running;
   document.getElementById('master-btn').textContent = S.running ? 'Pause All' : 'Resume All';
