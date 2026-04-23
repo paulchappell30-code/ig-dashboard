@@ -4,5 +4,20 @@
     { "src": "/ig/(.*)", "dest": "/api/ig?path=$1" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/dca",
+      "schedule": "0 8 * * 1-5"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
   ]
 }
