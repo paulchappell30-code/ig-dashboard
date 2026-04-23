@@ -4,7 +4,8 @@
   "description": "IG Index automated investment dashboard with DCA, rule engine and rebalancer",
   "private": true,
   "dependencies": {
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^6.9.0"
   },
   "engines": {
     "node": ">=18"
