@@ -1029,6 +1029,11 @@ async function loadPrices() {
   try {
     for (const m of S.markets) {
       const res = await igFetch('markets/' + m.epic);
+      if (res.status === 403) {
+        addLog('system', 'Session expired — please log in again.');
+        doLogout();
+        return;
+      }
       if (!res.ok) continue;
       const data = await res.json();
       if (data.snapshot) {
@@ -1363,7 +1368,7 @@ function startLightstreamer() {
   try {
     // Lightstreamer endpoint from IG session
     const lsEndpoint = S.lsEndpoint || 'https://demo-apd.marketdatasystems.com';
-    lsClient = new LightstreamerClient(lsEndpoint, 'ISIMDS');
+    lsClient = new LightstreamerClient(lsEndpoint, 'DEFAULT');
     lsClient.connectionDetails.setUser(S.accountId || '');
     lsClient.connectionDetails.setPassword('CST-' + S.cst + '|XST-' + S.xst);
 
