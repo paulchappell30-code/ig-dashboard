@@ -837,7 +837,7 @@ const S = {
     { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
     { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
     { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', price:'40,000', change:'+0.50%', pos:true, icon:'🇺🇸' },
-    { name:'Crude Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
+    { name:'Brent Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
   ]
 };
 
@@ -1039,7 +1039,10 @@ async function loadPrices() {
       if (data.snapshot) {
         const bid = data.snapshot.bid;
         const pct = data.snapshot.percentageChange;
-        m.price = bid > 999 ? Math.round(bid).toLocaleString('en-GB') : Number(bid).toFixed(2);
+        const scalingFactor = data.snapshot.scalingFactor || 1;
+        const displayBid = bid / scalingFactor;
+        m.price = displayBid > 999 ? Math.round(displayBid).toLocaleString('en-GB') : Number(displayBid).toFixed(2);
+        m.scalingFactor = scalingFactor;
         m.change = (pct >= 0 ? '+' : '') + Number(pct).toFixed(2) + '%';
         m.pos = pct >= 0;
       }
@@ -1378,9 +1381,15 @@ function startLightstreamer() {
         if (status.startsWith('CONNECTED')) {
           addLog('system', 'Lightstreamer connected — live prices active.');
           document.getElementById('conn-label').textContent = 'Live prices ●';
+          // Clear any fallback ticker
+          if (S.fallbackTimer) { clearInterval(S.fallbackTimer); S.fallbackTimer = null; }
+        } else if (status === 'DISCONNECTED:WILL-RETRY') {
+          addLog('system', 'Lightstreamer retrying connection...');
         } else if (status.startsWith('DISCONNECTED')) {
-          addLog('system', 'Lightstreamer disconnected — falling back to polling.');
-          startFallbackTicker();
+          addLog('system', 'Lightstreamer disconnected — reconnecting in 15s.');
+          setTimeout(() => {
+            if (S.connected) startLightstreamer();
+          }, 15000);
         }
       },
       onServerError: function(code, msg) {
@@ -1407,9 +1416,11 @@ function startLightstreamer() {
         const state = update.getValue('MARKET_STATE');
 
         if (!isNaN(bid)) {
+          const sf = m.scalingFactor || 1;
+          const displayBid = bid / sf;
           const prevPrice = parseFloat(m.price.replace(/,/g,''));
-          m.flash = bid > prevPrice ? 'up' : bid < prevPrice ? 'down' : null;
-          m.price = bid > 999 ? Math.round(bid).toLocaleString('en-GB') : bid.toFixed(2);
+          m.flash = displayBid > prevPrice ? 'up' : displayBid < prevPrice ? 'down' : null;
+          m.price = displayBid > 999 ? Math.round(displayBid).toLocaleString('en-GB') : displayBid.toFixed(2);
           m.pos = pct >= 0;
           m.change = (!isNaN(pct) ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : m.change);
           m.marketState = state || 'TRADEABLE';
@@ -1446,15 +1457,18 @@ function startLightstreamer() {
 }
 
 function startFallbackTicker() {
-  // Polling fallback — refreshes prices every 10 seconds via REST API
-  addLog('system', 'Starting polling fallback (10s interval).');
-  setInterval(async () => {
-    if (!S.connected) return;
-    await loadPrices();
-    if (document.getElementById('tab-overview').classList.contains('active')) {
-      renderWatchlist();
+  if (S.fallbackTimer) return; // Already running
+  addLog('system', 'Starting polling fallback (15s interval).');
+  S.fallbackTimer = setInterval(async () => {
+    if (!S.connected) { clearInterval(S.fallbackTimer); S.fallbackTimer = null; return; }
+    try {
+      await loadPrices();
+      if (document.getElementById('tab-overview').classList.contains('active')) renderWatchlist();
+    } catch(e) {
+      clearInterval(S.fallbackTimer);
+      S.fallbackTimer = null;
     }
-  }, 10000);
+  }, 15000);
 }
 
 function stopLightstreamer() {
