@@ -957,26 +957,31 @@ async function loadPositions() {
     const data = await res.json();
     const positions = data.positions || [];
     S.positions = positions.map((p, i) => {
-      const upl = p.position.upl || 0;
       const openLevel = p.position.openLevel;
-      const size = p.position.size;
-      const notional = size * openLevel;
+      const dealSize = p.position.dealSize || p.position.size || 1;
+      const direction = p.position.direction;
+      const current = p.market.bid || p.market.offer || openLevel;
+      // Spreadbet P&L = (current - open) x deal size x direction
+      const upl = direction === 'BUY'
+        ? (current - openLevel) * dealSize
+        : (openLevel - current) * dealSize;
+      const notional = dealSize * openLevel;
       const plPct = notional ? ((upl / notional) * 100).toFixed(2) : '0.00';
       return {
         id: i + 1,
         dealId: p.position.dealId,
         name: p.market.instrumentName,
         epic: p.market.epic,
-        dir: p.position.direction === 'BUY' ? 'Long' : 'Short',
-        size: size,
-        sizeDisplay: size + ' units',
+        dir: direction === 'BUY' ? 'Long' : 'Short',
+        size: dealSize,
+        sizeDisplay: '£' + dealSize + '/pt',
         open: openLevel,
-        current: p.market.bid || p.market.offer || openLevel,
+        current: current,
         upl: upl,
         pl: (upl >= 0 ? '+' : '') + '£' + Number(upl).toFixed(2),
         plPct: (upl >= 0 ? '+' : '') + plPct + '%',
         currency: p.position.currency || 'GBP',
-        createdDate: p.position.createdDateUTC || ''
+        createdDate: p.position.createdDate || ''
       };
     });
     const totalUpl = S.positions.reduce((sum, p) => sum + p.upl, 0);
