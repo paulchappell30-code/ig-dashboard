@@ -838,35 +838,36 @@ const S = {
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 async function doLogin() {
+  async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
   const env  = document.getElementById('login-env').value;
   if (!user || !pass) return;
-
   S.env = env;
   try {
-const res = await fetch('/ig/session', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Version': '2'
-  },
-  body: JSON.stringify({ identifier: user, password: pass })
-});
-if (res.ok) {
-  S.cst = res.headers.get('CST');
-  S.xst = res.headers.get('X-SECURITY-TOKEN');
+    const res = await fetch('/ig/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Version': '2' },
+      body: JSON.stringify({ identifier: user, password: pass })
+    });
+    const cst = res.headers.get('CST');
+    const xst = res.headers.get('X-SECURITY-TOKEN');
+    console.log('Login response — status:', res.status, 'CST:', cst);
+    if (res.ok && cst) {
+      S.cst = cst;
+      S.xst = xst;
       S.connected = true;
+      const data = await res.json();
+      addLog('system', 'Logged in — Balance: £' + (data.accountInfo && data.accountInfo.balance));
       showApp();
       loadFromIG();
     } else {
+      console.error('Login failed — no CST token returned');
       showLoginError();
     }
   } catch(e) {
-    // Demo fallback if no API configured
-    S.connected = false;
-    showApp();
-    addLog('system', 'Running in demo mode — no live API connection.');
+    console.error('Login exception:', e.message);
+    showLoginError();
   }
 }
 
