@@ -1,13 +1,8 @@
 {
   "version": 2,
   "routes": [
-    {
-      "src": "/ig/(.*)",
-      "dest": "/api/ig?path=$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "src": "/ig/(.*)", "dest": "/api/ig?path=$1" },
+    { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
