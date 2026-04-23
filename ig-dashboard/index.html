@@ -567,6 +567,17 @@
               </div>
               <button class="toggle on" onclick="this.classList.toggle('on')"></button>
             </div>
+            <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
+              <div class="section-title">Notifications & Cron</div>
+              <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
+                DCA auto-runs at 8am Monday–Friday via Vercel cron. Each schedule checks if it's due based on its frequency setting.
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button onclick="sendTestEmail()">📧 Send Test Email</button>
+                <button onclick="checkCronStatus()">⏱ Check Cron Status</button>
+              </div>
+              <div id="cron-status" style="font-size:12px;color:var(--text2);margin-top:10px"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1120,6 +1131,7 @@ function renderDCA() {
       <td><span class="badge ${d.status==='active'?'bg':'bgr'}">${d.status}</span></td>
       <td>
         <button class="sm" onclick="toggleDCA(${d.id})" style="margin-right:4px">${d.status==='active'?'Pause':'Resume'}</button>
+        <button class="sm primary" onclick="runDCANow(${d.id})" style="margin-right:4px">Run Now</button>
         <button class="sm danger" onclick="deleteDCA(${d.id})">Remove</button>
       </td>
     </tr>`).join('');
@@ -1201,6 +1213,75 @@ function renderPnLChart() {
 }
 
 // ─── ACTIONS ──────────────────────────────────────────────────────────────────
+
+async function runDCANow(id) {
+  const d = S.dca.find(x => x.id === id);
+  if (!d) return;
+  if (!confirm('Run DCA order now for ' + d.instr + ' (' + d.amt + ')? This will place a real order.')) return;
+  addLog('system', 'Manual DCA triggered: ' + d.instr + ' ' + d.amt);
+  try {
+    const res = await fetch('/api/dca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        manualRun: true,
+        instrument: d.instr,
+        amt: d.amt.replace('£', '')
+      })
+    });
+    const data = await res.json();
+    const result = data.executed && data.executed[0];
+    if (result && result.status === 'executed') {
+      addLog('order', 'DCA executed: ' + d.instr + ' ' + d.amt + ' — ref: ' + result.dealReference);
+      alert('✅ DCA order placed!\n\nInstrument: ' + d.instr + '\nAmount: ' + d.amt + '\nDeal ref: ' + result.dealReference);
+    } else if (result && result.skipped) {
+      addLog('system', 'DCA skipped: ' + result.reason);
+      alert('⚠️ DCA skipped: ' + result.reason);
+    } else {
+      addLog('system', 'DCA failed: ' + (result && result.error || 'Unknown error'));
+      alert('❌ DCA failed: ' + (result && result.error || 'Unknown error'));
+    }
+  } catch(e) {
+    addLog('system', 'DCA error: ' + e.message);
+    alert('Error: ' + e.message);
+  }
+}
+
+async function sendTestEmail() {
+  try {
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'dca',
+        subject: '🧪 Test Email — IG Investment Programme',
+        body: 'This is a test email from your IG Automated Investment Programme.\n\nIf you received this, email notifications are working correctly.\n\nTime: ' + new Date().toLocaleString('en-GB')
+      })
+    });
+    const data = await res.json();
+    if (data.sent) {
+      alert('✅ Test email sent to ' + data.to);
+      addLog('system', 'Test email sent to ' + data.to);
+    } else {
+      alert('⚠️ Email not sent: ' + (data.reason || data.error));
+      addLog('system', 'Email not configured: ' + (data.reason || data.error));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function checkCronStatus() {
+  try {
+    const res = await fetch('/api/dca');
+    const data = await res.json();
+    const el = document.getElementById('cron-status');
+    el.innerHTML = '✅ Cron ready — ' + data.env + ' mode | Credentials: ' + (data.hasCredentials ? '✅ Set' : '❌ Missing') + ' | Schedules: ' + data.schedules.length + ' | Server time: ' + new Date(data.time).toLocaleString('en-GB');
+  } catch(e) {
+    document.getElementById('cron-status').textContent = 'Error: ' + e.message;
+  }
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
