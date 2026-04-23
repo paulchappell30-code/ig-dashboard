@@ -515,7 +515,7 @@
                 <label>Instrument</label>
                 <select id="dca-instr">
                   <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-                  <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+                  <option>Dow Jones</option><option>Crude Oil</option><option>Apple</option>
                   <option>Shell</option><option>HSBC</option>
                 </select>
               </div>
@@ -586,7 +586,7 @@
             <label>Instrument</label>
             <select id="rule-instr">
               <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-              <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+              <option>Dow Jones</option><option>Crude Oil</option><option>Apple</option>
             </select>
           </div>
           <div class="form-grid-3">
@@ -779,19 +779,19 @@ const S = {
   apiKey: null,
   positions: [
     { id:1, name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', dir:'Long', size:'£5,000', open:'7,842', current:'7,901', pl:'+£295', plPct:'+5.9%' },
-    { id:2, name:'Gold', epic:'CS.D.CFDGOLD.DAILY.IP', dir:'Long', size:'£3,000', open:'2,318', current:'2,341', pl:'+£30', plPct:'+1.0%' },
+    { id:2, name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', dir:'Long', size:'£3,000', open:'40,000', current:'40,200', pl:'+£30', plPct:'+1.0%' },
     { id:3, name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', dir:'Short', size:'£2,000', open:'5,620', current:'5,598', pl:'+£8', plPct:'+0.4%' },
   ],
   dca: [
     { id:1, instr:'FTSE 100', amt:'£250', freq:'Monthly', next:'24 Mar 2026', status:'active' },
     { id:2, instr:'S&P 500', amt:'£200', freq:'Monthly', next:'24 Mar 2026', status:'active' },
-    { id:3, instr:'Gold', amt:'£100', freq:'Weekly', next:'18 Mar 2026', status:'active' },
+    { id:3, instr:'Dow Jones', amt:'£100', freq:'Weekly', next:'18 Mar 2026', status:'active' },
     { id:4, instr:'DAX 40', amt:'£150', freq:'Monthly', next:'24 Mar 2026', status:'paused' },
   ],
   dcaPerf: [
     { instr:'FTSE 100', invested:'£3,000', current:'£3,420', ret:'+14.0%' },
     { instr:'S&P 500', invested:'£2,400', current:'£2,860', ret:'+19.2%' },
-    { instr:'Gold', invested:'£1,200', current:'£1,340', ret:'+11.7%' },
+    { instr:'Dow Jones', invested:'£1,200', current:'£1,340', ret:'+11.7%' },
     { instr:'DAX 40', invested:'£1,800', current:'£1,950', ret:'+8.3%' },
   ],
   rules: [
@@ -811,7 +811,7 @@ const S = {
     { name:'FTSE 100', target:20, current:22 },
     { name:'S&P 500', target:20, current:18 },
     { name:'DAX 40', target:15, current:15 },
-    { name:'Gold', target:15, current:17 },
+    { name:'Dow Jones', target:15, current:17 },
     { name:'Crude Oil', target:10, current:8 },
     { name:'Shares', target:20, current:20 },
   ],
@@ -831,7 +831,7 @@ const S = {
     { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', price:'7,901', change:'+0.75%', pos:true, icon:'🇬🇧' },
     { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
     { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
-    { name:'Gold', epic:'CS.D.CFDGOLD.DAILY.IP', price:'2,341', change:'+0.98%', pos:true, icon:'🥇' },
+    { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', price:'40,000', change:'+0.50%', pos:true, icon:'🇺🇸' },
     { name:'Crude Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
   ]
 };
@@ -1267,7 +1267,7 @@ async function placeManualOrder() {
   const fillPrice = m ? m.price : price || '—';
 
   if (S.connected) {
-    const epicMap = { 'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Gold':'CS.D.CFDGOLD.DAILY.IP','Crude Oil':'CC.D.LCO.USS.IP' };
+    const epicMap = { 'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP','Crude Oil':'CC.D.LCO.USS.IP' };
     await igFetch('positions/otc', {
       method: 'POST', headers: { 'Version':'2' },
       body: JSON.stringify({
