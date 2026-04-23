@@ -845,14 +845,17 @@ async function doLogin() {
 
   S.env = env;
   try {
-    const res = await igFetch('session', {
-      method: 'POST',
-      headers: { 'Version': '2' },
-      body: JSON.stringify({ identifier: user, password: pass })
-    });
-    if (res.ok) {
-      S.cst = res.headers.get ? res.headers.get('CST') : res.cst;
-      S.xst = res.headers.get ? res.headers.get('X-SECURITY-TOKEN') : res.xst;
+const res = await fetch('/ig/session', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Version': '2'
+  },
+  body: JSON.stringify({ identifier: user, password: pass })
+});
+if (res.ok) {
+  S.cst = res.headers.get('CST');
+  S.xst = res.headers.get('X-SECURITY-TOKEN');
       S.connected = true;
       showApp();
       loadFromIG();
