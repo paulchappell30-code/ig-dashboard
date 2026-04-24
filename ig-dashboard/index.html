@@ -358,6 +358,16 @@
   .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
   .pos { color: var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .ai-response-content { line-height:1.7; font-size:14px; }
+  .ai-response-content h2 { font-size:15px; font-weight:600; margin:16px 0 8px; }
+  .ai-response-content h3 { font-size:14px; font-weight:600; margin:12px 0 6px; color:var(--text2); }
+  .ai-response-content p { margin:0 0 10px; }
+  .ai-response-content ul { padding-left:20px; margin:0 0 10px; }
+  .ai-response-content li { margin-bottom:4px; }
+  .ai-response-content strong { font-weight:600; color:var(--text); }
+  .ai-response-content .positive { color:var(--green); font-weight:500; }
+  .ai-response-content .negative { color:var(--red); font-weight:500; }
   .flash-up { animation: flashUp 0.6s ease-out; }
   .flash-down { animation: flashDown 0.6s ease-out; }
   @keyframes flashUp { 0%{background:rgba(29,158,117,0.3)} 100%{background:transparent} }
@@ -440,6 +450,7 @@
     <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+    <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
   </div>
 
   <div class="main">
@@ -1292,6 +1303,250 @@ async function checkCronStatus() {
   }
 }
 
+
+
+// ─── AI ANALYST ──────────────────────────────────────────────────────────────
+const AI_HISTORY = [];
+
+function getPortfolioContext() {
+  const positions = S.positions.map(p =>
+    p.name + ': ' + p.dir + ' £' + p.size + '/pt, open ' + p.open + ', current ' + p.current + ', P&L ' + p.pl
+  ).join('\n');
+
+  const markets = S.markets.map(m =>
+    m.name + ': ' + m.price + ' (' + m.change + ')'
+  ).join('\n');
+
+  const account = S.accountData ? (
+    'Balance: £' + S.accountData.balance.balance +
+    ', Available: £' + S.accountData.balance.available +
+    ', P&L: £' + S.accountData.balance.profitLoss
+  ) : 'Account data loading...';
+
+  const orders = S.orders.slice(0, 5).map(o =>
+    o.time + ': ' + o.dir + ' ' + o.instr + ' — ' + o.description
+  ).join('\n');
+
+  const rules = S.rules.filter(r => r.active).map(r =>
+    r.name + ': ' + r.desc
+  ).join('\n');
+
+  const dca = S.dca.filter(d => d.status === 'active').map(d =>
+    d.instr + ' ' + d.amt + ' ' + d.freq
+  ).join('\n');
+
+  return {
+    account,
+    positions: positions || 'No open positions',
+    markets,
+    orders: orders || 'No recent orders',
+    rules: rules || 'No active rules',
+    dca: dca || 'No active DCA schedules'
+  };
+}
+
+const AI_PROMPTS = {
+  portfolio: (ctx) => `You are an expert financial analyst and investment adviser reviewing a spread betting portfolio on IG Index.
+
+ACCOUNT SUMMARY:
+${ctx.account}
+
+OPEN POSITIONS:
+${ctx.positions}
+
+CURRENT MARKET PRICES:
+${ctx.markets}
+
+RECENT ORDERS:
+${ctx.orders}
+
+ACTIVE DCA SCHEDULES:
+${ctx.dca}
+
+Please provide:
+1. A concise assessment of the current portfolio state
+2. Analysis of each open position — is it performing as expected?
+3. Specific actionable recommendations (hold, close, add to, hedge)
+4. Any risk concerns you can identify
+5. One key opportunity you see in the current market conditions
+
+Be direct and specific. Use £ values where relevant. Format clearly with headers.`,
+
+  market: (ctx) => `You are a market analyst providing a daily briefing for a spread better tracking these markets.
+
+CURRENT PRICES & MOVES:
+${ctx.markets}
+
+ACCOUNT CONTEXT:
+${ctx.account}
+
+OPEN POSITIONS:
+${ctx.positions}
+
+Please provide:
+1. A summary of what's driving moves in each market today
+2. Key technical levels to watch (support, resistance)
+3. Any correlations or themes across these markets
+4. What upcoming events could affect these markets this week
+5. Specific levels where you'd consider entering or exiting
+
+Be concise and actionable. Format with clear headers per market.`,
+
+  rules: (ctx) => `You are a quantitative trading analyst. Based on the following portfolio and market data, suggest 3-5 new trading rules for an automated rule engine.
+
+CURRENT MARKETS:
+${ctx.markets}
+
+EXISTING RULES:
+${ctx.rules}
+
+OPEN POSITIONS:
+${ctx.positions}
+
+For each suggested rule provide:
+- Rule name
+- Instrument to trade
+- Indicator and parameters (RSI, SMA cross, MACD, Bollinger)
+- Entry condition with specific threshold
+- Action (buy/sell/alert)
+- Position size recommendation
+- Rationale
+
+Focus on rules that complement existing positions and use different indicators to avoid redundancy.`,
+
+  journal: (ctx) => `You are a trading coach reviewing a trader's recent activity to identify patterns and improvement areas.
+
+RECENT TRADING ACTIVITY:
+${ctx.orders}
+
+OPEN POSITIONS:
+${ctx.positions}
+
+ACCOUNT PERFORMANCE:
+${ctx.account}
+
+ACTIVE DCA SCHEDULES:
+${ctx.dca}
+
+Please analyse:
+1. Trading patterns — frequency, timing, instrument preferences
+2. Position sizing — is it consistent and appropriate?
+3. Win/loss patterns based on the activity shown
+4. DCA strategy assessment — are the instruments and amounts sensible?
+5. 3 specific behavioural improvements to consider
+6. Overall trading style assessment
+
+Be honest and constructive. Identify both strengths and areas for improvement.`
+};
+
+async function runAI(type) {
+  const titles = {
+    portfolio: '📊 Portfolio Analysis',
+    market: '📰 Market Commentary',
+    rules: '⚡ Rule Suggestions',
+    journal: '📖 Trade Journal Analysis'
+  };
+  document.getElementById('ai-panel-title').textContent = titles[type] || 'AI Analysis';
+  const ctx = getPortfolioContext();
+  const prompt = AI_PROMPTS[type](ctx);
+  await callClaude(prompt, type);
+}
+
+async function runAICustom() {
+  const question = document.getElementById('ai-question').value.trim();
+  if (!question) return;
+  document.getElementById('ai-panel-title').textContent = '💬 Custom Analysis';
+  const ctx = getPortfolioContext();
+  const prompt = `You are an expert investment analyst. The user has a spread betting account on IG Index with the following context:
+
+ACCOUNT: ${ctx.account}
+POSITIONS: ${ctx.positions}
+MARKETS: ${ctx.markets}
+RECENT ORDERS: ${ctx.orders}
+
+User question: ${question}
+
+Answer specifically and practically, using the portfolio data above where relevant.`;
+  await callClaude(prompt, 'custom');
+  document.getElementById('ai-question').value = '';
+}
+
+async function callClaude(prompt, type) {
+  const responseEl = document.getElementById('ai-response');
+  const loadingEl = document.getElementById('ai-loading');
+
+  responseEl.innerHTML = '';
+  loadingEl.style.display = 'block';
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: document.getElementById('ai-model').value,
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await response.json();
+    loadingEl.style.display = 'none';
+
+    if (data.error) {
+      responseEl.innerHTML = '<div style="color:var(--red);padding:16px">Error: ' + data.error.message + '</div>';
+      return;
+    }
+
+    const text = data.content && data.content[0] && data.content[0].text || 'No response';
+    const formatted = formatAIResponse(text);
+    responseEl.innerHTML = '<div class="ai-response-content">' + formatted + '</div>';
+
+    // Add to history
+    const historyItem = {
+      type,
+      time: new Date().toLocaleTimeString('en-GB'),
+      summary: text.substring(0, 120) + '...'
+    };
+    AI_HISTORY.unshift(historyItem);
+    renderAIHistory();
+    addLog('system', 'AI analysis complete: ' + (type.charAt(0).toUpperCase() + type.slice(1)));
+
+  } catch(e) {
+    loadingEl.style.display = 'none';
+    responseEl.innerHTML = '<div style="color:var(--red);padding:16px">Error: ' + e.message + '</div>';
+  }
+}
+
+function formatAIResponse(text) {
+  return text
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/^(?!<[h|u|l])/gm, '')
+    .split('\n')
+    .map(line => line.trim() ? (line.startsWith('<') ? line : '<p>' + line + '</p>') : '')
+    .join('');
+}
+
+function renderAIHistory() {
+  const el = document.getElementById('ai-history');
+  if (!AI_HISTORY.length) { el.textContent = 'No insights yet.'; return; }
+  const icons = { portfolio:'📊', market:'📰', rules:'⚡', journal:'📖', custom:'💬' };
+  el.innerHTML = AI_HISTORY.slice(0, 5).map(h => `
+    <div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:3px">${icons[h.type]||'🤖'} ${h.type} — ${h.time}</div>
+      <div style="font-size:13px">${h.summary}</div>
+    </div>`).join('');
+}
+
+function clearAI() {
+  document.getElementById('ai-response').innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text2)"><div style="font-size:32px;margin-bottom:12px">🤖</div><div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div><div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div></div>';
+  document.getElementById('ai-panel-title').textContent = 'AI Investment Analyst';
+}
 
 async function evaluateRule(id) {
   const r = S.rules.find(x => x.id === id);
