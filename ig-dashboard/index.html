@@ -1292,6 +1292,77 @@ async function checkCronStatus() {
   }
 }
 
+
+async function evaluateRule(id) {
+  const r = S.rules.find(x => x.id === id);
+  if (!r) return;
+  addLog('rule', 'Evaluating rule: ' + r.name + '...');
+  document.getElementById('rule-status').textContent = '⏳ Evaluating ' + r.name + '...';
+  try {
+    const res = await fetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manualRun: true, ruleId: String(id) })
+    });
+    const data = await res.json();
+    const result = data.results && data.results[0];
+    if (!result) { addLog('rule', 'No result returned'); return; }
+    const msg = result.error
+      ? 'Error: ' + result.error
+      : result.rule + ' — ' + result.indicator + ' = ' + result.indicatorValue + (result.triggered ? ' ⚡ TRIGGERED (' + result.action + ')' : ' — No trigger');
+    addLog('rule', msg);
+    document.getElementById('rule-status').innerHTML = '📊 ' + msg;
+    if (result.triggered) { r.fired = (r.fired || 0) + 1; renderRules(); }
+  } catch(e) {
+    addLog('rule', 'Rule eval error: ' + e.message);
+    document.getElementById('rule-status').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function evaluateAllRules() {
+  addLog('rule', 'Evaluating all active rules...');
+  document.getElementById('rule-status').textContent = '⏳ Evaluating all rules...';
+  try {
+    const res = await fetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manualRun: true })
+    });
+    const data = await res.json();
+    const results = data.results || [];
+    const triggered = results.filter(r => r.triggered).length;
+    const summary = results.map(r =>
+      (r.triggered ? '⚡ ' : '○ ') + r.rule + ': ' + r.indicator + ' = ' + r.indicatorValue + (r.triggered ? ' → ' + r.action : '')
+    ).join('<br>');
+    document.getElementById('rule-status').innerHTML = triggered + ' rule(s) triggered out of ' + results.length + '<br>' + summary;
+    addLog('rule', triggered + '/' + results.length + ' rules triggered');
+    results.forEach(result => {
+      if (result.triggered) {
+        const r = S.rules.find(x => x.name === result.rule);
+        if (r) r.fired = (r.fired || 0) + 1;
+      }
+    });
+    renderRules();
+  } catch(e) {
+    addLog('rule', 'Error: ' + e.message);
+    document.getElementById('rule-status').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function checkRuleStatus() {
+  document.getElementById('rule-status').textContent = '⏳ Checking...';
+  try {
+    const res = await fetch('/api/rules');
+    const data = await res.json();
+    document.getElementById('rule-status').innerHTML =
+      '✅ Engine ready — ' + data.env + ' | Credentials: ' + (data.hasCredentials ? '✅ Set' : '❌ Missing') +
+      ' | Rules in RULE_ENGINE: ' + ((data.rules && data.rules.length) || 0) +
+      '<br><span style="color:var(--text3);font-size:11px">Cron: every 15 mins, 8am–4pm Mon–Fri</span>';
+  } catch(e) {
+    document.getElementById('rule-status').textContent = 'Error: ' + e.message;
+  }
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
