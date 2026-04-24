@@ -1276,7 +1276,7 @@ async function checkCronStatus() {
     const res = await fetch('/api/dca');
     const data = await res.json();
     const el = document.getElementById('cron-status');
-    el.innerHTML = '✅ Cron ready — ' + data.env + ' mode | Credentials: ' + (data.hasCredentials ? '✅ Set' : '❌ Missing') + ' | Schedules: ' + data.schedules.length + ' | Server time: ' + new Date(data.time).toLocaleString('en-GB');
+    el.innerHTML = '✅ Cron ready — ' + data.env + ' mode | Credentials: ' + (data.hasCredentials ? '✅ Set' : '❌ Missing') + ' | Schedules: ' + ((data.schedules && data.schedules.length) || 0) + ' | Server time: ' + new Date(data.time).toLocaleString('en-GB');
   } catch(e) {
     document.getElementById('cron-status').textContent = 'Error: ' + e.message;
   }
