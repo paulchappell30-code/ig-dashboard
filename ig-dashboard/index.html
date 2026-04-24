@@ -640,6 +640,15 @@
             </div>
           </div>
           <button class="primary" onclick="addRule()">Create Rule</button>
+          <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
+            <div class="section-title">Rule Engine</div>
+            <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Rules auto-evaluate every 15 minutes during market hours (8am–4pm Mon–Fri) via Vercel cron.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button onclick="evaluateAllRules()">▶ Evaluate All Rules</button>
+              <button onclick="checkRuleStatus()">⏱ Check Status</button>
+            </div>
+            <div id="rule-status" style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.6"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1152,6 +1161,7 @@ function renderRules() {
         <div class="rdesc">${r.desc}</div>
       </div>
       <span class="badge ${r.active?'bg':'bgr'}">${r.active?'Active':'Paused'}</span>
+      <button class="sm" onclick="evaluateRule(${r.id})" style="margin-right:6px">Evaluate</button>
       <button class="toggle ${r.active?'on':''}" onclick="toggleRule(${r.id})"></button>
     </div>`).join('');
 }
@@ -1355,7 +1365,7 @@ function addRule() {
     id: Date.now(), name, active: true, fired: 0,
     desc: `${instr} ${ind} ${cond} ${thresh} → ${action} £${size} ${ordType}`
   });
-  addLog('rule', `Rule created: "${name}"`);
+  addLog('rule', 'Rule created: "' + name + '" — add to RULE_ENGINE env var in Vercel to persist and auto-execute');
   renderRules(); renderMetrics();
   document.getElementById('rule-name').value = '';
 }
