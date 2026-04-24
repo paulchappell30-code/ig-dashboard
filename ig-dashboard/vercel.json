@@ -4,14 +4,13 @@
     { "src": "/ig/(.*)", "dest": "/api/ig?path=$1" },
     { "src": "/api/dca", "dest": "/api/dca" },
     { "src": "/api/notify", "dest": "/api/notify" },
+    { "src": "/api/rules", "dest": "/api/rules" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
   "crons": [
-    {
-      "path": "/api/dca",
-      "schedule": "0 8 * * 1-5"
-    }
+    { "path": "/api/dca", "schedule": "0 8 * * 1-5" },
+    { "path": "/api/rules", "schedule": "*/15 8-16 * * 1-5" }
   ],
   "headers": [
     {
