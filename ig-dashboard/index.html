@@ -758,6 +758,59 @@
       </div>
     </div>
 
+
+    <!-- AI ANALYST -->
+    <div class="tab-content" id="tab-ai">
+      <div class="cards-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('portfolio')">
+          <div class="label">Portfolio Analyst</div>
+          <div style="font-size:22px;margin:8px 0">&#128202;</div>
+          <div style="font-size:12px;color:var(--text2)">Analyse positions and suggest actions</div>
+        </div>
+        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('market')">
+          <div class="label">Market Commentary</div>
+          <div style="font-size:22px;margin:8px 0">&#128240;</div>
+          <div style="font-size:12px;color:var(--text2)">Daily briefing on your markets</div>
+        </div>
+        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('rules')">
+          <div class="label">Rule Suggestions</div>
+          <div style="font-size:22px;margin:8px 0">&#9889;</div>
+          <div style="font-size:12px;color:var(--text2)">AI-suggested trading rules</div>
+        </div>
+        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('journal')">
+          <div class="label">Trade Journal</div>
+          <div style="font-size:22px;margin:8px 0">&#128218;</div>
+          <div style="font-size:12px;color:var(--text2)">Analyse your trading patterns</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title-row">
+          <div class="section-title" id="ai-panel-title">AI Investment Analyst</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="sm" onclick="clearAI()">Clear</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <input type="text" id="ai-question" placeholder="Ask anything about your portfolio, markets, or strategy...">
+          <button class="primary" onclick="runAICustom()">Ask Claude</button>
+        </div>
+        <div id="ai-response" style="min-height:200px">
+          <div style="text-align:center;padding:60px 20px;color:var(--text2)">
+            <div style="font-size:32px;margin-bottom:12px">&#129302;</div>
+            <div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div>
+            <div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div>
+          </div>
+        </div>
+        <div id="ai-loading" style="display:none;padding:16px;color:var(--text2);font-size:13px">
+          Analysing your portfolio...
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Recent AI Insights</div>
+        <div id="ai-history" style="font-size:13px;color:var(--text2)">No insights yet.</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1700,7 +1753,7 @@ async function placeManualOrder() {
   const instr = document.getElementById('ord-instr').value;
   const dir = document.getElementById('ord-dir').value;
   const size = document.getElementById('ord-size').value;
-  const type = document.getElementById('ord-type').value;
+  const orderType = document.getElementById('ord-type').value;
   const price = document.getElementById('ord-price').value;
   const m = S.markets.find(x=>x.name===instr);
   const fillPrice = m ? m.price : price || '—';
@@ -1713,7 +1766,7 @@ async function placeManualOrder() {
         epic: epicMap[instr] || epicMap['FTSE 100'],
         direction: dir.toUpperCase(),
         size: 1,
-        orderType: type.toUpperCase(),
+        orderType: orderType.toUpperCase(),
         expiry: '-',
         guaranteedStop: false,
         forceOpen: true,
@@ -1765,9 +1818,11 @@ function addLog(type, msg) {
 }
 
 function switchTab(id, el) {
+  const tab = document.getElementById('tab-'+id);
+  if (!tab) { console.warn('Tab not found: tab-'+id); return; }
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
+  tab.classList.add('active');
   el.classList.add('active');
 }
 
