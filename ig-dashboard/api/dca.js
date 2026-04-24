@@ -210,13 +210,14 @@ module.exports = async (req, res) => {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function getSchedules() {
-  // Schedules stored as env var JSON or use defaults
-  // Format: [{"instr":"FTSE 100","amt":"250","freq":"Monthly","day":24,"active":true}]
   try {
     const raw = process.env.DCA_SCHEDULES;
-    if (raw) return JSON.parse(raw).filter(s => s.active !== false);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(s => s.active !== false) : [];
+    }
   } catch (e) {
-    console.warn('[DCA] Could not parse DCA_SCHEDULES env var');
+    console.warn('[DCA] Could not parse DCA_SCHEDULES env var:', e.message);
   }
   return [];
 }
