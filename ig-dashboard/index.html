@@ -1536,7 +1536,7 @@ async function callClaude(prompt, type) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: document.getElementById('ai-model').value,
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }]
       })
