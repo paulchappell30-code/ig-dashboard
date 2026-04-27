@@ -358,6 +358,17 @@
   .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
   .pos { color: var(--green); }
+  #price-chart { display:block; }
+  .signal-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:0.5px solid var(--border); font-size:13px; }
+  .signal-row:last-child { border-bottom:none; }
+  .signal-badge { font-size:11px; font-weight:600; padding:3px 10px; border-radius:99px; }
+  .sig-buy { background:var(--success-bg); color:var(--success-text); }
+  .sig-sell { background:var(--danger-bg); color:var(--danger-text); }
+  .sig-neutral { background:var(--bg2); color:var(--text2); }
+  .sentiment-bar { height:12px; border-radius:6px; overflow:hidden; display:flex; margin:8px 0; }
+  .sentiment-long { background:var(--green); height:100%; transition:width .5s; }
+  .sentiment-short { background:var(--red); height:100%; transition:width .5s; }
+  .ai-score-circle { width:100px; height:100px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:0 auto 12px; border:3px solid; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   .ai-response-content { line-height:1.7; font-size:14px; }
   .ai-response-content h2 { font-size:15px; font-weight:600; margin:16px 0 8px; }
@@ -450,6 +461,7 @@
     <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+    <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
   </div>
 
@@ -759,6 +771,78 @@
     </div>
 
 
+
+    <!-- CHARTS -->
+    <div class="tab-content" id="tab-charts">
+
+      <!-- Instrument selector + controls -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px">
+          <button class="sm" id="chart-btn-FTSE" onclick="selectChartInstrument('FTSE 100','IX.D.FTSE.DAILY.IP',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">FTSE 100</button>
+          <button class="sm" id="chart-btn-SP" onclick="selectChartInstrument('S&amp;P 500','IX.D.SPTRD.DAILY.IP',this)">S&amp;P 500</button>
+          <button class="sm" id="chart-btn-DAX" onclick="selectChartInstrument('DAX 40','IX.D.DAX.DAILY.IP',this)">DAX 40</button>
+          <button class="sm" id="chart-btn-DOW" onclick="selectChartInstrument('Dow Jones','IX.D.DOW.DAILY.IP',this)">Dow Jones</button>
+          <button class="sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Brent Oil</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-left:auto">
+          <button class="sm" id="tf-DAY-7" onclick="selectTimeframe('DAY',7,this)">1W</button>
+          <button class="sm" id="tf-DAY-30" onclick="selectTimeframe('DAY',30,this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">1M</button>
+          <button class="sm" id="tf-DAY-90" onclick="selectTimeframe('DAY',90,this)">3M</button>
+          <button class="sm" id="tf-HOUR-24" onclick="selectTimeframe('HOUR',24,this)">1D</button>
+          <button class="sm" id="tf-HOUR-72" onclick="selectTimeframe('HOUR',72,this)">3D</button>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="sm" id="chart-type-candle" onclick="setChartType('candle',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">🕯 Candle</button>
+          <button class="sm" id="chart-type-line" onclick="setChartType('line',this)">📈 Line</button>
+        </div>
+      </div>
+
+      <div class="two-col" style="gap:16px">
+        <!-- Chart -->
+        <div style="grid-column:1/-1">
+          <div class="panel" style="padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div>
+                <span style="font-size:16px;font-weight:500" id="chart-title">FTSE 100</span>
+                <span style="font-size:13px;color:var(--text2);margin-left:10px" id="chart-price">—</span>
+                <span style="font-size:12px;margin-left:8px" id="chart-change">—</span>
+              </div>
+              <div style="font-size:11px;color:var(--text3)" id="chart-updated">Loading...</div>
+            </div>
+            <canvas id="price-chart" style="width:100%;height:280px"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signals row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+
+        <!-- Technical Indicators -->
+        <div class="panel">
+          <div class="section-title">Technical Signals</div>
+          <div id="tech-signals"><div class="empty">Loading...</div></div>
+        </div>
+
+        <!-- IG Client Sentiment -->
+        <div class="panel">
+          <div class="section-title">IG Client Sentiment</div>
+          <div id="sentiment-panel"><div class="empty">Loading...</div></div>
+        </div>
+
+        <!-- AI Score -->
+        <div class="panel">
+          <div class="section-title">AI Recommendation</div>
+          <div id="ai-score-panel">
+            <div style="text-align:center;padding:20px;color:var(--text2)">
+              <div style="font-size:12px;margin-bottom:10px">Click to get AI analysis</div>
+              <button class="primary" onclick="getAIScore()">Get AI Score</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
     <!-- AI ANALYST -->
     <div class="tab-content" id="tab-ai">
       <div class="cards-row" style="grid-template-columns:repeat(4,1fr)">
@@ -1600,6 +1684,405 @@ function clearAI() {
   document.getElementById('ai-response').innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text2)"><div style="font-size:32px;margin-bottom:12px">🤖</div><div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div><div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div></div>';
   document.getElementById('ai-panel-title').textContent = 'AI Investment Analyst';
 }
+
+
+// ─── CHARTS ──────────────────────────────────────────────────────────────────
+let chartState = {
+  epic: 'IX.D.FTSE.DAILY.IP',
+  name: 'FTSE 100',
+  resolution: 'DAY',
+  count: 30,
+  type: 'candle',
+  candles: [],
+  indicators: {}
+};
+
+async function selectChartInstrument(name, epic, btn) {
+  document.querySelectorAll('[id^="chart-btn-"]').forEach(b => {
+    b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
+  });
+  btn.style.background = 'var(--blue)';
+  btn.style.color = '#fff';
+  btn.style.borderColor = 'var(--blue)';
+  chartState.name = name;
+  chartState.epic = epic;
+  document.getElementById('chart-title').textContent = name;
+  await loadChartData();
+}
+
+async function selectTimeframe(resolution, count, btn) {
+  document.querySelectorAll('[id^="tf-"]').forEach(b => {
+    b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
+  });
+  btn.style.background = 'var(--blue)';
+  btn.style.color = '#fff';
+  btn.style.borderColor = 'var(--blue)';
+  chartState.resolution = resolution;
+  chartState.count = count;
+  await loadChartData();
+}
+
+function setChartType(type, btn) {
+  document.querySelectorAll('[id^="chart-type-"]').forEach(b => {
+    b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
+  });
+  btn.style.background = 'var(--blue)';
+  btn.style.color = '#fff';
+  btn.style.borderColor = 'var(--blue)';
+  chartState.type = type;
+  if (chartState.candles.length) drawChart(chartState.candles);
+}
+
+async function loadChartData() {
+  document.getElementById('chart-updated').textContent = 'Loading...';
+  try {
+    const url = 'prices/' + chartState.epic + '?resolution=' + chartState.resolution + '&max=' + chartState.count + '&pageSize=0';
+    const res = await igFetch(url, { headers: { 'Version': '3' } });
+    if (!res.ok) {
+      document.getElementById('chart-updated').textContent = 'Error loading prices';
+      return;
+    }
+    const data = await res.json();
+    const candles = (data.prices || []).map(p => ({
+      time: p.snapshotTime,
+      open:  (p.openPrice  && p.openPrice.bid)  || 0,
+      high:  (p.highPrice  && p.highPrice.bid)  || 0,
+      low:   (p.lowPrice   && p.lowPrice.bid)   || 0,
+      close: (p.closePrice && p.closePrice.bid) || 0,
+    })).filter(c => c.close > 0);
+
+    chartState.candles = candles;
+    drawChart(candles);
+    calculateAndRenderSignals(candles);
+    loadSentiment();
+
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    if (last && prev) {
+      const chg = ((last.close - prev.close) / prev.close * 100);
+      document.getElementById('chart-price').textContent = last.close.toLocaleString('en-GB');
+      document.getElementById('chart-change').textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+      document.getElementById('chart-change').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    document.getElementById('chart-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB');
+  } catch(e) {
+    document.getElementById('chart-updated').textContent = 'Error: ' + e.message;
+  }
+}
+
+function drawChart(candles) {
+  const canvas = document.getElementById('price-chart');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 280 * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = '280px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = 280;
+  const PAD = { top: 20, right: 20, bottom: 30, left: 60 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  // Theme colours
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textCol = isDark ? '#9b9b96' : '#6b6b67';
+  const gridCol = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  ctx.clearRect(0, 0, W, H);
+
+  const highs = candles.map(c => c.high);
+  const lows  = candles.map(c => c.low);
+  const maxP  = Math.max(...highs);
+  const minP  = Math.min(...lows);
+  const range = maxP - minP || 1;
+
+  const xScale = i => PAD.left + (i / (candles.length - 1)) * chartW;
+  const yScale = p => PAD.top + chartH - ((p - minP) / range * chartH);
+
+  // Grid lines
+  ctx.strokeStyle = gridCol;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + (chartH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+    const val = maxP - (range / 4) * i;
+    ctx.fillStyle = textCol;
+    ctx.font = '11px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(val.toLocaleString('en-GB', {maximumFractionDigits:1}), PAD.left - 6, y + 4);
+  }
+
+  // X axis labels
+  ctx.textAlign = 'center';
+  const labelStep = Math.max(1, Math.floor(candles.length / 6));
+  candles.forEach((c, i) => {
+    if (i % labelStep !== 0) return;
+    const x = xScale(i);
+    const d = new Date(c.time.replace(/(d+)/(d+)/(d+)/, '$3-$2-$1'));
+    const label = chartState.resolution === 'HOUR'
+      ? d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})
+      : d.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
+    ctx.fillStyle = textCol;
+    ctx.fillText(label, x, H - 6);
+  });
+
+  if (chartState.type === 'candle') {
+    // Candlestick
+    const candleW = Math.max(2, chartW / candles.length * 0.6);
+    candles.forEach((c, i) => {
+      const x = xScale(i);
+      const isUp = c.close >= c.open;
+      ctx.strokeStyle = isUp ? '#1D9E75' : '#E24B4A';
+      ctx.fillStyle   = isUp ? '#1D9E75' : '#E24B4A';
+      // Wick
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, yScale(c.high));
+      ctx.lineTo(x, yScale(c.low));
+      ctx.stroke();
+      // Body
+      const bodyTop = yScale(Math.max(c.open, c.close));
+      const bodyH   = Math.max(1, Math.abs(yScale(c.open) - yScale(c.close)));
+      ctx.fillRect(x - candleW/2, bodyTop, candleW, bodyH);
+    });
+  } else {
+    // Line chart
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + chartH);
+    grad.addColorStop(0, 'rgba(0,114,206,0.15)');
+    grad.addColorStop(1, 'rgba(0,114,206,0)');
+    ctx.beginPath();
+    candles.forEach((c, i) => {
+      const x = xScale(i), y = yScale(c.close);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = '#0072CE';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Fill
+    ctx.lineTo(xScale(candles.length-1), PAD.top + chartH);
+    ctx.lineTo(xScale(0), PAD.top + chartH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  // SMA 20 overlay
+  const closes = candles.map(c => c.close);
+  if (closes.length >= 20) {
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(239,159,39,0.7)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,3]);
+    for (let i = 19; i < candles.length; i++) {
+      const sma = closes.slice(i-19, i+1).reduce((a,b) => a+b, 0) / 20;
+      const x = xScale(i), y = yScale(sma);
+      i === 19 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function calculateAndRenderSignals(candles) {
+  const closes = candles.map(c => c.close);
+  const n = closes.length;
+  if (n < 14) return;
+
+  // RSI
+  const rsi = calcRSI(closes, 14);
+  const rsiSignal = rsi < 30 ? 'buy' : rsi > 70 ? 'sell' : 'neutral';
+  const rsiLabel = rsi < 30 ? 'Oversold' : rsi > 70 ? 'Overbought' : 'Neutral';
+
+  // SMA 20/50 cross
+  const sma20 = closes.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const sma50n = Math.min(50, n);
+  const sma50 = closes.slice(-sma50n).reduce((a,b)=>a+b,0)/sma50n;
+  const smaSignal = sma20 > sma50 ? 'buy' : 'sell';
+  const smaLabel = sma20 > sma50 ? 'Bullish cross' : 'Bearish cross';
+
+  // MACD
+  const ema12 = calcEMA(closes, 12);
+  const ema26 = calcEMA(closes, 26);
+  const macdVal = ema12 - ema26;
+  const macdSignal = macdVal > 0 ? 'buy' : 'sell';
+  const macdLabel = macdVal > 0 ? 'Positive' : 'Negative';
+
+  // Bollinger
+  const sma20Val = sma20;
+  const std = Math.sqrt(closes.slice(-20).reduce((a,b)=>a+Math.pow(b-sma20Val,2),0)/20);
+  const upper = sma20Val + 2*std;
+  const lower = sma20Val - 2*std;
+  const lastClose = closes[n-1];
+  const bbSignal = lastClose < lower ? 'buy' : lastClose > upper ? 'sell' : 'neutral';
+  const bbLabel = lastClose < lower ? 'Below lower band' : lastClose > upper ? 'Above upper band' : 'Within bands';
+
+  // Price momentum
+  const mom = ((closes[n-1] - closes[Math.max(0,n-10)]) / closes[Math.max(0,n-10)] * 100);
+  const momSignal = mom > 1 ? 'buy' : mom < -1 ? 'sell' : 'neutral';
+  const momLabel = (mom > 0 ? '+' : '') + mom.toFixed(2) + '% (10 periods)';
+
+  const signals = [
+    { name: 'RSI (14)', value: rsi.toFixed(1), signal: rsiSignal, label: rsiLabel },
+    { name: 'SMA 20/50', value: sma20.toFixed(0)+'/'+sma50.toFixed(0), signal: smaSignal, label: smaLabel },
+    { name: 'MACD', value: macdVal.toFixed(2), signal: macdSignal, label: macdLabel },
+    { name: 'Bollinger', value: lastClose.toFixed(0), signal: bbSignal, label: bbLabel },
+    { name: 'Momentum', value: momLabel, signal: momSignal, label: '' },
+  ];
+
+  chartState.indicators = { rsi, sma20, sma50, macdVal, bbSignal, momSignal, signals };
+
+  const buys = signals.filter(s=>s.signal==='buy').length;
+  const sells = signals.filter(s=>s.signal==='sell').length;
+  const total = signals.length;
+
+  document.getElementById('tech-signals').innerHTML =
+    signals.map(s => `
+    <div class="signal-row">
+      <div>
+        <div style="font-weight:500">${s.name}</div>
+        <div style="font-size:11px;color:var(--text2)">${s.label || s.value}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="signal-badge sig-${s.signal}">${s.signal.toUpperCase()}</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">${s.value}</div>
+      </div>
+    </div>`).join('') +
+    `<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;font-size:12px">
+      <span class="pos">▲ ${buys} Buy</span>
+      <span class="neg">▼ ${sells} Sell</span>
+      <span class="neu">● ${total-buys-sells} Neutral</span>
+    </div>`;
+}
+
+async function loadSentiment() {
+  try {
+    const res = await igFetch('clientsentiment/' + chartState.epic);
+    if (!res.ok) { renderSentimentFallback(); return; }
+    const data = await res.json();
+    const longPct  = data.longPositionPercentage  || 50;
+    const shortPct = data.shortPositionPercentage || 50;
+    const signal = longPct > 60 ? 'sell' : longPct < 40 ? 'buy' : 'neutral';
+    const desc = longPct > 60
+      ? 'Most clients long — contrarian sell signal'
+      : longPct < 40
+      ? 'Most clients short — contrarian buy signal'
+      : 'Mixed sentiment';
+
+    document.getElementById('sentiment-panel').innerHTML = `
+      <div style="font-size:22px;font-weight:600;text-align:center;margin-bottom:4px;color:${signal==='buy'?'var(--green)':signal==='sell'?'var(--red)':'var(--text2)'}">${signal.toUpperCase()}</div>
+      <div style="font-size:12px;color:var(--text2);text-align:center;margin-bottom:12px">${desc}</div>
+      <div class="sentiment-bar">
+        <div class="sentiment-long" style="width:${longPct}%"></div>
+        <div class="sentiment-short" style="width:${shortPct}%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px">
+        <span class="pos">▲ Long: ${longPct.toFixed(1)}%</span>
+        <span class="neg">▼ Short: ${shortPct.toFixed(1)}%</span>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.5">
+        IG client sentiment is a contrarian indicator — when the majority of retail traders are long, institutional traders often position short.
+      </div>`;
+  } catch(e) {
+    renderSentimentFallback();
+  }
+}
+
+function renderSentimentFallback() {
+  document.getElementById('sentiment-panel').innerHTML =
+    '<div style="color:var(--text2);font-size:13px;padding:12px 0">Sentiment data unavailable for this instrument.</div>';
+}
+
+async function getAIScore() {
+  const panel = document.getElementById('ai-score-panel');
+  panel.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2);font-size:13px"><span style="animation:pulse 1.5s infinite">●</span> Analysing...</div>';
+
+  const ind = chartState.indicators;
+  if (!ind.signals) { panel.innerHTML = '<div style="padding:12px;color:var(--text2)">Load chart data first.</div>'; return; }
+
+  const signals = ind.signals;
+  const buys  = signals.filter(s=>s.signal==='buy').length;
+  const sells = signals.filter(s=>s.signal==='sell').length;
+
+  const prompt = `You are an expert technical analyst. Analyse these signals for ${chartState.name} and give a buy/sell/hold recommendation with a confidence percentage (0-100%).
+
+TECHNICAL SIGNALS:
+${signals.map(s=>s.name+': '+s.signal.toUpperCase()+' ('+s.value+')').join('\n')}
+
+Signal summary: ${buys} Buy, ${sells} Sell, ${signals.length-buys-sells} Neutral out of ${signals.length} indicators.
+
+Current price: ${document.getElementById('chart-price').textContent}
+Timeframe: ${chartState.resolution === 'DAY' ? 'Daily' : 'Hourly'} chart, last ${chartState.count} candles
+
+Respond in this exact JSON format only, no other text:
+{"recommendation":"BUY","confidence":72,"reasoning":"Brief 2-3 sentence explanation","keyLevel":"Key price level to watch","risk":"Main risk to this view"}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await res.json();
+    const text = data.content && data.content[0] && data.content[0].text || '{}';
+    const clean = text.replace(/```json|```/g,'').trim();
+    const result = JSON.parse(clean);
+
+    const col = result.recommendation === 'BUY' ? 'var(--green)'
+      : result.recommendation === 'SELL' ? 'var(--red)' : 'var(--amber)';
+
+    panel.innerHTML = `
+      <div class="ai-score-circle" style="border-color:${col};color:${col}">
+        <div style="font-size:18px;font-weight:700">${result.recommendation}</div>
+        <div style="font-size:22px;font-weight:700">${result.confidence}%</div>
+      </div>
+      <div style="font-size:12px;line-height:1.6;color:var(--text2)">
+        <p>${result.reasoning}</p>
+        <div style="margin-top:8px"><strong style="color:var(--text)">Key level:</strong> ${result.keyLevel}</div>
+        <div style="margin-top:4px"><strong style="color:var(--text)">Risk:</strong> ${result.risk}</div>
+      </div>
+      <button class="sm" onclick="getAIScore()" style="margin-top:12px;width:100%">↻ Refresh</button>`;
+
+  } catch(e) {
+    panel.innerHTML = '<div style="color:var(--red);padding:12px;font-size:13px">Error: ' + e.message + '</div>';
+  }
+}
+
+// Helper indicator functions for charts
+function calcRSI(closes, period) {
+  if (closes.length < period+1) return 50;
+  let gains=0, losses=0;
+  for (let i=closes.length-period; i<closes.length; i++) {
+    const d = closes[i]-closes[i-1];
+    if (d>0) gains+=d; else losses+=Math.abs(d);
+  }
+  const ag=gains/period, al=losses/period;
+  if (al===0) return 100;
+  return 100-(100/(1+ag/al));
+}
+
+function calcEMA(closes, period) {
+  if (closes.length < period) return closes[closes.length-1];
+  const k = 2/(period+1);
+  let ema = closes.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for (let i=period; i<closes.length; i++) ema = closes[i]*k+ema*(1-k);
+  return ema;
+}
+
+// Load chart on tab switch
+const _origSwitchTab = switchTab;
+switchTab = function(id, el) {
+  _origSwitchTab(id, el);
+  if (id === 'charts' && S.connected && chartState.candles.length === 0) {
+    loadChartData();
+  }
+};
 
 async function evaluateRule(id) {
   const r = S.rules.find(x => x.id === id);
