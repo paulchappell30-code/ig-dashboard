@@ -5,6 +5,7 @@
     { "src": "/api/dca", "dest": "/api/dca" },
     { "src": "/api/notify", "dest": "/api/notify" },
     { "src": "/api/rules", "dest": "/api/rules" },
+    { "src": "/api/claude", "dest": "/api/claude" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
