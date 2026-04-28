@@ -1959,11 +1959,15 @@ function calculateAndRenderSignals(candles) {
 
 async function loadSentiment() {
   try {
-    const res = await igFetch('clientsentiment/' + chartState.epic);
+    // IG sentiment uses a different market ID format
+    const sentimentId = chartState.epic.replace(/\.(DAILY|CFD)\.IP$/, '');
+    const res = await igFetch('clientsentiment?marketIds=' + chartState.epic, { headers: { 'Version': '1' } });
     if (!res.ok) { renderSentimentFallback(); return; }
     const data = await res.json();
-    const longPct  = data.longPositionPercentage  || 50;
-    const shortPct = data.shortPositionPercentage || 50;
+    const sentiment = data.clientSentiments && data.clientSentiments[0];
+    if (!sentiment) { renderSentimentFallback(); return; }
+    const longPct  = sentiment.longPositionPercentage  || 50;
+    const shortPct = sentiment.shortPositionPercentage || 50;
     const signal = longPct > 60 ? 'sell' : longPct < 40 ? 'buy' : 'neutral';
     const desc = longPct > 60
       ? 'Most clients long — contrarian sell signal'
