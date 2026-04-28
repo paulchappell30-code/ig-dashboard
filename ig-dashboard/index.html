@@ -2188,10 +2188,10 @@ async function closePos(id) {
   if (S.connected) {
     try {
       // IG requires opposite direction to close
-      // Spreadbet close — DELETE with no body
+      // Spreadbet close — send as POST with method override (Vercel routing fix)
       const res = await igFetch('positions/otc/' + p.dealId, {
-        method: 'DELETE',
-        headers: { 'Version': '1' }
+        method: 'POST',
+        headers: { 'Version': '1', 'X-HTTP-Method-Override': 'DELETE' }
       });
       const text = await res.text();
       // IG returns 200 with empty body or a deal reference on success
