@@ -2188,30 +2188,26 @@ async function closePos(id) {
   if (S.connected) {
     try {
       // IG requires opposite direction to close
-      const closeDirection = p.dir === 'Long' ? 'SELL' : 'BUY';
-      const res = await igFetch('positions/otc', {
-        method: 'POST',
-        headers: { 'Version': '1', '_method': 'DELETE' },
-        body: JSON.stringify({
-          dealId: p.dealId,
-          direction: closeDirection,
-          size: p.size,
-          orderType: 'MARKET',
-          expiry: '-',
-          level: null,
-          quoteId: null,
-          timeInForce: 'FILL_OR_KILL',
-          guaranteedStop: false,
-          currencyCode: p.currency || 'GBP',
-          forceOpen: false,
-          epic: p.epic
-        })
+      // Spreadbet accounts use DELETE /positions/otc/{dealId} with no body
+      const res = await igFetch('positions/otc/' + p.dealId, {
+        method: 'DELETE',
+        headers: { 'Version': '1' }
       });
       const data = await res.json();
       if (data.dealReference) {
-        addLog('order', 'Position closed: ' + p.name + ' — ref: ' + data.dealReference + ' P&L: ' + p.pl);
-        S.positions = S.positions.filter(x=>x.id!==id);
-        renderPositions();
+        // Check deal confirmation
+        const confirm = await igFetch('confirms/' + data.dealReference);
+        const confirmData = await confirm.json();
+        if (confirmData.dealStatus === 'ACCEPTED') {
+          addLog('order', 'Position closed: ' + p.name + ' — ref: ' + data.dealReference + ' P&L: ' + p.pl);
+          S.positions = S.positions.filter(x=>x.id!==id);
+          renderPositions();
+          await loadAccount();
+        } else {
+          const reason = confirmData.reason || confirmData.dealStatus || 'Unknown';
+          addLog('order', 'Close rejected: ' + reason);
+          alert('Close rejected by IG: ' + reason);
+        }
       } else {
         addLog('order', 'Close failed: ' + (data.errorCode || JSON.stringify(data)));
         alert('Close failed: ' + (data.errorCode || 'Unknown error'));
