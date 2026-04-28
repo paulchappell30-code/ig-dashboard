@@ -6,60 +6,64 @@ const IG_BASES = {
 };
 
 module.exports = async (req, res) => {
+  // CORS headers — allow browser requests from same origin
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-IG-API-KEY,CST,X-SECURITY-TOKEN,Version');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-IG-API-KEY,CST,X-SECURITY-TOKEN,Version,_method');
   res.setHeader('Access-Control-Expose-Headers', 'CST,X-SECURITY-TOKEN');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Get path from query param set by vercel.json rewrite
+  // Support method override for DELETE (Vercel routing doesn't pass DELETE through cleanly)
+  const effectiveMethod = req.headers['x-http-method-override'] || req.method;
+
+  // Path comes from query param (set by vercel.json rewrite)
   const path = (req.query.path || '').replace(/^\/+/, '');
   if (!path) return res.status(400).json({ error: 'No path specified' });
 
-  // Preserve any extra query params that came after the path
-  const extraParams = Object.entries(req.query)
-    .filter(([k]) => k !== 'path')
-    .map(([k, v]) => k + '=' + encodeURIComponent(v))
-    .join('&');
-
-  const env = process.env.IG_ENV || 'demo';
+  // Determine environment — prefer env var, fall back to header hint
+  const env = process.env.IG_ENV || (req.headers['x-ig-env'] === 'live' ? 'live' : 'demo');
   const base = IG_BASES[env] || IG_BASES.demo;
-  const igUrl = base + '/' + path + (extraParams ? '?' + extraParams : '');
+  const igUrl = `${base}/${path}`;
 
-  const apiKey = process.env.IG_API_KEY || req.headers['x-ig-api-key'] || '';
-
-  console.log('[IG Proxy]', req.method, igUrl);
-
+  // Build headers for IG — inject server-side API key if configured
   const igHeaders = {
     'Content-Type': 'application/json',
-    'X-IG-API-KEY': apiKey,
+    'X-IG-API-KEY': process.env.IG_API_KEY || req.headers['x-ig-api-key'] || '',
+    'CST': req.headers['cst'] || '',
+    'X-SECURITY-TOKEN': req.headers['x-security-token'] || '',
     'Version': req.headers['version'] || '1',
   };
-  if (req.headers['cst']) igHeaders['CST'] = req.headers['cst'];
-  if (req.headers['x-security-token']) igHeaders['X-SECURITY-TOKEN'] = req.headers['x-security-token'];
+
+  // Strip undefined / empty values
+  Object.keys(igHeaders).forEach(k => { if (!igHeaders[k]) delete igHeaders[k]; });
 
   try {
     const igRes = await fetch(igUrl, {
-      method: req.method,
+      method: effectiveMethod,
       headers: igHeaders,
-      body: ['POST', 'PUT', 'DELETE'].includes(req.method) && req.body
+      body: ['POST', 'PUT', 'DELETE'].includes(effectiveMethod) && req.body && Object.keys(req.body).length > 0
         ? JSON.stringify(req.body)
         : undefined,
     });
 
-    const responseText = await igRes.text();
-    console.log('[IG Proxy] Status:', igRes.status);
-
-    const cst = igRes.headers.get('cst') || igRes.headers.get('CST');
-    const xst = igRes.headers.get('x-security-token') || igRes.headers.get('X-SECURITY-TOKEN');
+    // Forward IG auth tokens back to browser
+    const cst = igRes.headers.get('CST');
+    const xst = igRes.headers.get('X-SECURITY-TOKEN');
     if (cst) res.setHeader('CST', cst);
     if (xst) res.setHeader('X-SECURITY-TOKEN', xst);
 
-    res.status(igRes.status).send(responseText);
-
+    let body;
+    const ct = igRes.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      body = await igRes.json();
+      res.status(igRes.status).json(body);
+    } else {
+      body = await igRes.text();
+      res.status(igRes.status).send(body);
+    }
   } catch (err) {
-    console.error('[IG Proxy] Error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('IG proxy error:', err.message);
+    res.status(500).json({ error: 'Proxy error', detail: err.message });
   }
 };
