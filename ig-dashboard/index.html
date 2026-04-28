@@ -1821,7 +1821,7 @@ function drawChart(candles) {
   candles.forEach((c, i) => {
     if (i % labelStep !== 0) return;
     const x = xScale(i);
-    const d = new Date(c.time.replace(/(d+)/(d+)/(d+)/, '$3-$2-$1'));
+    const d = new Date(c.time.replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$2-$1'));
     const label = chartState.resolution === 'HOUR'
       ? d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})
       : d.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
