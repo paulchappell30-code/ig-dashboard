@@ -2201,7 +2201,8 @@ async function closePos(id) {
           level: null,
           quoteId: null,
           timeInForce: 'FILL_OR_KILL',
-          guaranteedStop: false
+          guaranteedStop: false,
+          currencyCode: p.currency || 'GBP'
         })
       });
       const data = await res.json();
