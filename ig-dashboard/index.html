@@ -2202,7 +2202,8 @@ async function closePos(id) {
           quoteId: null,
           timeInForce: 'FILL_OR_KILL',
           guaranteedStop: false,
-          currencyCode: p.currency || 'GBP'
+          currencyCode: p.currency || 'GBP',
+          forceOpen: false
         })
       });
       const data = await res.json();
