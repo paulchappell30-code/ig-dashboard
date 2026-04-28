@@ -2188,29 +2188,40 @@ async function closePos(id) {
   if (S.connected) {
     try {
       // IG requires opposite direction to close
-      // Spreadbet accounts use DELETE /positions/otc/{dealId} with no body
+      // Spreadbet close — DELETE with no body
       const res = await igFetch('positions/otc/' + p.dealId, {
         method: 'DELETE',
         headers: { 'Version': '1' }
       });
-      const data = await res.json();
-      if (data.dealReference) {
-        // Check deal confirmation
-        const confirm = await igFetch('confirms/' + data.dealReference);
-        const confirmData = await confirm.json();
-        if (confirmData.dealStatus === 'ACCEPTED') {
-          addLog('order', 'Position closed: ' + p.name + ' — ref: ' + data.dealReference + ' P&L: ' + p.pl);
-          S.positions = S.positions.filter(x=>x.id!==id);
-          renderPositions();
-          await loadAccount();
-        } else {
-          const reason = confirmData.reason || confirmData.dealStatus || 'Unknown';
-          addLog('order', 'Close rejected: ' + reason);
-          alert('Close rejected by IG: ' + reason);
-        }
+      const text = await res.text();
+      // IG returns 200 with empty body or a deal reference on success
+      if (res.ok) {
+        let dealRef = null;
+        try {
+          const data = text ? JSON.parse(text) : {};
+          dealRef = data.dealReference || null;
+          // If we have a deal ref, check confirmation
+          if (dealRef) {
+            const confirmRes = await igFetch('confirms/' + dealRef);
+            const confirmData = await confirmRes.json();
+            if (confirmData.dealStatus === 'REJECTED') {
+              addLog('order', 'Close rejected: ' + (confirmData.reason || 'Unknown'));
+              alert('Close rejected: ' + (confirmData.reason || 'Unknown'));
+              return;
+            }
+          }
+        } catch(e) { /* empty body is fine */ }
+        addLog('order', 'Position closed: ' + p.name + (dealRef ? ' — ref: ' + dealRef : '') + ' — P&L: ' + p.pl);
+        S.positions = S.positions.filter(x=>x.id!==id);
+        renderPositions();
+        await loadAccount();
+        // Reload positions from IG to confirm
+        setTimeout(() => loadPositions(), 2000);
       } else {
-        addLog('order', 'Close failed: ' + (data.errorCode || JSON.stringify(data)));
-        alert('Close failed: ' + (data.errorCode || 'Unknown error'));
+        let errMsg = 'Unknown error';
+        try { const d = JSON.parse(text); errMsg = d.errorCode || errMsg; } catch(e) {}
+        addLog('order', 'Close failed: ' + errMsg);
+        alert('Close failed: ' + errMsg);
       }
     } catch(e) {
       addLog('order', 'Close error: ' + e.message);
