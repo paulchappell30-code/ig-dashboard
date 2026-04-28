@@ -785,11 +785,13 @@
           <button class="sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Brent Oil</button>
         </div>
         <div style="display:flex;gap:6px;margin-left:auto">
+          <button class="sm" id="tf-MINUTE-60" onclick="selectTimeframe('MINUTE',60,this)">1H</button>
+          <button class="sm" id="tf-MINUTE-240" onclick="selectTimeframe('MINUTE',240,this)">4H</button>
+          <button class="sm" id="tf-HOUR-24" onclick="selectTimeframe('HOUR',24,this)">1D</button>
+          <button class="sm" id="tf-HOUR-72" onclick="selectTimeframe('HOUR',72,this)">3D</button>
           <button class="sm" id="tf-DAY-7" onclick="selectTimeframe('DAY',7,this)">1W</button>
           <button class="sm" id="tf-DAY-30" onclick="selectTimeframe('DAY',30,this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">1M</button>
           <button class="sm" id="tf-DAY-90" onclick="selectTimeframe('DAY',90,this)">3M</button>
-          <button class="sm" id="tf-HOUR-24" onclick="selectTimeframe('HOUR',24,this)">1D</button>
-          <button class="sm" id="tf-HOUR-72" onclick="selectTimeframe('HOUR',72,this)">3D</button>
         </div>
         <div style="display:flex;gap:6px">
           <button class="sm" id="chart-type-candle" onclick="setChartType('candle',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">🕯 Candle</button>
@@ -1822,7 +1824,7 @@ function drawChart(candles) {
     if (i % labelStep !== 0) return;
     const x = xScale(i);
     const d = new Date(c.time.replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$2-$1'));
-    const label = chartState.resolution === 'HOUR'
+    const label = (chartState.resolution === 'HOUR' || chartState.resolution === 'MINUTE')
       ? d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})
       : d.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
     ctx.fillStyle = textCol;
@@ -2179,16 +2181,45 @@ function toggleMaster() {
   addLog('system', S.running ? 'Automation resumed.' : 'Automation paused by user.');
 }
 
-function closePos(id) {
+async function closePos(id) {
   const p = S.positions.find(x=>x.id===id);
   if (!p) return;
+  if (!confirm('Close ' + p.name + ' position? P&L: ' + p.pl)) return;
   if (S.connected) {
-    igFetch('positions/otc/' + p.dealId, { method:'DELETE', headers:{'Version':'1'} })
-      .then(() => addLog('order', `Position closed via IG API: ${p.name}`));
+    try {
+      // IG requires opposite direction to close
+      const closeDirection = p.dir === 'Long' ? 'SELL' : 'BUY';
+      const res = await igFetch('positions/otc/' + p.dealId, {
+        method: 'DELETE',
+        headers: { 'Version': '1', '_method': 'DELETE' },
+        body: JSON.stringify({
+          direction: closeDirection,
+          size: p.size,
+          orderType: 'MARKET',
+          expiry: '-',
+          level: null,
+          quoteId: null,
+          timeInForce: 'FILL_OR_KILL'
+        })
+      });
+      const data = await res.json();
+      if (data.dealReference) {
+        addLog('order', 'Position closed: ' + p.name + ' — ref: ' + data.dealReference + ' P&L: ' + p.pl);
+        S.positions = S.positions.filter(x=>x.id!==id);
+        renderPositions();
+      } else {
+        addLog('order', 'Close failed: ' + (data.errorCode || JSON.stringify(data)));
+        alert('Close failed: ' + (data.errorCode || 'Unknown error'));
+      }
+    } catch(e) {
+      addLog('order', 'Close error: ' + e.message);
+      alert('Error closing position: ' + e.message);
+    }
+  } else {
+    S.positions = S.positions.filter(x=>x.id!==id);
+    addLog('order', 'Position removed (demo mode): ' + p.name);
+    renderPositions();
   }
-  S.positions = S.positions.filter(x=>x.id!==id);
-  addLog('order', `Position closed: ${p.name} — P&L: ${p.pl}`);
-  renderPositions();
 }
 
 function toggleDCA(id) {
