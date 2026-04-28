@@ -2200,7 +2200,8 @@ async function closePos(id) {
           expiry: '-',
           level: null,
           quoteId: null,
-          timeInForce: 'FILL_OR_KILL'
+          timeInForce: 'FILL_OR_KILL',
+          guaranteedStop: false
         })
       });
       const data = await res.json();
