@@ -2189,10 +2189,11 @@ async function closePos(id) {
     try {
       // IG requires opposite direction to close
       const closeDirection = p.dir === 'Long' ? 'SELL' : 'BUY';
-      const res = await igFetch('positions/otc/' + p.dealId, {
-        method: 'DELETE',
+      const res = await igFetch('positions/otc', {
+        method: 'POST',
         headers: { 'Version': '1', '_method': 'DELETE' },
         body: JSON.stringify({
+          dealId: p.dealId,
           direction: closeDirection,
           size: p.size,
           orderType: 'MARKET',
