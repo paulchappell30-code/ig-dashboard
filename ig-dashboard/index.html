@@ -2299,8 +2299,8 @@ async function placeManualOrder() {
     });
   }
 
-  S.orders.unshift({ time:'Just now', instr, dir, type, size:'£'+size, price: fillPrice, status:'filled' });
-  addLog('order', `Order placed: ${dir} £${size} ${instr} @ ${type} — fill ${fillPrice}`);
+  S.orders.unshift({ time:'Just now', instr, dir, type:orderType, size:'£'+size, price: fillPrice, status:'filled' });
+  addLog('order', 'Order placed: ' + dir + ' £' + size + ' ' + instr + ' @ ' + orderType + ' — fill ' + fillPrice);
   renderOrders();
 }
 
