@@ -1,13 +1,11 @@
 {
   "version": 2,
-  "routes": [
-    { "src": "/ig/(.*)", "dest": "/api/ig?path=$1" },
-    { "src": "/api/dca", "dest": "/api/dca" },
-    { "src": "/api/notify", "dest": "/api/notify" },
-    { "src": "/api/rules", "dest": "/api/rules" },
-    { "src": "/api/claude", "dest": "/api/claude" },
-    { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/ig/:path*", "destination": "/api/ig?path=:path*" },
+    { "source": "/api/dca", "destination": "/api/dca" },
+    { "source": "/api/notify", "destination": "/api/notify" },
+    { "source": "/api/rules", "destination": "/api/rules" },
+    { "source": "/api/claude", "destination": "/api/claude" }
   ],
   "headers": [
     {
