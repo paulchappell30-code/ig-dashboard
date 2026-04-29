@@ -2252,33 +2252,75 @@ function addRule() {
 async function placeManualOrder() {
   const instr = document.getElementById('ord-instr').value;
   const dir = document.getElementById('ord-dir').value;
-  const size = document.getElementById('ord-size').value;
+  const size = parseFloat(document.getElementById('ord-size').value) || 1;
   const orderType = document.getElementById('ord-type').value;
   const price = document.getElementById('ord-price').value;
   const m = S.markets.find(x=>x.name===instr);
   const fillPrice = m ? m.price : price || '—';
 
-  if (S.connected) {
-    const epicMap = { 'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP','Crude Oil':'CC.D.LCO.USS.IP' };
-    await igFetch('positions/otc', {
-      method: 'POST', headers: { 'Version':'2' },
-      body: JSON.stringify({
-        epic: epicMap[instr] || epicMap['FTSE 100'],
-        direction: dir.toUpperCase(),
-        size: 1,
-        orderType: orderType.toUpperCase(),
-        expiry: '-',
-        guaranteedStop: false,
-        forceOpen: true,
-        currencyCode: 'GBP',
-        ...(price ? { level: parseFloat(price) } : {})
-      })
-    });
+  const epicMap = {
+    'FTSE 100':'IX.D.FTSE.DAILY.IP',
+    'S&P 500':'IX.D.SPTRD.DAILY.IP',
+    'DAX 40':'IX.D.DAX.DAILY.IP',
+    'Dow Jones':'IX.D.DOW.DAILY.IP',
+    'Brent Oil':'CC.D.LCO.USS.IP'
+  };
+  const epic = epicMap[instr] || epicMap['FTSE 100'];
+
+  if (!S.connected) {
+    addLog('order', 'Not connected — order not placed.');
+    return;
   }
 
-  S.orders.unshift({ time:'Just now', instr, dir, type:orderType, size:'£'+size, price: fillPrice, status:'filled' });
-  addLog('order', 'Order placed: ' + dir + ' £' + size + ' ' + instr + ' @ ' + orderType + ' — fill ' + fillPrice);
-  renderOrders();
+  try {
+    const orderBody = {
+      epic,
+      direction: dir.toUpperCase(),
+      size,
+      orderType: orderType.toUpperCase(),
+      expiry: '-',
+      guaranteedStop: false,
+      forceOpen: true,
+      currencyCode: 'GBP'
+    };
+    if (price && orderType !== 'Market') orderBody.level = parseFloat(price);
+
+    const res = await igFetch('positions/otc', {
+      method: 'POST',
+      headers: { 'Version': '2' },
+      body: JSON.stringify(orderBody)
+    });
+
+    const data = await res.json();
+    console.log('[Order] Response:', JSON.stringify(data));
+
+    if (!data.dealReference) {
+      addLog('order', 'Order failed: ' + (data.errorCode || JSON.stringify(data)));
+      alert('Order failed: ' + (data.errorCode || 'Unknown error'));
+      return;
+    }
+
+    // Check confirmation
+    const confirmRes = await igFetch('confirms/' + data.dealReference);
+    const confirm = await confirmRes.json();
+    console.log('[Order] Confirm:', JSON.stringify(confirm));
+
+    if (confirm.dealStatus === 'ACCEPTED') {
+      const status = 'filled';
+      S.orders.unshift({ time:'Just now', instr, dir, type:orderType, size:size+' units', price: confirm.level || fillPrice, status, description: dir + ' ' + size + ' units ' + instr });
+      addLog('order', 'Order accepted: ' + dir + ' ' + size + ' units ' + instr + ' @ ' + (confirm.level || fillPrice) + ' — ref: ' + data.dealReference);
+      renderOrders();
+      // Reload positions
+      setTimeout(() => { loadPositions(); loadAccount(); }, 1500);
+      alert('✅ Order placed successfully!\n\nInstrument: ' + instr + '\nDirection: ' + dir + '\nSize: ' + size + ' units\nRef: ' + data.dealReference);
+    } else {
+      addLog('order', 'Order rejected: ' + (confirm.reason || confirm.dealStatus));
+      alert('Order rejected: ' + (confirm.reason || confirm.dealStatus || 'Unknown'));
+    }
+  } catch(e) {
+    addLog('order', 'Order error: ' + e.message);
+    alert('Order error: ' + e.message);
+  }
 }
 
 function doRebalance() {
