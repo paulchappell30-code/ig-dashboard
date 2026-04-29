@@ -22,8 +22,10 @@ module.exports = async (req, res) => {
   const url = `${base}/positions/otc/${dealId}`;
 
   const apiKey = process.env.IG_API_KEY || req.headers['x-ig-api-key'] || '';
-  const cst = req.headers['cst'] || '';
-  const xst = req.headers['x-security-token'] || '';
+  const cst = req.headers['cst'] || req.headers['CST'] || '';
+  const xst = req.headers['x-security-token'] || req.headers['X-SECURITY-TOKEN'] || '';
+  
+  console.log('[Close] CST present:', !!cst, 'XST present:', !!xst, 'API key present:', !!apiKey);
 
   console.log('[Close] Closing position:', dealId, 'at', url);
 
