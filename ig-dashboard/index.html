@@ -1174,8 +1174,13 @@ async function loadPositions() {
 
 async function loadOrders() {
   try {
-    const res = await igFetch('history/activity?pageSize=20&pageNumber=1', { headers: { 'Version': '3' } });
-    if (!res.ok) return;
+    // Activity history - try with detailed=false
+    const fromDate = new Date(Date.now()-7*24*60*60*1000).toISOString().split('T')[0];
+    const res = await igFetch('history/activity?from=' + fromDate + 'T00%3A00%3A00&pageSize=20', { headers: { 'Version': '3' } });
+    if (!res.ok) {
+      addLog('system', 'Order history unavailable (API restriction).');
+      return;
+    }
     const data = await res.json();
     const activities = data.activities || [];
     if (activities.length === 0) return;
@@ -2184,45 +2189,36 @@ function toggleMaster() {
 async function closePos(id) {
   const p = S.positions.find(x=>x.id===id);
   if (!p) return;
-  if (!confirm('Close ' + p.name + ' position? P&L: ' + p.pl)) return;
-  if (S.connected) {
-    try {
-      // IG requires opposite direction to close
-      // Use dedicated close endpoint to avoid Vercel DELETE routing issues
-      const closeRes = await fetch('/api/close', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'CST': S.cst,
-          'X-SECURITY-TOKEN': S.xst
-        },
-        body: JSON.stringify({ dealId: p.dealId })
-      });
-      const closeData = await closeRes.json();
-      if (closeData.ok) {
-        const conf = closeData.confirmation;
-        if (conf && conf.dealStatus === 'REJECTED') {
-          addLog('order', 'Close rejected: ' + (conf.reason || 'Unknown'));
-          alert('Close rejected: ' + (conf.reason || 'Unknown'));
-          return;
-        }
-        addLog('order', 'Position closed: ' + p.name + ' — P&L: ' + p.pl);
-        S.positions = S.positions.filter(x=>x.id!==id);
-        renderPositions();
-        await loadAccount();
-        setTimeout(() => loadPositions(), 2000);
-      } else {
-        addLog('order', 'Close failed: ' + (closeData.error || 'Unknown error'));
-        alert('Close failed: ' + (closeData.error || 'Unknown error'));
-      }
-    } catch(e) {
-      addLog('order', 'Close error: ' + e.message);
-      alert('Error closing position: ' + e.message);
+
+  if (S.env !== 'live') {
+    // Demo API does not support closing individual spreadbet positions
+    const msg = 'IG demo API does not support closing positions via API.\n\nTo close this position:\n1. Log into demo.ig.com\n2. Find your ' + p.name + ' position\n3. Click Close\n\nOpen IG demo platform now?';
+    if (confirm(msg)) window.open('https://demo.ig.com', '_blank');
+    addLog('system', 'Close attempted for ' + p.name + ' — please close manually on IG demo platform.');
+    return;
+  }
+
+  if (!confirm('Close ' + p.name + ' position? P&L: ' + p.pl + '\nThis will place a real closing order.')) return;
+  try {
+    const closeRes = await fetch('/api/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'CST': S.cst, 'X-SECURITY-TOKEN': S.xst },
+      body: JSON.stringify({ dealId: p.dealId })
+    });
+    const closeData = await closeRes.json();
+    if (closeData.ok) {
+      addLog('order', 'Position closed: ' + p.name + ' — P&L: ' + p.pl);
+      S.positions = S.positions.filter(x=>x.id!==id);
+      renderPositions();
+      await loadAccount();
+      setTimeout(() => loadPositions(), 2000);
+    } else {
+      alert('Close failed: ' + (closeData.error || 'Unknown error'));
+      addLog('order', 'Close failed: ' + (closeData.error || 'Unknown'));
     }
-  } else {
-    S.positions = S.positions.filter(x=>x.id!==id);
-    addLog('order', 'Position removed (demo mode): ' + p.name);
-    renderPositions();
+  } catch(e) {
+    alert('Error: ' + e.message);
+    addLog('order', 'Close error: ' + e.message);
   }
 }
 
