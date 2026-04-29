@@ -2278,10 +2278,11 @@ async function placeManualOrder() {
       direction: dir.toUpperCase(),
       size,
       orderType: orderType.toUpperCase(),
-      expiry: '-',
+      expiry: 'DFB',
       guaranteedStop: false,
       forceOpen: true,
-      currencyCode: 'GBP'
+      currencyCode: 'GBP',
+      dealType: 'SPREADBET'
     };
     if (price && orderType !== 'Market') orderBody.level = parseFloat(price);
 
