@@ -1174,7 +1174,7 @@ async function loadPositions() {
 
 async function loadOrders() {
   try {
-    const res = await igFetch('history/activity?from=' + new Date(Date.now()-7*24*60*60*1000).toISOString().substring(0,10) + '&pageSize=20', { headers: { 'Version': '3' } });
+    const res = await igFetch('history/activity?pageSize=20&pageNumber=1', { headers: { 'Version': '3' } });
     if (!res.ok) return;
     const data = await res.json();
     const activities = data.activities || [];
@@ -2188,40 +2188,32 @@ async function closePos(id) {
   if (S.connected) {
     try {
       // IG requires opposite direction to close
-      // Spreadbet close — send as POST with method override (Vercel routing fix)
-      const res = await igFetch('positions/otc/' + p.dealId, {
+      // Use dedicated close endpoint to avoid Vercel DELETE routing issues
+      const closeRes = await fetch('/api/close', {
         method: 'POST',
-        headers: { 'Version': '1', 'X-HTTP-Method-Override': 'DELETE' }
+        headers: {
+          'Content-Type': 'application/json',
+          'CST': S.cst,
+          'X-SECURITY-TOKEN': S.xst
+        },
+        body: JSON.stringify({ dealId: p.dealId })
       });
-      const text = await res.text();
-      // IG returns 200 with empty body or a deal reference on success
-      if (res.ok) {
-        let dealRef = null;
-        try {
-          const data = text ? JSON.parse(text) : {};
-          dealRef = data.dealReference || null;
-          // If we have a deal ref, check confirmation
-          if (dealRef) {
-            const confirmRes = await igFetch('confirms/' + dealRef);
-            const confirmData = await confirmRes.json();
-            if (confirmData.dealStatus === 'REJECTED') {
-              addLog('order', 'Close rejected: ' + (confirmData.reason || 'Unknown'));
-              alert('Close rejected: ' + (confirmData.reason || 'Unknown'));
-              return;
-            }
-          }
-        } catch(e) { /* empty body is fine */ }
-        addLog('order', 'Position closed: ' + p.name + (dealRef ? ' — ref: ' + dealRef : '') + ' — P&L: ' + p.pl);
+      const closeData = await closeRes.json();
+      if (closeData.ok) {
+        const conf = closeData.confirmation;
+        if (conf && conf.dealStatus === 'REJECTED') {
+          addLog('order', 'Close rejected: ' + (conf.reason || 'Unknown'));
+          alert('Close rejected: ' + (conf.reason || 'Unknown'));
+          return;
+        }
+        addLog('order', 'Position closed: ' + p.name + ' — P&L: ' + p.pl);
         S.positions = S.positions.filter(x=>x.id!==id);
         renderPositions();
         await loadAccount();
-        // Reload positions from IG to confirm
         setTimeout(() => loadPositions(), 2000);
       } else {
-        let errMsg = 'Unknown error';
-        try { const d = JSON.parse(text); errMsg = d.errorCode || errMsg; } catch(e) {}
-        addLog('order', 'Close failed: ' + errMsg);
-        alert('Close failed: ' + errMsg);
+        addLog('order', 'Close failed: ' + (closeData.error || 'Unknown error'));
+        alert('Close failed: ' + (closeData.error || 'Unknown error'));
       }
     } catch(e) {
       addLog('order', 'Close error: ' + e.message);
