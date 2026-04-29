@@ -1202,6 +1202,7 @@ async function loadPrices() {
     }
     renderWatchlist();
     addLog('system', 'Live prices loaded for ' + S.markets.length + ' instruments.');
+  renderPnLChart();
   } catch(e) {
     addLog('system', 'Error loading prices: ' + e.message);
   }
@@ -1346,8 +1347,30 @@ function renderLog(filter) {
   }).join('') : '<div class="empty">No entries.</div>';
 }
 
-function renderPnLChart() {
+async function renderPnLChart() {
+  // Try to load real 30-day price history for FTSE (primary instrument)
+  try {
+    if (S.connected && S.cst) {
+      const res = await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=30&pageSize=0', { headers: { 'Version': '3' } });
+      if (res.ok) {
+        const data = await res.json();
+        const prices = (data.prices || []).map(p => p.closePrice && p.closePrice.bid || 0).filter(p => p > 0);
+        if (prices.length > 1) {
+          // Convert to cumulative % change from first price
+          const base = prices[0];
+          const pts = prices.map(p => ((p - base) / base) * 100);
+          drawPnLLine(pts);
+          return;
+        }
+      }
+    }
+  } catch(e) {}
+  // Fallback to dummy data
   const pts = [0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42];
+  drawPnLLine(pts);
+}
+
+function drawPnLLine(pts) {
   const w=400, h=80, min=Math.min(...pts), max=Math.max(...pts), range=max-min||1;
   const coords = pts.map((v,i)=>`${(i/(pts.length-1)*w).toFixed(1)},${(h-((v-min)/range*(h-8)+4)).toFixed(1)}`);
   document.getElementById('pnl-line').setAttribute('points', coords.join(' '));
