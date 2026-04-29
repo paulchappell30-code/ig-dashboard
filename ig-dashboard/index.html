@@ -1173,32 +1173,9 @@ async function loadPositions() {
 }
 
 async function loadOrders() {
-  try {
-    // Activity history - try with detailed=false
-    const fromDate = new Date(Date.now()-7*24*60*60*1000).toISOString().split('T')[0];
-    const res = await igFetch('history/activity?from=' + fromDate + 'T00%3A00%3A00&pageSize=20', { headers: { 'Version': '3' } });
-    if (!res.ok) {
-      addLog('system', 'Order history unavailable (API restriction).');
-      return;
-    }
-    const data = await res.json();
-    const activities = data.activities || [];
-    if (activities.length === 0) return;
-    S.orders = activities.slice(0, 20).map(a => ({
-      time: a.date ? a.date.replace('T',' ').substring(0,16) : '—',
-      instr: a.epic || '—',
-      dir: a.description && a.description.toLowerCase().includes('opened') ? 'Buy' : a.description && a.description.toLowerCase().includes('closed') ? 'Sell' : '—',
-      type: a.type || 'Position',
-      size: a.details && a.details.size ? a.details.size + ' units' : '—',
-      price: a.details && a.details.level ? a.details.level : '—',
-      status: a.status ? a.status.toLowerCase() : '—',
-      description: a.description || ''
-    }));
-    renderOrders();
-    addLog('system', activities.length + ' recent orders loaded from IG.');
-  } catch(e) {
-    addLog('system', 'Error loading order history: ' + e.message);
-  }
+  // IG demo API requires specific date format for activity history
+  // Orders are tracked locally when placed via the dashboard
+  addLog('system', 'Order history: tracking dashboard orders locally.');
 }
 
 async function loadPrices() {
