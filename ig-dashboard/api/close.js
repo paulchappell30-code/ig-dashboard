@@ -1,4 +1,4 @@
-// Dedicated position close endpoint — avoids Vercel routing issues with DELETE
+// Dedicated position close endpoint
 const fetch = require('node-fetch');
 
 const IG_BASES = {
@@ -19,15 +19,22 @@ module.exports = async (req, res) => {
 
   const env = process.env.IG_ENV || 'demo';
   const base = IG_BASES[env] || IG_BASES.demo;
+  const apiKey = process.env.IG_API_KEY || '';
+
+  // Get tokens from request headers — try all case variants
+  const allHeaders = req.headers;
+  const cst = allHeaders['cst'] || allHeaders['CST'] || '';
+  const xst = allHeaders['x-security-token'] || allHeaders['X-SECURITY-TOKEN'] || allHeaders['x-security-Token'] || '';
+
+  console.log('[Close] dealId:', dealId);
+  console.log('[Close] env:', env);
+  console.log('[Close] apiKey present:', !!apiKey);
+  console.log('[Close] CST:', cst ? cst.substring(0, 10) + '...' : 'MISSING');
+  console.log('[Close] XST:', xst ? xst.substring(0, 10) + '...' : 'MISSING');
+  console.log('[Close] All header keys:', Object.keys(allHeaders).join(', '));
+
   const url = `${base}/positions/otc/${dealId}`;
-
-  const apiKey = process.env.IG_API_KEY || req.headers['x-ig-api-key'] || '';
-  const cst = req.headers['cst'] || req.headers['CST'] || '';
-  const xst = req.headers['x-security-token'] || req.headers['X-SECURITY-TOKEN'] || '';
-  
-  console.log('[Close] CST present:', !!cst, 'XST present:', !!xst, 'API key present:', !!apiKey);
-
-  console.log('[Close] Closing position:', dealId, 'at', url);
+  console.log('[Close] URL:', url);
 
   try {
     const igRes = await fetch(url, {
@@ -42,9 +49,9 @@ module.exports = async (req, res) => {
     });
 
     const text = await igRes.text();
-    console.log('[Close] IG response:', igRes.status, text);
+    console.log('[Close] IG status:', igRes.status);
+    console.log('[Close] IG body:', text);
 
-    // Check confirmation if we got a deal reference
     let confirmData = null;
     if (text) {
       try {
@@ -59,7 +66,7 @@ module.exports = async (req, res) => {
             }
           });
           confirmData = await confirmRes.json();
-          console.log('[Close] Confirmation:', JSON.stringify(confirmData));
+          console.log('[Close] Confirm:', JSON.stringify(confirmData));
         }
       } catch(e) {}
     }
