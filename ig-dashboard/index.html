@@ -2287,7 +2287,7 @@ async function placeManualOrder() {
 
     const res = await igFetch('positions/otc', {
       method: 'POST',
-      headers: { 'Version': '2' },
+      headers: { 'Version': '1' },
       body: JSON.stringify(orderBody)
     });
 
