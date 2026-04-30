@@ -2092,13 +2092,7 @@ function calcEMA(closes, period) {
 }
 
 // Load chart on tab switch
-const _origSwitchTab = switchTab;
-switchTab = function(id, el) {
-  _origSwitchTab(id, el);
-  if (id === 'charts' && S.connected && chartState.candles.length === 0) {
-    loadChartData();
-  }
-};
+// Chart auto-load handled inside switchTab below
 
 async function evaluateRule(id) {
   const r = S.rules.find(x => x.id === id);
@@ -2390,6 +2384,10 @@ function switchTab(id, el) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   tab.classList.add('active');
   el.classList.add('active');
+  // Auto-load chart data when switching to charts tab
+  if (id === 'charts' && S.connected) {
+    loadChartData();
+  }
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
