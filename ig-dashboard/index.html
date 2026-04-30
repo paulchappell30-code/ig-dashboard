@@ -1698,7 +1698,7 @@ let chartState = {
   epic: 'IX.D.FTSE.DAILY.IP',
   name: 'FTSE 100',
   resolution: 'DAY',
-  count: 30,
+  count: 60,
   type: 'candle',
   candles: [],
   indicators: {}
@@ -1896,7 +1896,7 @@ function drawChart(candles) {
 function calculateAndRenderSignals(candles) {
   const closes = candles.map(c => c.close);
   const n = closes.length;
-  if (n < 14) return;
+  if (n < 5) return;
 
   // RSI
   const rsi = calcRSI(closes, 14);
@@ -1904,7 +1904,8 @@ function calculateAndRenderSignals(candles) {
   const rsiLabel = rsi < 30 ? 'Oversold' : rsi > 70 ? 'Overbought' : 'Neutral';
 
   // SMA 20/50 cross
-  const sma20 = closes.slice(-20).reduce((a,b)=>a+b,0)/20;
+  const sma20n = Math.min(20, n);
+  const sma20 = closes.slice(-sma20n).reduce((a,b)=>a+b,0)/sma20n;
   const sma50n = Math.min(50, n);
   const sma50 = closes.slice(-sma50n).reduce((a,b)=>a+b,0)/sma50n;
   const smaSignal = sma20 > sma50 ? 'buy' : 'sell';
@@ -1919,7 +1920,8 @@ function calculateAndRenderSignals(candles) {
 
   // Bollinger
   const sma20Val = sma20;
-  const std = Math.sqrt(closes.slice(-20).reduce((a,b)=>a+Math.pow(b-sma20Val,2),0)/20);
+  const sma20nB = Math.min(20, n);
+  const std = Math.sqrt(closes.slice(-sma20nB).reduce((a,b)=>a+Math.pow(b-sma20Val,2),0)/sma20nB);
   const upper = sma20Val + 2*std;
   const lower = sma20Val - 2*std;
   const lastClose = closes[n-1];
@@ -1933,7 +1935,7 @@ function calculateAndRenderSignals(candles) {
 
   const signals = [
     { name: 'RSI (14)', value: rsi.toFixed(1), signal: rsiSignal, label: rsiLabel },
-    { name: 'SMA 20/50', value: sma20.toFixed(0)+'/'+sma50.toFixed(0), signal: smaSignal, label: smaLabel },
+    { name: 'SMA ' + sma20n + '/' + sma50n, value: sma20.toFixed(0)+'/'+sma50.toFixed(0), signal: smaSignal, label: smaLabel },
     { name: 'MACD', value: macdVal.toFixed(2), signal: macdSignal, label: macdLabel },
     { name: 'Bollinger', value: lastClose.toFixed(0), signal: bbSignal, label: bbLabel },
     { name: 'Momentum', value: momLabel, signal: momSignal, label: '' },
