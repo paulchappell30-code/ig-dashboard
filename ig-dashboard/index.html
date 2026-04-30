@@ -1169,6 +1169,8 @@ async function doLogin() {
       S.cst = cst;
       S.xst = xst;
       S.connected = true;
+      S.igUser = user;
+      S.igPass = pass;
       const data = await res.json();
       const sbAcct = data.accounts && data.accounts.find(a => a.accountType === 'SPREADBET');
       S.accountId = sbAcct ? sbAcct.accountId : data.currentAccountId;
@@ -1232,7 +1234,35 @@ async function igFetch(path, opts = {}) {
     if (newCst) S.cst = newCst;
     if (newXst) S.xst = newXst;
   }
+  // Auto-refresh session on 403
+  if (res.status === 403 && S.igUser && S.igPass && !opts._retry) {
+    addLog('system', 'Session expired — refreshing...');
+    const refreshed = await refreshSession();
+    if (refreshed) return igFetch(path, { ...opts, _retry: true });
+  }
   return res;
+}
+
+async function refreshSession() {
+  try {
+    const res = await fetch('/ig/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Version': '2' },
+      body: JSON.stringify({ identifier: S.igUser, password: S.igPass })
+    });
+    const cst = res.headers.get('CST');
+    const xst = res.headers.get('X-SECURITY-TOKEN');
+    if (res.ok && cst) {
+      S.cst = cst;
+      S.xst = xst;
+      addLog('system', 'Session refreshed successfully.');
+      document.getElementById('conn-label').textContent = S.env === 'live' ? 'Connected — Live' : 'Connected — Demo';
+      return true;
+    }
+  } catch(e) {
+    addLog('system', 'Session refresh failed: ' + e.message);
+  }
+  return false;
 }
 
 async function loadFromIG() {
@@ -2630,6 +2660,21 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 
 // ─── LIGHTSTREAMER ───────────────────────────────────────────────────────────
 let lsClient = null;
+
+// Keep session alive with periodic ping
+setInterval(async () => {
+  if (S.connected && S.cst) {
+    try {
+      const r = await fetch('/ig/accounts', {
+        headers: { 'CST': S.cst, 'X-SECURITY-TOKEN': S.xst, 'Version': '1' }
+      });
+      if (r.status === 403 && S.igUser) {
+        addLog('system', 'Keep-alive: session expired, refreshing...');
+        await refreshSession();
+      }
+    } catch(e) {}
+  }
+}, 5 * 60 * 1000); // every 5 minutes
 
 function startPriceTicker() {
   if (S.connected && S.cst && S.xst) {
