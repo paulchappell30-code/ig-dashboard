@@ -21,10 +21,15 @@ module.exports = async (req, res) => {
   const path = (req.query.path || '').replace(/^\/+/, '');
   if (!path) return res.status(400).json({ error: 'No path specified' });
 
-  // Determine environment — prefer env var, fall back to header hint
+  // Reassemble any extra query params (Vercel splits them from the path)
+  const extraParams = Object.entries(req.query)
+    .filter(([k]) => k !== 'path')
+    .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
+    .join('&');
+
   const env = process.env.IG_ENV || (req.headers['x-ig-env'] === 'live' ? 'live' : 'demo');
   const base = IG_BASES[env] || IG_BASES.demo;
-  const igUrl = `${base}/${path}`;
+  const igUrl = `${base}/${path}${extraParams ? '?' + extraParams : ''}`;
 
   // Build headers for IG — inject server-side API key if configured
   const igHeaders = {
