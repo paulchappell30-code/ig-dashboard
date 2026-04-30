@@ -461,6 +461,7 @@
     <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+    <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
   </div>
@@ -772,6 +773,142 @@
 
 
 
+
+    <!-- AUTO-TRADE -->
+    <div class="tab-content" id="tab-autotrade">
+
+      <!-- Status banner -->
+      <div id="at-banner" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div id="at-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text3)"></div>
+          <div>
+            <div style="font-weight:500" id="at-status-label">Auto-Trading: Loading...</div>
+            <div style="font-size:12px;color:var(--text2)" id="at-status-sub">Check status to initialise</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="checkAutoTradeStatus()">Check Status</button>
+          <button class="primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
+        </div>
+      </div>
+
+      <!-- Daily limits -->
+      <div class="two-col">
+        <div class="panel">
+          <div class="section-title">Daily Limits</div>
+
+          <div style="margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="font-size:13px;font-weight:500">Daily Profit Lock</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="at-profit-lock" value="2" min="0.1" max="20" step="0.1" style="width:70px;text-align:center">
+                <span style="font-size:13px;color:var(--text2)">%</span>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text2)">Stop opening new positions when daily P&L reaches this target. Existing positions stay open.</div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="font-size:13px;font-weight:500;color:var(--red)">Daily Loss Limit</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="at-loss-limit" value="1" min="0.1" max="10" step="0.1" style="width:70px;text-align:center">
+                <span style="font-size:13px;color:var(--text2)">%</span>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text2)">Close ALL positions immediately and stop trading when daily loss reaches this level.</div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="font-size:13px;font-weight:500">Max Open Positions</label>
+              <input type="number" id="at-max-pos" value="3" min="1" max="10" style="width:70px;text-align:center">
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="font-size:13px;font-weight:500">Default Trade Size</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="at-size" value="1" min="1" max="10" style="width:70px;text-align:center">
+                <span style="font-size:13px;color:var(--text2)">units</span>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--text2)">Size per trade in units (£1/pt on FTSE = 1 unit)</div>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:500">AI Confirmation Required</div>
+              <div class="desc">Claude must approve signals before orders are placed</div>
+            </div>
+            <button class="toggle on" id="at-ai-toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label style="font-size:13px">Min AI Confidence</label>
+              <span style="font-size:13px;font-weight:500" id="at-confidence-val">60%</span>
+            </div>
+            <input type="range" min="50" max="95" value="60" oninput="document.getElementById('at-confidence-val').textContent=this.value+'%'" style="width:100%">
+          </div>
+
+          <button class="primary" onclick="saveAutoTradeConfig()" style="width:100%;margin-top:16px">Save Config to Vercel</button>
+        </div>
+
+        <div>
+          <!-- Daily P&L tracker -->
+          <div class="panel" style="margin-bottom:16px">
+            <div class="section-title">Today's Performance</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div class="metric-card">
+                <div class="label">Daily P&L</div>
+                <div class="value" id="at-daily-pl">—</div>
+              </div>
+              <div class="metric-card">
+                <div class="label">Daily P&L %</div>
+                <div class="value" id="at-daily-pct">—</div>
+              </div>
+            </div>
+
+            <!-- Progress bar -->
+            <div style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:4px">
+                <span id="at-loss-label">Loss limit: -1%</span>
+                <span id="at-profit-label">Profit lock: +2%</span>
+              </div>
+              <div style="height:8px;background:var(--border);border-radius:4px;position:relative;overflow:hidden">
+                <div id="at-pl-bar" style="position:absolute;height:100%;border-radius:4px;transition:all .5s;background:var(--green);left:50%;width:0"></div>
+                <div style="position:absolute;left:50%;top:0;width:1px;height:100%;background:var(--border2)"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Activity log -->
+          <div class="panel">
+            <div class="section-title-row">
+              <div class="section-title">Engine Log</div>
+              <button class="sm" onclick="document.getElementById('at-log').innerHTML=''">Clear</button>
+            </div>
+            <div id="at-log" style="font-size:12px;max-height:240px;overflow-y:auto;line-height:1.6;color:var(--text2)">
+              No activity yet — click Run Now or wait for scheduled run.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Setup instructions -->
+      <div class="panel" style="background:var(--info-bg);border-color:var(--blue)">
+        <div class="section-title" style="color:var(--blue-text)">Setup — cron-job.org</div>
+        <div style="font-size:13px;color:var(--blue-text);line-height:1.7">
+          Add a new cron job at <strong>cron-job.org</strong> pointing to your Vercel URL:<br>
+          <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px" id="at-cron-url"></code><br>
+          Schedule: <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px">*/5 8-16 * * 1-5</code> (every 5 mins, 8am–4pm Mon–Fri)<br>
+          Method: POST &nbsp;|&nbsp; Header: <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px">Authorization: Bearer YOUR_CRON_SECRET</code>
+        </div>
+      </div>
+
+    </div>
     <!-- CHARTS -->
     <div class="tab-content" id="tab-charts">
 
@@ -2164,6 +2301,102 @@ async function checkRuleStatus() {
   } catch(e) {
     document.getElementById('rule-status').textContent = 'Error: ' + e.message;
   }
+}
+
+
+// ─── AUTO-TRADE FUNCTIONS ─────────────────────────────────────────────────────
+setTimeout(() => { const el = document.getElementById('at-cron-url'); if(el) el.textContent = window.location.origin + '/api/autotrade'; }, 500);
+
+async function checkAutoTradeStatus() {
+  try {
+    const res = await fetch('/api/autotrade');
+    const data = await res.json();
+    const cfg = data.config || {};
+    document.getElementById('at-status-label').textContent = 'Auto-Trading: ' + (cfg.enabled ? 'Enabled' : 'Disabled');
+    document.getElementById('at-status-sub').textContent = 'Profit lock: +' + cfg.dailyProfitLock + '% | Loss limit: -' + cfg.dailyLossLimit + '%';
+    document.getElementById('at-status-dot').style.background = cfg.enabled ? 'var(--green)' : 'var(--text3)';
+    document.getElementById('at-profit-lock').value = cfg.dailyProfitLock || 2;
+    document.getElementById('at-loss-limit').value = cfg.dailyLossLimit || 1;
+    document.getElementById('at-max-pos').value = cfg.maxPositions || 3;
+    document.getElementById('at-size').value = cfg.defaultSize || 1;
+    updateDailyPLDisplay();
+    addLog('system', 'Auto-trade status: ' + (cfg.enabled ? 'enabled' : 'disabled'));
+  } catch(e) {
+    document.getElementById('at-status-label').textContent = 'Auto-Trading: Error — ' + e.message;
+  }
+}
+
+function updateDailyPLDisplay() {
+  if (!S.accountData) return;
+  const bal = S.accountData.balance.balance;
+  const pl = S.accountData.balance.profitLoss;
+  const pct = bal > 0 ? (pl / bal * 100) : 0;
+  const profitLock = parseFloat(document.getElementById('at-profit-lock').value) || 2;
+  const lossLimit = parseFloat(document.getElementById('at-loss-limit').value) || 1;
+  const plEl = document.getElementById('at-daily-pl');
+  const pctEl = document.getElementById('at-daily-pct');
+  if (plEl) { plEl.textContent = (pl>=0?'+':'')+'£'+pl.toFixed(2); plEl.className='value '+(pl>=0?'pos':'neg'); }
+  if (pctEl) { pctEl.textContent = (pct>=0?'+':'')+pct.toFixed(2)+'%'; pctEl.className='value '+(pct>=0?'pos':'neg'); }
+  const bar = document.getElementById('at-pl-bar');
+  if (bar) {
+    bar.style.background = pct >= 0 ? 'var(--green)' : 'var(--red)';
+    if (pct >= 0) { bar.style.left='50%'; bar.style.right='auto'; bar.style.width=Math.min((pct/profitLock)*50,50)+'%'; }
+    else { bar.style.right='50%'; bar.style.left='auto'; bar.style.width=Math.min((Math.abs(pct)/lossLimit)*50,50)+'%'; }
+  }
+  const ll = document.getElementById('at-loss-label');
+  const pl2 = document.getElementById('at-profit-label');
+  if (ll) ll.textContent = 'Loss limit: -'+lossLimit+'%';
+  if (pl2) pl2.textContent = 'Profit lock: +'+profitLock+'%';
+}
+
+async function runAutoTrade() {
+  const btn = document.getElementById('at-run-btn');
+  btn.textContent = '⏳ Running...';
+  btn.disabled = true;
+  appendAtLog('▶ Manual run triggered...');
+  try {
+    const res = await fetch('/api/autotrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manualRun: true })
+    });
+    const data = await res.json();
+    (data.log || []).forEach(l => appendAtLog(l));
+    appendAtLog('✅ Done — action: ' + (data.action || 'unknown'));
+    addLog('system', 'Auto-trade run: ' + (data.action || 'unknown'));
+    setTimeout(() => { loadAccount(); loadPositions(); updateDailyPLDisplay(); }, 2000);
+  } catch(e) {
+    appendAtLog('❌ Error: ' + e.message);
+  }
+  btn.textContent = '▶ Run Now';
+  btn.disabled = false;
+}
+
+function appendAtLog(msg) {
+  const el = document.getElementById('at-log');
+  if (!el) return;
+  const time = new Date().toLocaleTimeString('en-GB');
+  el.innerHTML += '<div><span style="color:var(--text3)">'+time+'</span> '+msg+'</div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function saveAutoTradeConfig() {
+  const profitLock = document.getElementById('at-profit-lock').value;
+  const lossLimit = document.getElementById('at-loss-limit').value;
+  const maxPos = document.getElementById('at-max-pos').value;
+  const size = document.getElementById('at-size').value;
+  const aiOn = document.getElementById('at-ai-toggle').classList.contains('on');
+  const confidence = document.querySelector('#tab-autotrade input[type=range]') ? document.querySelector('#tab-autotrade input[type=range]').value : 60;
+  const vars = [
+    'DAILY_PROFIT_LOCK='+profitLock,
+    'DAILY_LOSS_LIMIT='+lossLimit,
+    'MAX_POSITIONS='+maxPos,
+    'DEFAULT_SIZE='+size,
+    'REQUIRE_AI_CONFIRM='+aiOn,
+    'AI_CONFIDENCE_MIN='+confidence,
+    'AUTO_TRADING_ENABLED=true'
+  ];
+  alert('Add these to Vercel Environment Variables:\n\n'+vars.join('\n')+'\n\nThen redeploy.');
 }
 
 async function refreshAll() {
