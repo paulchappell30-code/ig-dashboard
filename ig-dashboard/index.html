@@ -1519,6 +1519,11 @@ async function renderPnLChart() {
   try {
     if (S.connected && S.cst) {
       const res = await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=30&pageSize=0', { headers: { 'Version': '3' } });
+      if (res.status === 403) {
+        // Hit historical data limit - use dummy data
+        drawPnLLine([0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42]);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         const prices = (data.prices || []).map(p => p.closePrice && p.closePrice.bid || 0).filter(p => p > 0);
@@ -1912,8 +1917,18 @@ async function loadChartData() {
   try {
     const url = 'prices/' + chartState.epic + '?resolution=' + chartState.resolution + '&max=' + chartState.count + '&pageSize=0';
     const res = await igFetch(url, { headers: { 'Version': '3' } });
+    if (res.status === 403) {
+      const errData = await res.json().catch(()=>({}));
+      if (errData.errorCode && errData.errorCode.includes('historical-data-allowance')) {
+        document.getElementById('chart-updated').textContent = '⚠️ IG historical data limit reached — resets at midnight';
+        document.getElementById('tech-signals').innerHTML = '<div style="padding:12px;color:var(--warn-text);background:var(--warn-bg);border-radius:var(--radius);font-size:13px">IG demo accounts have a daily historical price request limit. This resets at midnight London time. Live prices still updating via Lightstreamer.</div>';
+        return;
+      }
+      document.getElementById('chart-updated').textContent = 'Session expired — refreshing...';
+      return;
+    }
     if (!res.ok) {
-      document.getElementById('chart-updated').textContent = 'Error loading prices';
+      document.getElementById('chart-updated').textContent = 'Error loading prices (' + res.status + ')';
       return;
     }
     const data = await res.json();
