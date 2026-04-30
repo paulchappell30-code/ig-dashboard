@@ -167,11 +167,19 @@ module.exports = async (req, res) => {
         headers: { ...igHeaders, 'Version': '3' }
       });
       const priceData = await priceRes.json();
+      addLog(`${instr}: price fetch status ${priceRes.status}, got ${(priceData.prices||[]).length} candles`);
+      
+      // Try mid price if bid not available
       const closes = (priceData.prices || [])
-        .map(p => p.closePrice && p.closePrice.bid || 0)
+        .map(p => {
+          if (p.closePrice && p.closePrice.bid) return p.closePrice.bid;
+          if (p.closePrice && p.closePrice.mid) return p.closePrice.mid;
+          if (p.closePrice && p.closePrice.ask) return p.closePrice.ask;
+          return 0;
+        })
         .filter(p => p > 0);
 
-      if (closes.length < 10) { addLog(`${instr}: insufficient price data`); continue; }
+      if (closes.length < 5) { addLog(`${instr}: insufficient price data (${closes.length} closes)`); continue; }
 
       // Calculate indicators
       const rsi = calcRSI(closes, 14);
