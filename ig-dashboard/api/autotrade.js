@@ -3,6 +3,10 @@
 // Called by cron-job.org every 5 minutes during market hours
 const fetch = require('node-fetch');
 
+// Simple in-memory price cache (resets on each cold start)
+const priceCache = {};
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 const IG_BASES = {
   live: 'https://api.ig.com/gateway/deal',
   demo: 'https://demo-api.ig.com/gateway/deal',
@@ -163,13 +167,41 @@ module.exports = async (req, res) => {
 
     try {
       // Fetch price history
-      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=60&pageSize=0`, {
+      // Check cache first to avoid hitting historical data allowance
+      const cacheKey = epic + '_DAY';
+      const cached = priceCache[cacheKey];
+      if (cached && Date.now() - cached.ts < CACHE_TTL) {
+        addLog(`${instr}: using cached price data (${cached.closes.length} closes)`);
+        const closes = cached.closes;
+        if (closes.length < 5) { addLog(`${instr}: insufficient cached data`); continue; }
+        // Skip to signal calculation using cached closes
+        const rsi = calcRSI(closes, 14);
+        const sma20 = closes.slice(-Math.min(20,closes.length)).reduce((a,b)=>a+b,0)/Math.min(20,closes.length);
+        const sma50 = closes.slice(-Math.min(50,closes.length)).reduce((a,b)=>a+b,0)/Math.min(50,closes.length);
+        const ema12 = calcEMA(closes, 12);
+        const ema26 = calcEMA(closes, 26);
+        const macd = ema12 - ema26;
+        const lastClose = closes[closes.length - 1];
+        const momentum = ((lastClose - closes[Math.max(0,closes.length-10)]) / closes[Math.max(0,closes.length-10)]) * 100;
+        let score = 0; const reasons = [];
+        if (rsi < 35) { score += 2; reasons.push(`RSI oversold (${rsi.toFixed(1)})`); }
+        else if (rsi > 65) { score -= 2; reasons.push(`RSI overbought (${rsi.toFixed(1)})`); }
+        if (sma20 > sma50) { score += 1; reasons.push('SMA bullish'); } else { score -= 1; reasons.push('SMA bearish'); }
+        if (macd > 0) { score += 1; reasons.push('MACD positive'); } else { score -= 1; reasons.push('MACD negative'); }
+        if (momentum > 1) { score += 1; reasons.push(`Momentum +${momentum.toFixed(1)}%`); } else if (momentum < -1) { score -= 1; reasons.push(`Momentum ${momentum.toFixed(1)}%`); }
+        const direction = score >= 2 ? 'BUY' : score <= -2 ? 'SELL' : null;
+        if (!direction) { addLog(`${instr}: score ${score} — no clear signal`); continue; }
+        addLog(`${instr}: score ${score} → ${direction} (cached data)`);
+        signals.push({ instr, epic, direction, score, reasons, rsi, sma20, sma50, macd, momentum, lastClose });
+        continue;
+      }
+
+      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=30&pageSize=0`, {
         headers: { ...igHeaders, 'Version': '3' }
       });
       const priceData = await priceRes.json();
       addLog(`${instr}: price fetch status ${priceRes.status}, got ${(priceData.prices||[]).length} candles`);
       
-      // Try mid price if bid not available
       const closes = (priceData.prices || [])
         .map(p => {
           if (p.closePrice && p.closePrice.bid) return p.closePrice.bid;
@@ -180,6 +212,8 @@ module.exports = async (req, res) => {
         .filter(p => p > 0);
 
       if (closes.length < 5) { addLog(`${instr}: insufficient price data (${closes.length} closes)`); continue; }
+      // Cache for next run
+      priceCache[cacheKey] = { closes, ts: Date.now() };
 
       // Calculate indicators
       const rsi = calcRSI(closes, 14);
