@@ -544,8 +544,8 @@
                 <label>Instrument</label>
                 <select id="dca-instr">
                   <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-                  <option>Dow Jones</option><option>Crude Oil</option><option>Apple</option>
-                  <option>Shell</option><option>HSBC</option>
+                  <option>Dow Jones</option><option>Brent Oil</option>
+                  <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
                 </select>
               </div>
               <div class="form-row">
@@ -719,7 +719,8 @@
             <label>Instrument</label>
             <select id="ord-instr">
               <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-              <option>Gold</option><option>Crude Oil</option><option>Apple</option>
+              <option>Dow Jones</option><option>Brent Oil</option>
+              <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
             </select>
           </div>
           <div class="form-row">
@@ -825,6 +826,9 @@
               <input type="number" id="at-max-pos" value="3" min="1" max="10" style="width:70px;text-align:center">
             </div>
           </div>
+          <div style="font-size:12px;padding:10px 12px;background:var(--info-bg);border-radius:var(--radius);color:var(--info-text);margin-bottom:16px">
+            <strong>Correlation filter active</strong> — 3 uncorrelated groups: Indices (FTSE/S&P/DAX/Dow), Commodities (Oil), FX (GBP/USD, EUR/USD, USD/JPY). Max 1 per group = up to 3 simultaneous positions.
+          </div>
 
           <div style="margin-bottom:20px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -920,6 +924,9 @@
           <button class="sm" id="chart-btn-DAX" onclick="selectChartInstrument('DAX 40','IX.D.DAX.DAILY.IP',this)">DAX 40</button>
           <button class="sm" id="chart-btn-DOW" onclick="selectChartInstrument('Dow Jones','IX.D.DOW.DAILY.IP',this)">Dow Jones</button>
           <button class="sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Brent Oil</button>
+          <button class="sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.MINI.IP',this)">GBP/USD</button>
+          <button class="sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.MINI.IP',this)">EUR/USD</button>
+          <button class="sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
         </div>
         <div style="display:flex;gap:6px;margin-left:auto">
           <button class="sm" id="tf-MINUTE-60" onclick="selectTimeframe('MINUTE',60,this)">1H</button>
@@ -1148,6 +1155,9 @@ const S = {
     { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
     { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', price:'40,000', change:'+0.50%', pos:true, icon:'🇺🇸' },
     { name:'Brent Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
+    { name:'GBP/USD', epic:'CS.D.GBPUSD.MINI.IP', price:'1.2950', change:'+0.10%', pos:true, icon:'💷' },
+    { name:'EUR/USD', epic:'CS.D.EURUSD.MINI.IP', price:'1.0850', change:'-0.05%', pos:false, icon:'💶' },
+    { name:'USD/JPY', epic:'CS.D.USDJPY.MINI.IP', price:'149.50', change:'+0.20%', pos:true, icon:'💴' },
   ]
 };
 
@@ -2610,7 +2620,10 @@ async function placeManualOrder() {
     'S&P 500':'IX.D.SPTRD.DAILY.IP',
     'DAX 40':'IX.D.DAX.DAILY.IP',
     'Dow Jones':'IX.D.DOW.DAILY.IP',
-    'Brent Oil':'CC.D.LCO.USS.IP'
+    'Brent Oil':'CC.D.LCO.USS.IP',
+    'GBP/USD':'CS.D.GBPUSD.MINI.IP',
+    'EUR/USD':'CS.D.EURUSD.MINI.IP',
+    'USD/JPY':'CS.D.USDJPY.MINI.IP'
   };
   const epic = epicMap[instr] || epicMap['FTSE 100'];
 
