@@ -1082,6 +1082,8 @@
 
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────────
+// Price caching handled by PRICE_CACHE_TTL and fetchPricesWithCache below
+
 const S = {
   running: true,
   connected: false,
@@ -1139,6 +1141,7 @@ const S = {
     { time:'08:45:12', type:'system', msg:'Market open detected. 4 active rules re-armed.' },
     { time:'07:00:00', type:'system', msg:'Pre-market check passed. API connection healthy.' },
   ],
+  priceCache: {}, // { epic_resolution: { closes, ts, candles } }
   markets: [
     { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', price:'7,901', change:'+0.75%', pos:true, icon:'🇬🇧' },
     { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
@@ -1518,19 +1521,24 @@ async function renderPnLChart() {
   // Try to load real 30-day price history for FTSE (primary instrument)
   try {
     if (S.connected && S.cst) {
-      const res = await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=30&pageSize=0', { headers: { 'Version': '3' } });
-      if (res.status === 403) {
-        // Hit historical data limit - use dummy data
+      let pnlData;
+      try {
+        pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 30);
+      } catch(e) {
         drawPnLLine([0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42]);
         return;
       }
+      const res = { ok: true };
+      const data = pnlData;
       if (res.ok) {
         const data = await res.json();
-        const prices = (data.prices || []).map(p => p.closePrice && p.closePrice.bid || 0).filter(p => p > 0);
+        const prices = (pnlData.prices || []).map(p => p.closePrice && p.closePrice.bid || 0).filter(p => p > 0);
         if (prices.length > 1) {
           // Convert to cumulative % change from first price
           const base = prices[0];
           const pts = prices.map(p => ((p - base) / base) * 100);
+          if (!S.priceCache) S.priceCache = {};
+          S.priceCache['PNL_FTSE_30'] = { data: pts, ts: Date.now() };
           drawPnLLine(pts);
           return;
         }
@@ -1912,26 +1920,66 @@ function setChartType(type, btn) {
   if (chartState.candles.length) drawChart(chartState.candles);
 }
 
+
+// ─── PRICE CACHE ─────────────────────────────────────────────────────────────
+const PRICE_CACHE_TTL = {
+  MINUTE: 2 * 60 * 1000,    // 2 mins for minute candles
+  HOUR:   30 * 60 * 1000,   // 30 mins for hourly
+  DAY:    4 * 60 * 60 * 1000, // 4 hours for daily
+  WEEK:   24 * 60 * 60 * 1000  // 24 hours for weekly
+};
+
+async function fetchPricesWithCache(epic, resolution, count) {
+  const key = epic + '_' + resolution + '_' + count;
+  const cached = S.priceCache[key];
+  const ttl = PRICE_CACHE_TTL[resolution] || 60 * 60 * 1000;
+
+  if (cached && Date.now() - cached.ts < ttl) {
+    console.log('[Cache] HIT:', key, '(' + Math.round((Date.now()-cached.ts)/1000) + 's old)');
+    return cached.data;
+  }
+
+  console.log('[Cache] MISS:', key, '— fetching from IG');
+  const res = await igFetch('prices/' + epic + '?resolution=' + resolution + '&max=' + count + '&pageSize=0', {
+    headers: { 'Version': '3' }
+  });
+
+  if (res.status === 403) {
+    const errData = await res.json().catch(() => ({}));
+    if (errData.errorCode && errData.errorCode.includes('historical-data-allowance')) {
+      console.warn('[Cache] Historical data allowance exceeded');
+      // Return cached data even if stale rather than failing
+      if (cached) {
+        console.log('[Cache] Returning stale cache as fallback');
+        return cached.data;
+      }
+    }
+    throw new Error('403:' + (errData.errorCode || 'forbidden'));
+  }
+
+  if (!res.ok) throw new Error('Price fetch failed: ' + res.status);
+
+  const data = await res.json();
+  S.priceCache[key] = { data, ts: Date.now() };
+  console.log('[Cache] Stored:', key, '(' + (data.prices||[]).length + ' candles)');
+  return data;
+}
+
 async function loadChartData() {
   document.getElementById('chart-updated').textContent = 'Loading...';
   try {
-    const url = 'prices/' + chartState.epic + '?resolution=' + chartState.resolution + '&max=' + chartState.count + '&pageSize=0';
-    const res = await igFetch(url, { headers: { 'Version': '3' } });
-    if (res.status === 403) {
-      const errData = await res.json().catch(()=>({}));
-      if (errData.errorCode && errData.errorCode.includes('historical-data-allowance')) {
-        document.getElementById('chart-updated').textContent = '⚠️ IG historical data limit reached — resets at midnight';
-        document.getElementById('tech-signals').innerHTML = '<div style="padding:12px;color:var(--warn-text);background:var(--warn-bg);border-radius:var(--radius);font-size:13px">IG demo accounts have a daily historical price request limit. This resets at midnight London time. Live prices still updating via Lightstreamer.</div>';
-        return;
+    let data;
+    try {
+      data = await fetchPricesWithCache(chartState.epic, chartState.resolution, chartState.count);
+    } catch(e) {
+      if (e.message.startsWith('403:')) {
+        document.getElementById('chart-updated').textContent = '⚠️ IG historical data limit reached for this week';
+        document.getElementById('tech-signals').innerHTML = '<div style="padding:12px;color:var(--warn-text);background:var(--warn-bg);border-radius:var(--radius);font-size:13px">Weekly historical data allowance exceeded on this demo account. Create a new demo account or switch to live to continue.</div>';
+      } else {
+        document.getElementById('chart-updated').textContent = 'Error: ' + e.message;
       }
-      document.getElementById('chart-updated').textContent = 'Session expired — refreshing...';
       return;
     }
-    if (!res.ok) {
-      document.getElementById('chart-updated').textContent = 'Error loading prices (' + res.status + ')';
-      return;
-    }
-    const data = await res.json();
     const candles = (data.prices || []).map(p => ({
       time: p.snapshotTime,
       open:  (p.openPrice  && p.openPrice.bid)  || 0,
@@ -1941,6 +1989,8 @@ async function loadChartData() {
     })).filter(c => c.close > 0);
 
     chartState.candles = candles;
+    if (!S.priceCache) S.priceCache = {};
+    S.priceCache[cacheKey] = { data: candles, ts: Date.now() };
     drawChart(candles);
     calculateAndRenderSignals(candles);
     loadSentiment();
@@ -2664,9 +2714,12 @@ function switchTab(id, el) {
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   tab.classList.add('active');
   el.classList.add('active');
-  // Auto-load chart data when switching to charts tab
+  // Auto-load chart data when switching to charts tab (only if no cached data)
   if (id === 'charts' && S.connected) {
-    loadChartData();
+    const cacheKey = chartState.epic + '_' + chartState.resolution + '_' + chartState.count;
+    const isCached = S.priceCache && S.priceCache[cacheKey] && (Date.now()-S.priceCache[cacheKey].ts < 30*60*1000);
+    if (!isCached) loadChartData();
+    else { drawChart(chartState.candles); calculateAndRenderSignals(chartState.candles); }
   }
 }
 
