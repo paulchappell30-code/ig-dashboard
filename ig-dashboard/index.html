@@ -789,6 +789,7 @@
         </div>
         <div style="display:flex;gap:8px">
           <button onclick="checkAutoTradeStatus()">Check Status</button>
+          <button id="at-stop-btn" onclick="stopAutoTrade()" style="background:var(--red);color:#fff;border-color:var(--red)">⏹ Stop</button>
           <button class="primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
         </div>
       </div>
@@ -2003,8 +2004,6 @@ async function loadChartData() {
     })).filter(c => c.close > 0);
 
     chartState.candles = candles;
-    if (!S.priceCache) S.priceCache = {};
-    S.priceCache[cacheKey] = { data: candles, ts: Date.now() };
     drawChart(candles);
     calculateAndRenderSignals(candles);
     loadSentiment();
@@ -2461,7 +2460,23 @@ function updateDailyPLDisplay() {
   if (pl2) pl2.textContent = 'Profit lock: +'+profitLock+'%';
 }
 
+async function stopAutoTrade() {
+  if (!confirm('Stop auto-trading? This will prevent new positions being opened. Go to cron-job.org to also pause the scheduled runs.')) return;
+  // Set a session-level flag
+  S.autoTradingStopped = true;
+  document.getElementById('at-status-dot').style.background = 'var(--red)';
+  document.getElementById('at-status-label').textContent = 'Auto-Trading: STOPPED';
+  document.getElementById('at-status-sub').textContent = 'Manually stopped — restart by clicking Run Now or re-enabling in Vercel';
+  document.getElementById('at-run-btn').textContent = '▶ Resume';
+  document.getElementById('at-stop-btn').style.display = 'none';
+  appendAtLog('⏹ Auto-trading stopped by user.');
+  addLog('system', 'Auto-trading stopped manually.');
+  alert('Auto-trading stopped.\n\nTo fully stop the cron job: go to cron-job.org and disable your autotrade job.\n\nTo permanently disable: set AUTO_TRADING_ENABLED=false in Vercel.');
+}
+
 async function runAutoTrade() {
+  S.autoTradingStopped = false;
+  document.getElementById('at-stop-btn').style.display = '';
   const btn = document.getElementById('at-run-btn');
   btn.textContent = '⏳ Running...';
   btn.disabled = true;
