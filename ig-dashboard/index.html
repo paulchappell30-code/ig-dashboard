@@ -2418,7 +2418,10 @@ setTimeout(() => { const el = document.getElementById('at-cron-url'); if(el) el.
 
 async function checkAutoTradeStatus() {
   try {
-    const res = await fetch('/api/autotrade');
+    const secret = document.getElementById('at-cron-secret') ? document.getElementById('at-cron-secret').value : '';
+    const res = await fetch('/api/autotrade', {
+      headers: { 'Authorization': 'Bearer ' + secret }
+    });
     const data = await res.json();
     const cfg = data.config || {};
     document.getElementById('at-status-label').textContent = 'Auto-Trading: ' + (cfg.enabled ? 'Enabled' : 'Disabled');
