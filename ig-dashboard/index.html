@@ -857,7 +857,11 @@
             <input type="range" min="50" max="95" value="60" oninput="document.getElementById('at-confidence-val').textContent=this.value+'%'" style="width:100%">
           </div>
 
-          <button class="primary" onclick="saveAutoTradeConfig()" style="width:100%;margin-top:16px">Save Config to Vercel</button>
+            <div class="form-row" style="margin-top:14px">
+            <label>Cron Secret (for Run Now button)</label>
+            <input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET value">
+          </div>
+        <button class="primary" onclick="saveAutoTradeConfig()" style="width:100%;margin-top:8px">Save Config to Vercel</button>
         </div>
 
         <div>
@@ -1577,7 +1581,7 @@ async function runDCANow(id) {
   try {
     const res = await fetch('/api/dca', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (document.getElementById('at-cron-secret').value || '') },
       body: JSON.stringify({
         manualRun: true,
         instrument: d.instr,
