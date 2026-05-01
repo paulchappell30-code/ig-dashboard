@@ -18,6 +18,21 @@ const EPIC_MAP = {
   'DAX 40':    'IX.D.DAX.DAILY.IP',
   'Dow Jones': 'IX.D.DOW.DAILY.IP',
   'Brent Oil': 'CC.D.LCO.USS.IP',
+  'GBP/USD':   'CS.D.GBPUSD.MINI.IP',
+  'EUR/USD':   'CS.D.EURUSD.MINI.IP',
+  'USD/JPY':   'CS.D.USDJPY.MINI.IP',
+};
+
+// Correlation groups — don't open two instruments from same group simultaneously
+const CORRELATION_GROUPS = {
+  'IX.D.FTSE.DAILY.IP':  'indices',
+  'IX.D.SPTRD.DAILY.IP': 'indices',
+  'IX.D.DAX.DAILY.IP':   'indices',
+  'IX.D.DOW.DAILY.IP':   'indices',
+  'CC.D.LCO.USS.IP':     'commodities',
+  'CS.D.GBPUSD.MINI.IP': 'fx',
+  'CS.D.EURUSD.MINI.IP': 'fx',
+  'CS.D.USDJPY.MINI.IP': 'fx',
 };
 
 // Default config — overridden by env vars
@@ -154,6 +169,12 @@ module.exports = async (req, res) => {
     return res.status(200).json({ action: 'max_positions', openPositions: openPositions.length, log });
   }
 
+  // ── STEP 3b: Build list of already-occupied correlation groups ───────────────
+  const occupiedGroups = new Set(
+    openPositions.map(p => CORRELATION_GROUPS[p.market.epic]).filter(Boolean)
+  );
+  addLog('Occupied correlation groups: ' + ([...occupiedGroups].join(', ') || 'none'));
+
   // ── STEP 4: Evaluate signals for each instrument ──────────────────────────
   const instruments = Object.keys(EPIC_MAP);
   const signals = [];
@@ -164,6 +185,13 @@ module.exports = async (req, res) => {
     // Skip if already have position in this instrument
     const hasPosition = openPositions.some(p => p.market.epic === epic);
     if (hasPosition) { addLog(`${instr}: already has open position — skip`); continue; }
+
+    // Skip if correlation group already occupied
+    const group = CORRELATION_GROUPS[epic];
+    if (group && occupiedGroups.has(group)) {
+      addLog(`${instr}: correlation group '${group}' already occupied — skip`);
+      continue;
+    }
 
     try {
       // Fetch price history
@@ -246,6 +274,8 @@ module.exports = async (req, res) => {
 
       addLog(`${instr}: score ${score} → ${direction} signal (${reasons.join(', ')})`);
       signals.push({ instr, epic, direction, score, reasons, rsi, sma20, sma50, macd, momentum, lastClose });
+      // Mark this group as occupied so we don't queue another signal from same group
+      if (group) occupiedGroups.add(group);
 
     } catch(e) {
       addLog(`${instr}: error — ${e.message}`);
