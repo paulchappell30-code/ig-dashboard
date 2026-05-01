@@ -53,11 +53,17 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Auth — only required for POST (trade execution)
+  // Auth check — verify cron secret if configured
   const cronSecret = process.env.CRON_SECRET || '';
-  const authHeader = req.headers['authorization'] || '';
-  if (req.method === 'POST' && cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return res.status(401).json({ error: 'Unauthorised' });
+  if (cronSecret) {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    // Allow if secret matches OR if request comes from same origin (dashboard)
+    const referer = req.headers['referer'] || req.headers['origin'] || '';
+    const fromDashboard = referer.includes('vercel.app') || referer.includes('localhost');
+    if (!fromDashboard && token !== cronSecret) {
+      return res.status(401).json({ error: 'Unauthorised' });
+    }
   }
 
   // Load config from env
