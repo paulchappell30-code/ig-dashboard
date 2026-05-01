@@ -351,8 +351,45 @@ Respond ONLY in this JSON format, no other text:
   }
 
   if (!aiApproved) {
-    addLog('Trade rejected by AI — no order placed');
-    return res.status(200).json({ action: 'ai_rejected', signal: topSignal, aiConfidence, log });
+    addLog('Trade rejected by AI — trying next signal if available');
+    // Try second signal if exists
+    const nextSignal = signals[1];
+    if (nextSignal) {
+      addLog('Evaluating second signal: ' + nextSignal.instr + ' ' + nextSignal.direction);
+      // Re-run AI for next signal
+      signals.splice(0, 1); // Remove rejected signal
+      // Fall through to place trade with next signal
+      Object.assign(topSignal, nextSignal);
+      // Re-evaluate AI for new top signal
+      aiApproved = !config.requireAIConfirm;
+      if (config.requireAIConfirm) {
+        try {
+          const aiPrompt2 = `You are a trading risk manager. Should this trade be approved?
+INSTRUMENT: ${nextSignal.instr} | SIGNAL: ${nextSignal.direction} | SCORE: ${nextSignal.score}/5
+RSI: ${nextSignal.rsi.toFixed(1)} | SMA: ${nextSignal.sma20.toFixed(0)}/${nextSignal.sma50.toFixed(0)} | MACD: ${nextSignal.macd.toFixed(2)} | Momentum: ${nextSignal.momentum.toFixed(2)}%
+Daily P&L: ${dailyPLPct.toFixed(2)}% | Profit lock: +${config.dailyProfitLock}% | Loss limit: -${config.dailyLossLimit}%
+Respond ONLY: {"approved":true,"confidence":75,"reasoning":"reason","risk":"risk"}`;
+          const aiRes2 = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY || '', 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 150, messages: [{ role: 'user', content: aiPrompt2 }] })
+          });
+          const aiData2 = await aiRes2.json();
+          const aiText2 = aiData2.content && aiData2.content[0] && aiData2.content[0].text || '{}';
+          const aiResult2 = JSON.parse(aiText2.replace(/```json|```/g,'').trim());
+          aiApproved = aiResult2.approved && aiResult2.confidence >= config.aiConfidenceMin;
+          aiConfidence = aiResult2.confidence || 0;
+          aiReasoning = aiResult2.reasoning || '';
+          addLog('AI (signal 2): ' + (aiApproved ? '✅ APPROVED' : '❌ REJECTED') + ' (' + aiConfidence + '%) — ' + aiReasoning);
+        } catch(e) { aiApproved = true; }
+      }
+      if (!aiApproved) {
+        addLog('Second signal also rejected by AI — no trades placed');
+        return res.status(200).json({ action: 'ai_rejected_all', log });
+      }
+    } else {
+      return res.status(200).json({ action: 'ai_rejected', signal: topSignal, aiConfidence, log });
+    }
   }
 
   // ── STEP 6: Place trade ───────────────────────────────────────────────────
