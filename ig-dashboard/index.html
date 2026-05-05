@@ -462,6 +462,7 @@
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
     <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
+    <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
     <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
@@ -828,6 +829,7 @@
           <div class="section-title">Trade History</div>
           <div style="display:flex;gap:8px">
             <button class="sm" onclick="sendWeeklyReport()">📧 Weekly Report</button>
+            <button class="sm" onclick="runBacktestQuick()">🔬 Quick Backtest</button>
             <button class="sm" onclick="initDb()">⚙ Init DB</button>
           </div>
         </div>
@@ -1013,6 +1015,85 @@
       </div>
 
     </div>
+
+    <!-- BACKTEST -->
+    <div class="tab-content" id="tab-backtest">
+      <div class="panel" style="margin-bottom:16px">
+        <div class="section-title">Backtest Configuration</div>
+        <div class="form-grid-3" style="margin-bottom:14px">
+          <div class="form-row">
+            <label>Instrument</label>
+            <select id="bt-instrument">
+              <option value="IX.D.FTSE.DAILY.IP">FTSE 100</option>
+              <option value="IX.D.SPTRD.DAILY.IP">S&P 500</option>
+              <option value="IX.D.DAX.DAILY.IP">DAX 40</option>
+              <option value="IX.D.DOW.DAILY.IP">Dow Jones</option>
+              <option value="CC.D.LCO.USS.IP">Brent Oil</option>
+              <option value="CS.D.GBPUSD.MINI.IP">GBP/USD</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Days of History</label>
+            <input type="number" id="bt-days" value="30" min="10" max="365">
+          </div>
+          <div class="form-row">
+            <label>Signal Threshold</label>
+            <input type="number" id="bt-threshold" value="2" min="1" max="7">
+          </div>
+        </div>
+        <button class="primary" onclick="runBacktest()">▶ Run Backtest</button>
+        <span style="font-size:12px;color:var(--text2);margin-left:12px">Uses stored price history — run price collector first for best results</span>
+      </div>
+
+      <div id="bt-results" style="display:none">
+        <div class="cards-row" style="grid-template-columns:repeat(5,1fr)">
+          <div class="metric-card">
+            <div class="label">Total Trades</div>
+            <div class="value" id="bt-trades">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Win Rate</div>
+            <div class="value" id="bt-winrate">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Total P&L</div>
+            <div class="value" id="bt-pnl">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Profit Factor</div>
+            <div class="value" id="bt-pf">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Max Drawdown</div>
+            <div class="value neg" id="bt-dd">—</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="section-title">Performance by Regime</div>
+            <div id="bt-regime"></div>
+          </div>
+          <div class="panel">
+            <div class="section-title">Recent Backtest Trades</div>
+            <table>
+              <thead><tr><th>Direction</th><th>Open</th><th>Close</th><th>P&L pts</th><th>Regime</th><th>Exit</th></tr></thead>
+              <tbody id="bt-trade-list"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">Interpretation</div>
+          <div id="bt-interpretation" style="font-size:13px;line-height:1.7;color:var(--text2)"></div>
+        </div>
+      </div>
+
+      <div id="bt-error" style="display:none" class="panel">
+        <div style="color:var(--red);font-size:13px" id="bt-error-msg"></div>
+      </div>
+    </div>
+
     <!-- CHARTS -->
     <div class="tab-content" id="tab-charts">
 
@@ -1051,6 +1132,7 @@
               <div>
                 <span style="font-size:16px;font-weight:500" id="chart-title">FTSE 100</span>
                 <span style="font-size:13px;color:var(--text2);margin-left:10px" id="chart-price">—</span>
+              <span id="chart-regime" class="badge bgr" style="margin-left:8px;font-size:11px">—</span>
                 <span style="font-size:12px;margin-left:8px" id="chart-change">—</span>
               </div>
               <div style="font-size:11px;color:var(--text3)" id="chart-updated">Loading...</div>
@@ -2821,6 +2903,126 @@ async function sendWeeklyReport() {
     if (data.sent) { alert('✅ Weekly report sent to ' + data.to); addLog('system', 'Weekly report sent'); }
     else { alert('⚠️ ' + (data.reason || data.error)); }
   } catch(e) { alert('Error: ' + e.message); }
+}
+
+
+// ─── BACKTEST ─────────────────────────────────────────────────────────────────
+async function runBacktest() {
+  const epic = document.getElementById('bt-instrument').value;
+  const days = document.getElementById('bt-days').value;
+  const threshold = document.getElementById('bt-threshold').value;
+  
+  document.getElementById('bt-results').style.display = 'none';
+  document.getElementById('bt-error').style.display = 'none';
+  
+  try {
+    const res = await fetch(`/api/review?action=backtest&epic=${epic}&days=${days}&threshold=${threshold}`);
+    const data = await res.json();
+    
+    if (data.error) {
+      document.getElementById('bt-error-msg').textContent = data.error + (data.hint ? ' — ' + data.hint : '');
+      document.getElementById('bt-error').style.display = 'block';
+      return;
+    }
+    
+    const s = data.summary;
+    document.getElementById('bt-trades').textContent = s.totalTrades;
+    document.getElementById('bt-winrate').textContent = s.winRate + '%';
+    document.getElementById('bt-winrate').className = 'value ' + (s.winRate >= 50 ? 'pos' : 'neg');
+    document.getElementById('bt-pnl').textContent = (s.totalPnL >= 0 ? '+' : '') + s.totalPnL.toFixed(2) + ' pts';
+    document.getElementById('bt-pnl').className = 'value ' + (s.totalPnL >= 0 ? 'pos' : 'neg');
+    document.getElementById('bt-pf').textContent = s.profitFactor.toFixed(2) + 'x';
+    document.getElementById('bt-pf').className = 'value ' + (s.profitFactor >= 1 ? 'pos' : 'neg');
+    document.getElementById('bt-dd').textContent = '-' + s.maxDrawdown.toFixed(2) + ' pts';
+    
+    // Regime breakdown
+    const regimes = data.byRegime || {};
+    document.getElementById('bt-regime').innerHTML = Object.entries(regimes).map(([regime, d]) => `
+      <div class="signal-row">
+        <div>
+          <div style="font-weight:500">${regime}</div>
+          <div style="font-size:12px;color:var(--text2)">${d.trades} trades | ${((d.wins/d.trades)*100).toFixed(0)}% win rate</div>
+        </div>
+        <div class="${d.pnl >= 0 ? 'pos' : 'neg'}" style="font-weight:500">${d.pnl >= 0 ? '+' : ''}${d.pnl.toFixed(2)} pts</div>
+      </div>`).join('') || '<div class="empty">No trades</div>';
+    
+    // Recent trades
+    const trades = data.recentTrades || [];
+    document.getElementById('bt-trade-list').innerHTML = trades.map(t => `
+      <tr>
+        <td><span class="badge ${t.direction === 'BUY' ? 'bg' : 'br'}">${t.direction}</span></td>
+        <td class="tag-num">${Number(t.openPrice).toFixed(0)}</td>
+        <td class="tag-num">${Number(t.closePrice).toFixed(0)}</td>
+        <td class="${t.pnl >= 0 ? 'pos' : 'neg'}">${t.pnl >= 0 ? '+' : ''}${Number(t.pnl).toFixed(2)}</td>
+        <td><span class="badge bgr" style="font-size:10px">${t.regime}</span></td>
+        <td style="font-size:11px;color:var(--text2)">${t.exitReason}</td>
+      </tr>`).join('');
+    
+    // Interpretation
+    const exp = s.expectancy;
+    const interp = [
+      `<strong>Expectancy:</strong> ${exp >= 0 ? '+' : ''}${exp.toFixed(3)} pts per trade — ${exp > 0 ? 'positive edge detected' : 'negative edge — strategy needs adjustment'}`,
+      `<strong>Profit Factor:</strong> ${s.profitFactor >= 1.5 ? 'Good (≥1.5)' : s.profitFactor >= 1 ? 'Marginal (1.0-1.5)' : 'Poor (<1.0)'}`,
+      `<strong>Win Rate:</strong> ${s.winRate >= 50 ? 'Above average' : 'Below average'} — remember even 40% win rate can be profitable with good risk/reward`,
+      `<strong>Data quality:</strong> Based on ${data.days} candles from stored history. More history = more reliable results.`,
+      s.profitFactor < 1 ? '<strong style="color:var(--red)">⚠️ Warning: This strategy shows negative expectancy on historical data. Consider increasing the signal threshold.</strong>' : '',
+    ].filter(Boolean).map(s => `<p>${s}</p>`).join('');
+    document.getElementById('bt-interpretation').innerHTML = interp;
+    
+    document.getElementById('bt-results').style.display = 'block';
+    addLog('system', `Backtest complete: ${s.totalTrades} trades, ${s.winRate}% win rate, £${s.totalPnL.toFixed(2)} P&L`);
+    
+  } catch(e) {
+    document.getElementById('bt-error-msg').textContent = 'Error: ' + e.message;
+    document.getElementById('bt-error').style.display = 'block';
+  }
+}
+
+function runBacktestQuick() {
+  switchTab('backtest', document.querySelector('.nav-tab:nth-last-child(3)') || document.querySelector('[onclick*="backtest"]'));
+  runBacktest();
+}
+
+// ─── PRICE COLLECTOR ──────────────────────────────────────────────────────────
+async function runPriceCollector() {
+  addLog('system', 'Running price collector...');
+  try {
+    const res = await fetch('/api/prices', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    addLog('system', `Price collector: ${data.totalStored} candles stored`);
+    return data;
+  } catch(e) {
+    addLog('system', 'Price collector error: ' + e.message);
+  }
+}
+
+// Update regime badge on chart load
+const _origCalcSignals = calculateAndRenderSignals;
+calculateAndRenderSignals = function(candles) {
+  _origCalcSignals(candles);
+  // Update regime badge
+  const closes = candles.map(c => c.close);
+  const regime = detectRegimeFromCloses(closes);
+  const badge = document.getElementById('chart-regime');
+  if (badge) {
+    badge.textContent = regime;
+    badge.className = 'badge ' + (regime === 'uptrend' ? 'bg' : regime === 'downtrend' ? 'br' : 'ba');
+  }
+};
+
+function detectRegimeFromCloses(closes) {
+  const n = closes.length;
+  if (n < 10) return 'unknown';
+  const recent = closes.slice(-5);
+  const recentRange = Math.max(...recent) - Math.min(...recent);
+  const totalRange = Math.max(...closes) - Math.min(...closes);
+  const trendStr = recentRange / (totalRange || 1);
+  const mid = Math.floor(n / 2);
+  const h1 = closes.slice(0, mid).reduce((a, b) => a + b, 0) / mid;
+  const h2 = closes.slice(mid).reduce((a, b) => a + b, 0) / (n - mid);
+  const slope = ((h2 - h1) / h1) * 100;
+  if (Math.abs(slope) > 3 && trendStr > 0.3) return slope > 0 ? 'uptrend' : 'downtrend';
+  return 'ranging';
 }
 
 async function refreshAll() {
