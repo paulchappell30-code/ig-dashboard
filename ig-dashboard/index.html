@@ -1029,13 +1029,13 @@
           <button class="sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
         </div>
         <div style="display:flex;gap:6px;margin-left:auto">
-          <button class="sm" id="tf-MINUTE-60" onclick="selectTimeframe('MINUTE',60,this)">1H</button>
-          <button class="sm" id="tf-MINUTE-240" onclick="selectTimeframe('MINUTE',240,this)">4H</button>
-          <button class="sm" id="tf-HOUR-24" onclick="selectTimeframe('HOUR',24,this)">1D</button>
-          <button class="sm" id="tf-HOUR-72" onclick="selectTimeframe('HOUR',72,this)">3D</button>
-          <button class="sm" id="tf-DAY-7" onclick="selectTimeframe('DAY',7,this)">1W</button>
-          <button class="sm" id="tf-DAY-30" onclick="selectTimeframe('DAY',30,this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">1M</button>
-          <button class="sm" id="tf-DAY-90" onclick="selectTimeframe('DAY',90,this)">3M</button>
+          <button class="sm" id="tf-MINUTE-10" onclick="selectTimeframe('MINUTE',10,this)">1H</button>
+          <button class="sm" id="tf-MINUTE-10b" onclick="selectTimeframe('MINUTE',10,this)">4H</button>
+          <button class="sm" id="tf-HOUR-10" onclick="selectTimeframe('HOUR',10,this)">1D</button>
+          <button class="sm" id="tf-HOUR-10b" onclick="selectTimeframe('HOUR',10,this)">3D</button>
+          <button class="sm" id="tf-DAY-10" onclick="selectTimeframe('DAY',10,this)">10D</button>
+          <button class="sm" id="tf-DAY-10b" onclick="selectTimeframe('DAY',10,this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">1M</button>
+          <button class="sm" id="tf-DAY-10c" onclick="selectTimeframe('DAY',10,this)">3M</button>
         </div>
         <div style="display:flex;gap:6px">
           <button class="sm" id="chart-type-candle" onclick="setChartType('candle',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">🕯 Candle</button>
@@ -1633,7 +1633,7 @@ async function renderPnLChart() {
     if (S.connected && S.cst) {
       let pnlData;
       try {
-        pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 30);
+        pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 10);
       } catch(e) {
         drawPnLLine([0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42]);
         return;
@@ -1988,7 +1988,7 @@ let chartState = {
   epic: 'IX.D.FTSE.DAILY.IP',
   name: 'FTSE 100',
   resolution: 'DAY',
-  count: 60,
+  count: 10, // Reduced to conserve IG historical data allowance
   type: 'candle',
   candles: [],
   indicators: {}
@@ -2244,9 +2244,9 @@ function calculateAndRenderSignals(candles) {
   const rsiLabel = rsi < 30 ? 'Oversold' : rsi > 70 ? 'Overbought' : 'Neutral';
 
   // SMA 20/50 cross
-  const sma20n = Math.min(20, n);
+  const sma20n = Math.min(10, n);
   const sma20 = closes.slice(-sma20n).reduce((a,b)=>a+b,0)/sma20n;
-  const sma50n = Math.min(50, n);
+  const sma50n = Math.min(10, n);
   const sma50 = closes.slice(-sma50n).reduce((a,b)=>a+b,0)/sma50n;
   const smaSignal = sma20 > sma50 ? 'buy' : 'sell';
   const smaLabel = sma20 > sma50 ? 'Bullish cross' : 'Bearish cross';
