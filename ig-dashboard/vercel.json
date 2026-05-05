@@ -7,6 +7,7 @@
     { "src": "/api/claude", "dest": "/api/claude" },
     { "src": "/api/close", "dest": "/api/close" },
     { "src": "/api/autotrade", "dest": "/api/autotrade" },
+    { "src": "/api/db", "dest": "/api/db" },
     { "src": "/ig/(.+)", "dest": "/api/ig?path=$1" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
