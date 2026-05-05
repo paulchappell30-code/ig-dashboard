@@ -461,6 +461,7 @@
     <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+    <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
     <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
@@ -775,6 +776,72 @@
 
 
 
+
+    <!-- JOURNAL -->
+    <div class="tab-content" id="tab-journal">
+
+      <div class="cards-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="metric-card">
+          <div class="label">Total Trades</div>
+          <div class="value" id="j-total">—</div>
+          <div class="sub neu" id="j-winrate">Win rate: —</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Total P&L</div>
+          <div class="value" id="j-pnl">—</div>
+          <div class="sub neu" id="j-avgpnl">Avg: —</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Best Trade</div>
+          <div class="value pos" id="j-best">—</div>
+          <div class="sub neu" id="j-best-instr">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Worst Trade</div>
+          <div class="value neg" id="j-worst">—</div>
+          <div class="sub neu" id="j-worst-instr">—</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="section-title-row">
+            <div class="section-title">Equity Curve</div>
+            <button class="sm" onclick="loadJournal()">↻ Refresh</button>
+          </div>
+          <canvas id="equity-chart" style="width:100%;height:200px"></canvas>
+          <div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between;margin-top:4px">
+            <span id="eq-from">—</span><span id="eq-to">Today</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="section-title">Daily Performance</div>
+          <div id="daily-stats" style="font-size:13px">
+            <div class="empty">Load journal to see daily stats</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title-row">
+          <div class="section-title">Trade History</div>
+          <div style="display:flex;gap:8px">
+            <button class="sm" onclick="sendWeeklyReport()">📧 Weekly Report</button>
+            <button class="sm" onclick="initDb()">⚙ Init DB</button>
+          </div>
+        </div>
+        <div id="journal-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
+        <table>
+          <thead><tr>
+            <th>Opened</th><th>Instrument</th><th>Direction</th><th>Size</th>
+            <th>Open</th><th>Close</th><th>P&L</th><th>AI%</th><th>Status</th>
+          </tr></thead>
+          <tbody id="journal-body"><tr><td colspan="9" class="empty">Click Refresh to load trade history</td></tr></tbody>
+        </table>
+      </div>
+
+    </div>
     <!-- AUTO-TRADE -->
     <div class="tab-content" id="tab-autotrade">
 
@@ -848,6 +915,34 @@
               <div class="desc">Claude must approve signals before orders are placed</div>
             </div>
             <button class="toggle on" id="at-ai-toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:500">Multi-Timeframe Confirmation</div>
+              <div class="desc">Require daily AND hourly charts to agree</div>
+            </div>
+            <button class="toggle on" id="at-mtf-toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:500">Economic Calendar Filter</div>
+              <div class="desc">Skip trades 30 mins before major data releases</div>
+            </div>
+            <button class="toggle on" id="at-cal-toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label style="font-size:13px">Signal Threshold (min score)</label>
+              <span style="font-size:13px;font-weight:500" id="at-thresh-val">3</span>
+            </div>
+            <input type="range" id="at-threshold" min="2" max="7" value="3" oninput="document.getElementById('at-thresh-val').textContent=this.value" style="width:100%">
+          </div>
+          <div style="margin-top:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label style="font-size:13px">Trailing Stop %</label>
+              <span style="font-size:13px;font-weight:500" id="at-trail-val">1.5%</span>
+            </div>
+            <input type="range" min="0" max="5" step="0.5" value="1.5" oninput="document.getElementById('at-trail-val').textContent=this.value+'%'" style="width:100%">
           </div>
 
           <div style="margin-top:14px">
@@ -2526,6 +2621,204 @@ async function saveAutoTradeConfig() {
   alert('Add these to Vercel Environment Variables:\n\n'+vars.join('\n')+'\n\nThen redeploy.');
 }
 
+
+// ─── JOURNAL & DATABASE ───────────────────────────────────────────────────────
+async function loadJournal() {
+  document.getElementById('journal-status').textContent = 'Loading...';
+  try {
+    const [statsRes, tradesRes, equityRes] = await Promise.all([
+      fetch('/api/db?action=stats'),
+      fetch('/api/db?action=trades&limit=50'),
+      fetch('/api/db?action=equity&days=30')
+    ]);
+    const stats = await statsRes.json();
+    const trades = await tradesRes.json();
+    const equity = await equityRes.json();
+
+    if (stats.configured === false) {
+      document.getElementById('journal-status').innerHTML = '⚠️ Vercel Postgres not configured. <a href="https://vercel.com/docs/storage/vercel-postgres" target="_blank" style="color:var(--blue)">Set up a database</a> in your Vercel project, then click Init DB.';
+      return;
+    }
+
+    if (stats.error && stats.error.includes('not initialised')) {
+      document.getElementById('journal-status').innerHTML = 'Database tables not created yet. Click <strong>Init DB</strong> to set up.';
+      return;
+    }
+
+    document.getElementById('journal-status').textContent = '';
+
+    // Stats cards
+    if (stats.totalTrades !== undefined) {
+      document.getElementById('j-total').textContent = stats.totalTrades;
+      document.getElementById('j-winrate').textContent = 'Win rate: ' + stats.winRate + '%';
+      document.getElementById('j-pnl').textContent = (stats.totalPnL >= 0 ? '+' : '') + '£' + Number(stats.totalPnL).toFixed(2);
+      document.getElementById('j-pnl').className = 'value ' + (stats.totalPnL >= 0 ? 'pos' : 'neg');
+      document.getElementById('j-avgpnl').textContent = 'Avg: £' + Number(stats.avgPnL).toFixed(2);
+      if (stats.bestTrade) {
+        document.getElementById('j-best').textContent = '+£' + Number(stats.bestTrade.profit_loss).toFixed(2);
+        document.getElementById('j-best-instr').textContent = stats.bestTrade.instrument;
+      }
+      if (stats.worstTrade) {
+        document.getElementById('j-worst').textContent = '£' + Number(stats.worstTrade.profit_loss).toFixed(2);
+        document.getElementById('j-worst-instr').textContent = stats.worstTrade.instrument;
+      }
+
+      // Daily stats
+      const daily = stats.dailyStats || [];
+      document.getElementById('daily-stats').innerHTML = daily.length ? `
+        <table>
+          <thead><tr><th>Date</th><th>Trades</th><th>Wins</th><th>P&L</th></tr></thead>
+          <tbody>${daily.slice(0,10).map(d=>`
+            <tr>
+              <td>${d.trade_date}</td>
+              <td>${d.total_trades}</td>
+              <td class="pos">${d.winning_trades}</td>
+              <td class="${d.total_pnl>=0?'pos':'neg'}">${d.total_pnl>=0?'+':''}${Number(d.total_pnl).toFixed(2)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>` : '<div class="empty">No closed trades yet</div>';
+    }
+
+    // Trade history table
+    const tradeList = trades.trades || [];
+    document.getElementById('journal-body').innerHTML = tradeList.length ? tradeList.map(t => `
+      <tr>
+        <td style="font-size:12px;color:var(--text2)">${t.opened_at ? new Date(t.opened_at).toLocaleDateString('en-GB') : '—'}</td>
+        <td class="fw">${t.instrument||'—'}</td>
+        <td><span class="badge ${t.direction==='BUY'?'bg':'br'}">${t.direction||'—'}</span></td>
+        <td>${t.size||'—'}</td>
+        <td class="tag-num">${t.open_level||'—'}</td>
+        <td class="tag-num">${t.close_level||'—'}</td>
+        <td class="${(t.profit_loss||0)>=0?'pos':'neg'}">${t.profit_loss!=null?(t.profit_loss>=0?'+':'')+Number(t.profit_loss).toFixed(2):'Open'}</td>
+        <td style="font-size:12px">${t.ai_confidence!=null?t.ai_confidence+'%':'—'}</td>
+        <td><span class="badge ${t.status==='closed'?'bgr':'bg'}">${t.status||'—'}</span></td>
+      </tr>`).join('')
+      : '<tr><td colspan="9" class="empty">No trades recorded yet</td></tr>';
+
+    // Equity curve
+    const snapshots = equity.snapshots || [];
+    if (snapshots.length > 1) {
+      drawEquityCurve(snapshots);
+    }
+
+    document.getElementById('journal-status').textContent = 'Last updated: ' + new Date().toLocaleTimeString('en-GB');
+  } catch(e) {
+    document.getElementById('journal-status').textContent = 'Error: ' + e.message;
+  }
+}
+
+function drawEquityCurve(snapshots) {
+  const canvas = document.getElementById('equity-chart');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 200 * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = '200px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = 200;
+  const PAD = { top: 10, right: 20, bottom: 25, left: 60 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textCol = isDark ? '#9b9b96' : '#6b6b67';
+  const gridCol = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  ctx.clearRect(0, 0, W, H);
+
+  const balances = snapshots.map(s => parseFloat(s.balance));
+  const minB = Math.min(...balances);
+  const maxB = Math.max(...balances);
+  const range = maxB - minB || 1;
+
+  const xScale = i => PAD.left + (i / (snapshots.length - 1)) * chartW;
+  const yScale = b => PAD.top + chartH - ((b - minB) / range * chartH);
+
+  // Grid
+  ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + (chartH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+    const val = maxB - (range / 4) * i;
+    ctx.fillStyle = textCol; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('£' + val.toLocaleString('en-GB', {maximumFractionDigits:0}), PAD.left - 4, y + 4);
+  }
+
+  // Line
+  const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + chartH);
+  grad.addColorStop(0, 'rgba(0,114,206,0.2)'); grad.addColorStop(1, 'rgba(0,114,206,0)');
+  ctx.beginPath();
+  snapshots.forEach((s, i) => {
+    const x = xScale(i), y = yScale(parseFloat(s.balance));
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#0072CE'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.lineTo(xScale(snapshots.length-1), PAD.top + chartH);
+  ctx.lineTo(xScale(0), PAD.top + chartH);
+  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+  // Date labels
+  const first = new Date(snapshots[0].snapshot_time);
+  const last = new Date(snapshots[snapshots.length-1].snapshot_time);
+  document.getElementById('eq-from').textContent = first.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
+  document.getElementById('eq-to').textContent = last.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
+}
+
+async function initDb() {
+  document.getElementById('journal-status').textContent = 'Initialising database...';
+  try {
+    const res = await fetch('/api/db?action=init');
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('journal-status').textContent = '✅ Database initialised successfully';
+      addLog('system', 'Database tables created successfully');
+    } else if (data.configured === false) {
+      document.getElementById('journal-status').innerHTML = '⚠️ Vercel Postgres not connected. Go to Vercel → Storage → Create Database → Connect to project.';
+    } else {
+      document.getElementById('journal-status').textContent = 'Error: ' + (data.message || JSON.stringify(data));
+    }
+  } catch(e) {
+    document.getElementById('journal-status').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function sendWeeklyReport() {
+  try {
+    const statsRes = await fetch('/api/db?action=stats');
+    const stats = await statsRes.json();
+    if (!stats.totalTrades) { alert('No trade data available yet'); return; }
+
+    const body = `Weekly Trading Report
+
+` +
+      `Total Trades: ${stats.totalTrades}
+` +
+      `Win Rate: ${stats.winRate}%
+` +
+      `Total P&L: £${Number(stats.totalPnL).toFixed(2)}
+` +
+      `Average P&L per trade: £${Number(stats.avgPnL).toFixed(2)}
+` +
+      `Best Trade: £${stats.bestTrade ? Number(stats.bestTrade.profit_loss).toFixed(2) : 'N/A'} (${stats.bestTrade?.instrument || ''})
+` +
+      `Worst Trade: £${stats.worstTrade ? Number(stats.worstTrade.profit_loss).toFixed(2) : 'N/A'} (${stats.worstTrade?.instrument || ''})
+
+` +
+      `Generated: ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' })}`;
+
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'daily_summary', subject: '📊 Weekly Trading Report — IG Investment Programme', body })
+    });
+    const data = await res.json();
+    if (data.sent) { alert('✅ Weekly report sent to ' + data.to); addLog('system', 'Weekly report sent'); }
+    else { alert('⚠️ ' + (data.reason || data.error)); }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
@@ -2750,6 +3043,7 @@ function switchTab(id, el) {
   tab.classList.add('active');
   el.classList.add('active');
   // Auto-load chart data when switching to charts tab (only if no cached data)
+  if (id === 'journal') { loadJournal(); }
   if (id === 'charts' && S.connected) {
     const cacheKey = chartState.epic + '_' + chartState.resolution + '_' + chartState.count;
     const isCached = S.priceCache && S.priceCache[cacheKey] && (Date.now()-S.priceCache[cacheKey].ts < 30*60*1000);
