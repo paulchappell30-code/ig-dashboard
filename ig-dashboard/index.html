@@ -2040,6 +2040,10 @@ const PRICE_CACHE_TTL = {
 };
 
 async function fetchPricesWithCache(epic, resolution, count) {
+  if (S.historicalBlocked) {
+    console.log('[Cache] Allowance exceeded — skipping request for', epic);
+    return null;
+  }
   const key = epic + '_' + resolution + '_' + count;
   const cached = S.priceCache[key];
   const ttl = PRICE_CACHE_TTL[resolution] || 60 * 60 * 1000;
