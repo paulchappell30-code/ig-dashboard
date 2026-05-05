@@ -341,14 +341,14 @@ async function getPrices(epic,resolution,count,igBase,igH){
 
 async function saveToDb(type,data){
   try{
-    const base=process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:'http://localhost:3000';
+    const base=process.env.PRODUCTION_URL||`https://ig-dashboard-roan.vercel.app`;
     await fetch(`${base}/api/db`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,data})});
   }catch(e){}
 }
 
 async function sendNotify(type,subject,body){
   try{
-    const base=process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:'http://localhost:3000';
+    const base=process.env.PRODUCTION_URL||`https://ig-dashboard-roan.vercel.app`;
     await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,subject,body})});
   }catch(e){}
 }
