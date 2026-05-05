@@ -8,6 +8,8 @@
     { "src": "/api/close", "dest": "/api/close" },
     { "src": "/api/autotrade", "dest": "/api/autotrade" },
     { "src": "/api/db", "dest": "/api/db" },
+    { "src": "/api/prices", "dest": "/api/prices" },
+    { "src": "/api/review", "dest": "/api/review" },
     { "src": "/ig/(.+)", "dest": "/api/ig?path=$1" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
