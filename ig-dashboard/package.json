@@ -1,7 +1,7 @@
 {
   "name": "ig-automated-investment-programme",
-  "version": "2.0.0",
-  "description": "IG Index automated investment dashboard v2",
+  "version": "3.0.0",
+  "description": "IG Index automated investment dashboard v3",
   "private": true,
   "dependencies": {
     "@vercel/postgres": "^0.10.0",
