@@ -93,16 +93,46 @@ module.exports = async (req, res) => {
     }
   }
 
-  const body = req.body || {};
+  // TradingView sends alerts as plain text — parse accordingly
+  let body = req.body || {};
   const log = [];
   const L = msg => { console.log('[Signal]', msg); log.push(msg); };
 
-  L('=== Signal received === ' + new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
-  L('Source: ' + (body.source || 'unknown'));
-  L('Raw body: ' + JSON.stringify(body));
+  // Handle plain text body from TradingView
+  if (typeof body === 'string' || (req.headers['content-type'] || '').includes('text/plain')) {
+    const raw = typeof body === 'string' ? body : JSON.stringify(body);
+    L('Plain text body received: ' + raw);
+    // Try to parse as JSON first
+    try {
+      body = JSON.parse(raw);
+    } catch(e) {
+      // Parse TradingView plain text format: "INSTRUMENT,DIRECTION,STRENGTH"
+      // or "BUY FTSE" or custom format
+      const parts = raw.trim().split(/[,\s]+/);
+      body = {};
+      // Detect direction
+      const dirWord = parts.find(p => ['BUY','SELL','LONG','SHORT'].includes(p.toUpperCase()));
+      if (dirWord) body.direction = dirWord;
+      // Detect instrument — anything that's not a direction or number
+      const instrWord = parts.find(p => !['BUY','SELL','LONG','SHORT'].includes(p.toUpperCase()) && isNaN(p));
+      if (instrWord) body.instrument = instrWord;
+      // Detect strength — any number 1-5
+      const strengthNum = parts.find(p => !isNaN(p) && parseInt(p) >= 1 && parseInt(p) <= 5);
+      if (strengthNum) body.strength = parseInt(strengthNum);
+      body.source = body.source || 'TradingView';
+    }
+  }
 
-  // Parse instrument
-  const rawInstrument = body.instrument || body.epic || body.symbol || '';
+  L('=== Signal received === ' + new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+  L('Source: ' + (body.source || 'TradingView'));
+  L('Parsed body: ' + JSON.stringify(body));
+
+  // Parse instrument — handle TradingView ticker formats
+  // TradingView uses formats like: SPREADEX:FTSE, OANDA:GBPUSD, etc
+  const rawInstrumentFull = body.instrument || body.epic || body.symbol || body.ticker || '';
+  const rawInstrument = rawInstrumentFull.includes(':') 
+    ? rawInstrumentFull.split(':')[1]  // Strip exchange prefix e.g. SPREADEX:FTSE -> FTSE
+    : rawInstrumentFull;
   const epic = EPIC_MAP[rawInstrument] || EPIC_MAP[rawInstrument?.toUpperCase()] || null;
   const instr = INSTRUMENT_NAMES[epic] || rawInstrument;
 
@@ -126,7 +156,7 @@ module.exports = async (req, res) => {
   }
 
   const strength = parseInt(body.strength) || 3;
-  const source = body.source || 'External';
+  const source = body.source || 'TradingView';
   const indicators = body.indicators || body.reason || body.message || '';
   const signalPrice = parseFloat(body.price) || null;
 
