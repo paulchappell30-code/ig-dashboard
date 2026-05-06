@@ -1141,7 +1141,10 @@ async function igFetch(path, opts = {}) {
   return res;
 }
 
+let _lastRefresh = 0;
 async function refreshSession() {
+  if (Date.now() - _lastRefresh < 30000) { console.log('[Session] Rate limited'); return false; }
+  _lastRefresh = Date.now();
   try {
     const res = await fetch('/ig/session', {
       method: 'POST',
@@ -1151,15 +1154,11 @@ async function refreshSession() {
     const cst = res.headers.get('CST');
     const xst = res.headers.get('X-SECURITY-TOKEN');
     if (res.ok && cst) {
-      S.cst = cst;
-      S.xst = xst;
-      addLog('system', 'Session refreshed successfully.');
-      const cl = document.getElementById('conn-label'); if(cl) cl.textContent = S.env === 'live' ? 'Live' : 'Demo';
+      S.cst = cst; S.xst = xst;
+      addLog('system', 'Session refreshed.');
       return true;
     }
-  } catch(e) {
-    addLog('system', 'Session refresh failed: ' + e.message);
-  }
+  } catch(e) { addLog('system', 'Refresh failed: ' + e.message); }
   return false;
 }
 
@@ -1167,9 +1166,13 @@ async function loadFromIG() {
   if (!S.connected) return;
   addLog('system', 'Loading account data from IG...');
   await loadAccount();
+  await new Promise(r => setTimeout(r, 400));
   await loadPositions();
-  await loadOrders();
-  await loadPrices();
+  await new Promise(r => setTimeout(r, 400));
+  startLightstreamer();
+  setTimeout(async () => {
+    try { await renderPnLChart(); } catch(e) {}
+  }, 2000);
 }
 
 async function loadAccount() {
