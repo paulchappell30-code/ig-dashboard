@@ -101,7 +101,7 @@ module.exports = async (req,res) => {
   if (process.env.TWELVE_DATA_KEY) {
     try {
       // Use cache if fresh (saves ~144 credits/day vs fetching every 5 mins)
-      if (globalThis._tdCache.data && Date.now() - globalThis._tdCache.ts < TD_CACHE_TTL) {
+      if (globalThis._tdCache && globalThis._tdCache.data && Date.now() - globalThis._tdCache.ts < TD_CACHE_TTL) {
         tdSignals = globalThis._tdCache.data;
         L(`Twelve Data: using cached data (${Math.round((Date.now()-globalThis._tdCache.ts)/60000)}m old)`);
       } else {
