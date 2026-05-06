@@ -964,11 +964,7 @@ const S = {
   cst: null,
   xst: null,
   apiKey: null,
-  positions: [
-    { id:1, name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', dir:'Long', size:'£5,000', open:'7,842', current:'7,901', pl:'+£295', plPct:'+5.9%' },
-    { id:2, name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', dir:'Long', size:'£3,000', open:'40,000', current:'40,200', pl:'+£30', plPct:'+1.0%' },
-    { id:3, name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', dir:'Short', size:'£2,000', open:'5,620', current:'5,598', pl:'+£8', plPct:'+0.4%' },
-  ],
+  positions: [],
   dca: [
     { id:1, instr:'FTSE 100', amt:'£250', freq:'Monthly', next:'24 Mar 2026', status:'active' },
     { id:2, instr:'S&P 500', amt:'£200', freq:'Monthly', next:'24 Mar 2026', status:'active' },
@@ -1003,10 +999,10 @@ const S = {
     { name:'Shares', target:20, current:20 },
   ],
   orders: [
-    { time:'16 Mar 09:31', instr:'Gold', dir:'Buy', type:'Market', size:'£500', price:'2,341.2', status:'filled' },
-    { time:'15 Mar 14:12', instr:'FTSE 100', dir:'Buy', type:'DCA', size:'£250', price:'7,898.4', status:'filled' },
-    { time:'14 Mar 11:05', instr:'S&P 500', dir:'Sell', type:'Limit', size:'£500', price:'5,620.0', status:'filled' },
-    { time:'10 Mar 09:31', instr:'Gold', dir:'Buy', type:'DCA', size:'£100', price:'2,305.8', status:'filled' },
+    { time:'16 Mar 09:31', instr:'Gold', dir:'Buy', type:'Market', size:'£500', price:'—', status:'filled' },
+    { time:'15 Mar 14:12', instr:'FTSE 100', dir:'Buy', type:'DCA', size:'£250', price:'—', status:'filled' },
+    { time:'14 Mar 11:05', instr:'S&P 500', dir:'Sell', type:'Limit', size:'£500', price:'—', status:'filled' },
+    { time:'10 Mar 09:31', instr:'Gold', dir:'Buy', type:'DCA', size:'£100', price:'—', status:'filled' },
   ],
   log: [
     { time:'09:31:04', type:'order', msg:'DCA order placed: Buy £100 Gold @ market — filled at 2,341.2' },
@@ -1016,14 +1012,14 @@ const S = {
   ],
   priceCache: {}, // { epic_resolution: { closes, ts, candles } }
   markets: [
-    { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', price:'7,901', change:'+0.75%', pos:true, icon:'🇬🇧' },
-    { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'5,598', change:'-0.12%', pos:false, icon:'🇺🇸' },
-    { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'22,241', change:'+0.43%', pos:true, icon:'🇩🇪' },
-    { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', price:'40,000', change:'+0.50%', pos:true, icon:'🇺🇸' },
-    { name:'Brent Oil', epic:'CC.D.LCO.USS.IP', price:'71.4', change:'-1.2%', pos:false, icon:'🛢️' },
-    { name:'GBP/USD', epic:'CS.D.GBPUSD.MINI.IP', price:'1.2950', change:'+0.10%', pos:true, icon:'💷' },
-    { name:'EUR/USD', epic:'CS.D.EURUSD.MINI.IP', price:'1.0850', change:'-0.05%', pos:false, icon:'💶' },
-    { name:'USD/JPY', epic:'CS.D.USDJPY.MINI.IP', price:'149.50', change:'+0.20%', pos:true, icon:'💴' },
+    { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇬🇧' },
+    { name:'S&P 500', epic:'IX.D.SPTRD.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇺🇸' },
+    { name:'DAX 40', epic:'IX.D.DAX.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇩🇪' },
+    { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇺🇸' },
+    { name:'Brent Oil', epic:'CC.D.LCO.USS.IP', price:'—', change:'—', pos:true, icon:'🛢️' },
+    { name:'GBP/USD', epic:'CS.D.GBPUSD.MINI.IP', price:'—', change:'—', pos:true, icon:'💷' },
+    { name:'EUR/USD', epic:'CS.D.EURUSD.MINI.IP', price:'—', change:'—', pos:true, icon:'💶' },
+    { name:'USD/JPY', epic:'CS.D.USDJPY.MINI.IP', price:'—', change:'—', pos:true, icon:'💴' },
   ]
 };
 
@@ -1088,9 +1084,9 @@ function showApp() {
   const banner = document.getElementById('env-banner');
   if (S.env === 'live' && banner) {
     if (banner) banner.textContent = '⚠ Live mode — real orders will be placed. Trade carefully.';
-    banner.className = 'env-banner live';
+    if (banner) banner.className = 'env-banner live';
   }
-  document.getElementById('conn-dot').className = 'status-dot' + (S.connected ? '' : ' off');
+  const _cd = document.getElementById('conn-dot'); if(_cd) _cd.className = 'status-dot' + (S.connected ? '' : ' off');
   const _cl = document.getElementById('conn-label'); if(_cl) _cl.textContent = S.connected
     ? (S.env === 'live' ? 'Connected — Live' : 'Connected — Demo')
     : 'Demo mode (no API)';
@@ -1102,7 +1098,7 @@ function doLogout() {
   S.cst = null; S.xst = null; S.connected = false;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('login-error').style.display = 'none';
+  const _le = document.getElementById('login-error'); if(_le) _le.style.display = 'none';
 }
 
 // ─── IG API CALLS ─────────────────────────────────────────────────────────────
