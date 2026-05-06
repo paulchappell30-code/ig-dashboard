@@ -463,6 +463,7 @@
     <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
     <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
     <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
+    <div class="nav-tab" onclick="switchTab('signals',this)">📡 Signals</div>
     <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
@@ -1094,6 +1095,150 @@
       </div>
     </div>
 
+
+    <!-- SIGNALS -->
+    <div class="tab-content" id="tab-signals">
+
+      <!-- Status -->
+      <div id="sig-banner" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:10px;height:10px;border-radius:50%;background:var(--green)"></div>
+          <div>
+            <div style="font-weight:500">Signal Webhook: Active</div>
+            <div style="font-size:12px;color:var(--text2)" id="sig-url"></div>
+          </div>
+        </div>
+        <button onclick="testSignal()">🧪 Test Signal</button>
+      </div>
+
+      <div class="two-col">
+
+        <!-- ProRealTime Setup -->
+        <div class="panel">
+          <div class="section-title">ProRealTime Setup Guide</div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 1 — Add Signal Key to Vercel</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              Go to Vercel → Environment Variables → add:<br>
+              <code style="background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:12px">SIGNAL_KEY = your-secret-key</code><br>
+              This protects your endpoint from unauthorised signals.
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 2 — Create ProRealTime Screener</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              In ProRealTime, open <strong>ProScreener</strong> and create a new screener with your conditions. Example for RSI oversold on FTSE:
+            </div>
+            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;margin-top:8px;overflow-x:auto">// ProRealTime ProScreener code
+r = RSI[14](close)
+SCREENER[r < 30]("RSI Oversold")</pre>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 3 — Set Up Alert with Webhook</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              In ProRealTime → Alerts → Create Alert → select your screener → Alert type: <strong>Webhook</strong>.<br><br>
+              Set the webhook URL to your signal endpoint and configure the JSON body as shown on the right.
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 4 — ProOrder Automated Strategy</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              Alternatively, use ProOrder to run strategies that call the webhook. Add this to any ProOrder strategy to send signals to our system instead of placing orders directly:
+            </div>
+            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;margin-top:8px;overflow-x:auto">// Add to your ProOrder strategy
+// Replace YOUR_KEY with your SIGNAL_KEY
+IF barindex = 1 THEN
+  url = "https://ig-dashboard-roan.vercel.app/api/signal"
+  key = "YOUR_KEY"
+  body = "instrument=FTSE&direction=BUY&source=ProRealTime&strength=4"
+  WEBHOOK(url, body, "X-Signal-Key: " + key)
+ENDIF</pre>
+          </div>
+        </div>
+
+        <!-- Webhook config -->
+        <div>
+          <div class="panel" style="margin-bottom:16px">
+            <div class="section-title">Webhook Configuration</div>
+
+            <div class="form-row" style="margin-bottom:12px">
+              <label>Endpoint URL</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" id="sig-endpoint" readonly style="font-size:12px;font-family:monospace">
+                <button class="sm" onclick="navigator.clipboard.writeText(document.getElementById('sig-endpoint').value)">Copy</button>
+              </div>
+            </div>
+
+            <div class="form-row" style="margin-bottom:12px">
+              <label>Method</label>
+              <input type="text" value="POST" readonly>
+            </div>
+
+            <div class="form-row" style="margin-bottom:12px">
+              <label>Auth Header</label>
+              <input type="text" value="X-Signal-Key: YOUR_SIGNAL_KEY" readonly style="font-size:12px;font-family:monospace">
+            </div>
+
+            <div style="font-weight:500;margin-bottom:8px;margin-top:16px">Example JSON Body</div>
+            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;overflow-x:auto">{
+  "instrument": "FTSE 100",
+  "direction": "BUY",
+  "source": "ProRealTime",
+  "strength": 4,
+  "indicators": "RSI oversold + BB lower",
+  "price": 8450.5
+}</pre>
+
+            <div style="font-weight:500;margin-bottom:8px;margin-top:16px">Supported Instruments</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.8">
+              FTSE 100, FTSE, S&P 500, SPX, SP500, DAX 40, DAX,<br>
+              Dow Jones, DOW, Brent Oil, OIL,<br>
+              GBP/USD, GBPUSD, EUR/USD, EURUSD, USD/JPY, USDJPY<br>
+              <em>Also accepts IG epics directly (IX.D.FTSE.DAILY.IP etc)</em>
+            </div>
+          </div>
+
+          <!-- Manual test -->
+          <div class="panel">
+            <div class="section-title">Manual Test Signal</div>
+            <div class="form-row" style="margin-bottom:10px">
+              <label>Instrument</label>
+              <select id="test-instr">
+                <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+                <option>Brent Oil</option><option>GBP/USD</option><option>EUR/USD</option>
+              </select>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <label>Direction</label>
+              <select id="test-dir"><option>BUY</option><option>SELL</option></select>
+            </div>
+            <div class="form-row" style="margin-bottom:10px">
+              <label>Strength (1-5)</label>
+              <input type="number" id="test-strength" value="3" min="1" max="5">
+            </div>
+            <div class="form-row" style="margin-bottom:14px">
+              <label>Signal Key</label>
+              <input type="password" id="test-key" placeholder="Your SIGNAL_KEY">
+            </div>
+            <button class="primary" onclick="testSignal()" style="width:100%">Send Test Signal</button>
+            <div id="test-result" style="margin-top:12px;font-size:12px;color:var(--text2)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent signals log -->
+      <div class="panel">
+        <div class="section-title">Recent Signals</div>
+        <div id="signal-log" style="font-size:12px;max-height:200px;overflow-y:auto;color:var(--text2)">
+          No signals received yet. Signals will appear here when ProRealTime alerts fire.
+        </div>
+      </div>
+
+    </div>
     <!-- CHARTS -->
     <div class="tab-content" id="tab-charts">
 
@@ -3023,6 +3168,60 @@ function detectRegimeFromCloses(closes) {
   const slope = ((h2 - h1) / h1) * 100;
   if (Math.abs(slope) > 3 && trendStr > 0.3) return slope > 0 ? 'uptrend' : 'downtrend';
   return 'ranging';
+}
+
+
+// ─── SIGNAL TAB ───────────────────────────────────────────────────────────────
+setTimeout(() => {
+  const ep = document.getElementById('sig-endpoint');
+  const su = document.getElementById('sig-url');
+  if (ep) ep.value = window.location.origin + '/api/signal';
+  if (su) su.textContent = window.location.origin + '/api/signal';
+}, 500);
+
+async function testSignal() {
+  const instr = document.getElementById('test-instr')?.value || 'FTSE 100';
+  const dir = document.getElementById('test-dir')?.value || 'BUY';
+  const strength = document.getElementById('test-strength')?.value || 3;
+  const key = document.getElementById('test-key')?.value || '';
+  const resultEl = document.getElementById('test-result');
+
+  if (resultEl) resultEl.textContent = 'Sending test signal...';
+
+  try {
+    const res = await fetch('/api/signal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Signal-Key': key
+      },
+      body: JSON.stringify({
+        instrument: instr,
+        direction: dir,
+        source: 'Manual Test',
+        strength: parseInt(strength),
+        indicators: 'Manual test signal from dashboard'
+      })
+    });
+    const data = await res.json();
+    const msg = `Action: ${data.action} | ${data.aiConfidence ? 'AI: ' + data.aiConfidence + '%' : ''} ${data.reason || data.error || ''}`;
+    if (resultEl) {
+      resultEl.textContent = msg;
+      resultEl.style.color = data.action === 'trade_placed' ? 'var(--green)' : 'var(--text2)';
+    }
+    appendSignalLog(dir + ' ' + instr + ' — ' + data.action + (data.level ? ' @ ' + data.level : ''));
+    addLog('system', 'Test signal: ' + msg);
+  } catch(e) {
+    if (resultEl) resultEl.textContent = 'Error: ' + e.message;
+  }
+}
+
+function appendSignalLog(msg) {
+  const el = document.getElementById('signal-log');
+  if (!el) return;
+  if (el.textContent.includes('No signals')) el.innerHTML = '';
+  const time = new Date().toLocaleTimeString('en-GB');
+  el.innerHTML = '<div><span style="color:var(--text3)">' + time + '</span> 📡 ' + msg + '</div>' + el.innerHTML;
 }
 
 async function refreshAll() {
