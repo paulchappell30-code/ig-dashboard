@@ -274,7 +274,7 @@ module.exports = async (req,res) => {
       const total=sc+newsAdj+sentAdj+tdAdj;
       L(`${instr}: score ${sc}+news${newsAdj}+sent${sentAdj}+td${tdAdj}=${total} regime:${regime}`);
 
-      if(Math.abs(total)<cfg.signalThreshold){L(`${instr}: below threshold`);continue;}
+      if(Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
 
       const dir=total>0?'BUY':'SELL';
       const atr=calcATR(closes);
