@@ -96,25 +96,47 @@ module.exports = async (req,res) => {
 
   const igH={'Content-Type':'application/json','X-IG-API-KEY':process.env.IG_API_KEY||'','CST':cst,'X-SECURITY-TOKEN':xst};
 
-  // Twelve Data — fetch enhanced indicators if API key configured
+  // Twelve Data — fetch indicators directly (not via /api/indicators to avoid timeout)
   let tdSignals = {};
   if (process.env.TWELVE_DATA_KEY) {
     try {
-      const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-      const tdRes = await fetch(`${base}/api/indicators`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interval: '1h' })
-      });
-      if (tdRes.ok) {
-        const tdData = await tdRes.json();
-        if (tdData.signals) {
-          tdSignals = {};
-          tdData.signals.forEach(s => { tdSignals[s.instr] = s; });
-          L(`Twelve Data: ${tdData.signals.length} signals loaded`);
-        }
+      const TD_KEY = process.env.TWELVE_DATA_KEY;
+      const TD_BASE = 'https://api.twelvedata.com';
+      // Only fetch top 3 instruments to stay within 30s Vercel timeout
+      const TD_PRIORITY = [
+        { instr: 'GBP/USD', symbol: 'GBP/USD' },
+        { instr: 'EUR/USD', symbol: 'EUR/USD' },
+        { instr: 'FTSE 100', symbol: 'IX:FTSE' },
+      ];
+      let tdLoaded = 0;
+      for (const { instr, symbol } of TD_PRIORITY) {
+        try {
+          const [rsiRes, macdRes, bbRes] = await Promise.all([
+            fetch(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=14&apikey=${TD_KEY}`),
+            fetch(`${TD_BASE}/macd?symbol=${encodeURIComponent(symbol)}&interval=1h&fast_period=12&slow_period=26&signal_period=9&apikey=${TD_KEY}`),
+            fetch(`${TD_BASE}/bbands?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=20&apikey=${TD_KEY}`),
+          ]);
+          const [rsiD, macdD, bbD] = await Promise.all([rsiRes.json(), macdRes.json(), bbRes.json()]);
+          if (rsiD.status === 'error') { L(`TD ${instr}: ${rsiD.message}`); continue; }
+          const rsi = parseFloat(rsiD.values?.[0]?.rsi);
+          const macd = parseFloat(macdD.values?.[0]?.macd);
+          const macdSig = parseFloat(macdD.values?.[0]?.macd_signal);
+          const bbUpper = parseFloat(bbD.values?.[0]?.upper_band);
+          const bbLower = parseFloat(bbD.values?.[0]?.lower_band);
+          // Score
+          let sc = 0;
+          if (rsi < 25) sc += 4; else if (rsi < 30) sc += 3; else if (rsi < 40) sc += 2;
+          else if (rsi > 75) sc -= 4; else if (rsi > 70) sc -= 3; else if (rsi > 60) sc -= 2;
+          if (!isNaN(macd) && !isNaN(macdSig)) { if (macd > macdSig) sc += 2; else sc -= 2; }
+          // Note: bb scoring needs current price - skip for now
+          tdSignals[instr] = { score: sc, rsi, macd, macdCrossover: macd > macdSig ? 'bullish' : 'bearish', bbUpper, bbLower };
+          L(`TD ${instr}: RSI=${rsi?.toFixed(1)} MACD=${macd?.toFixed(4)} score=${sc}`);
+          tdLoaded++;
+          await new Promise(r => setTimeout(r, 500)); // Small delay between instruments
+        } catch(e) { L(`TD ${instr}: ${e.message}`); }
       }
-    } catch(e) { L('Twelve Data fetch failed: ' + e.message); }
+      L(`Twelve Data: ${tdLoaded} instruments loaded`);
+    } catch(e) { L('Twelve Data failed: ' + e.message); }
   }
 
   // Account
