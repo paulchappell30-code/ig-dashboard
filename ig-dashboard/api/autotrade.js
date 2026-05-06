@@ -228,10 +228,44 @@ module.exports = async (req,res) => {
     if(!approved){L(`${sig.instr}: AI rejected (${confidence}%)`);continue;}
 
     const sz=Math.max(1,Math.min(sig.suggestedSize,cfg.maxSizePerTrade));
-    L(`Placing ${sig.direction} ${sz} on ${sig.instr} (regime:${sig.regime})...`);
+
+    // Margin check — verify account has sufficient funds before placing
+    try {
+      const mktRes=await fetch(`${igBase}/markets/${sig.epic}`,{headers:{...igH,'Version':'3'}});
+      if(mktRes.ok){
+        const mktData=await mktRes.json();
+        // Get margin % from marginDepositBands for our position size
+        const bands=mktData.instrument?.marginDepositBands||[];
+        const currentPrice=sig.lastClose||10000;
+        const notional=currentPrice*sz;
+        const band=bands.find(b=>notional>=b.min&&(b.max===null||notional<b.max))||bands[0]||{margin:5};
+        const marginPct=band.margin/100;
+        const requiredMargin=notional*marginPct;
+        const minNotional=currentPrice*0.01; // Min 0.01 units
+        const minMargin=minNotional*marginPct;
+        L(`${sig.instr}: notional £${notional.toFixed(0)}, margin ${band.margin}%, need £${requiredMargin.toFixed(0)}, have £${available.toFixed(0)}`);
+        if(requiredMargin>available*0.85){
+          // Calculate max affordable size
+          const maxAffordable=Math.floor((available*0.85)/(currentPrice*marginPct)*100)/100;
+          const minSize=mktData.dealingRules?.minDealSize?.value||0.01;
+          if(maxAffordable>=minSize){
+            L(`${sig.instr}: reducing size to ${maxAffordable} units (max affordable)`);
+            sig.suggestedSize=maxAffordable;
+          }else{
+            L(`${sig.instr}: cannot afford minimum size (need £${minMargin.toFixed(0)}) — skip`);
+            continue;
+          }
+        }else{
+          L(`${sig.instr}: margin OK ✅`);
+        }
+      }
+    }catch(e){L('Margin check error: '+e.message);}
+
+    const finalSz = Math.max(0.01, Math.min(sig.suggestedSize, cfg.maxSizePerTrade));
+    L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
 
     try{
-      const ob={epic:sig.epic,direction:sig.direction,size:sz,orderType:'MARKET',
+      const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
       if(cfg.trailingStopPct>0&&sig.atr>0){
         const sd=Math.max(10,sig.atr*2);
@@ -256,13 +290,13 @@ module.exports = async (req,res) => {
       if(confirm.dealStatus==='ACCEPTED'){
         L(`✅ ACCEPTED ref:${ref} level:${confirm.level}`);
         await saveToDb('trade_opened',{dealId:confirm.dealId,dealReference:ref,
-          instrument:sig.instr,epic:sig.epic,direction:sig.direction,size:sz,
+          instrument:sig.instr,epic:sig.epic,direction:sig.direction,size:finalSz,
           openLevel:confirm.level,signalScore:sig.score,aiConfidence:confidence,
           signalReasons:sig.reasons,regime:sig.regime,dataSource:sig.src});
         await sendNotify('dca',`✅ v3 Auto-Trade: ${sig.direction} ${sig.instr}`,
-          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: ${sz} units (Kelly)\nPrice: ${confirm.level}\nRef: ${ref}\n\nScore: ${sig.score} (raw${sig.rawScore}+news${sig.newsAdj}+sent${sig.sentAdj})\nRegime: ${sig.regime}\nAI: ${confidence}%\n${reasoning}\n\nSignals:\n${sig.reasons.join('\n')}\n\nP&L: ${plPct.toFixed(2)}% | Balance: £${balance}\nTime: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
+          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: ${finalSz} units (Kelly)\nPrice: ${confirm.level}\nRef: ${ref}\n\nScore: ${sig.score} (raw${sig.rawScore}+news${sig.newsAdj}+sent${sig.sentAdj})\nRegime: ${sig.regime}\nAI: ${confidence}%\n${reasoning}\n\nSignals:\n${sig.reasons.join('\n')}\n\nP&L: ${plPct.toFixed(2)}% | Balance: £${balance}\nTime: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         return res.status(200).json({action:'trade_placed',version:3,instrument:sig.instr,
-          direction:sig.direction,size:sz,ref,level:confirm.level,aiConfidence:confidence,regime:sig.regime,log});
+          direction:sig.direction,size:finalSz,ref,level:confirm.level,aiConfidence:confidence,regime:sig.regime,log});
       }else{
         L(`Rejected: ${confirm.reason||confirm.dealStatus}`);
         await sendNotify('error',`❌ Order Rejected: ${sig.instr}`,`Reason: ${confirm.reason||confirm.dealStatus}`);
