@@ -428,7 +428,6 @@ code{
     <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
     <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
-    <div class="nav-tab" onclick="switchTab('signals',this)">📡 Signals</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
@@ -847,87 +846,6 @@ code{
       </div>
     </div>
 
-    <!-- ══ SIGNALS ════════════════════════════════════════════════════════════ -->
-    <div class="tab-content" id="tab-signals">
-      <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <div style="font-weight:600;margin-bottom:2px">Signal Webhook Receiver</div>
-            <div style="font-size:12px;color:var(--text2)" id="sig-url"></div>
-          </div>
-          <button class="btn" onclick="testSignal()">🧪 Test Signal</button>
-        </div>
-      </div>
-
-      <div class="two-col">
-        <div class="card">
-          <div class="card-title" style="margin-bottom:14px">TradingView Setup Guide</div>
-          <div style="font-size:13px;color:var(--text2);line-height:1.8">
-            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 1</strong> — Add to Vercel env vars:<br><code>SIGNAL_KEY = your-secret-key</code></div>
-            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 2</strong> — Go to <strong>tradingview.com</strong> (free account)</div>
-            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 3</strong> — Open FTSE/UK100 chart → Add RSI indicator</div>
-            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 4</strong> — Click Alert (clock icon) → Set RSI crossing below 30</div>
-            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 5</strong> — Enable Webhook → paste endpoint URL + JSON body</div>
-            <div style="margin-bottom:6px"><strong style="color:var(--text1)">Alert message body:</strong></div>
-            <pre>{
-  "instrument": "FTSE 100",
-  "direction": "BUY",
-  "source": "TradingView",
-  "strength": 4,
-  "indicators": "RSI crossed below 30"
-}</pre>
-          </div>
-        </div>
-
-        <div>
-          <div class="card" style="margin-bottom:12px">
-            <div class="card-title" style="margin-bottom:12px">Webhook Config</div>
-            <div class="form-row">
-              <label>Endpoint URL</label>
-              <div style="display:flex;gap:6px">
-                <input type="text" id="sig-endpoint" readonly style="font-family:var(--font-mono);font-size:11px">
-                <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('sig-endpoint').value)">Copy</button>
-              </div>
-            </div>
-            <div class="form-row">
-              <label>Auth Header</label>
-              <input type="text" value="X-Signal-Key: YOUR_SIGNAL_KEY" readonly style="font-family:var(--font-mono);font-size:11px">
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title" style="margin-bottom:12px">Test Signal</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-              <div class="form-row">
-                <label>Instrument</label>
-                <select id="test-instr">
-                  <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-                  <option>Brent Oil</option><option>GBP/USD</option><option>EUR/USD</option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label>Direction</label>
-                <select id="test-dir"><option>BUY</option><option>SELL</option></select>
-              </div>
-            </div>
-            <div class="form-row">
-              <label>Signal Key</label>
-              <input type="password" id="test-key" placeholder="Your SIGNAL_KEY">
-            </div>
-            <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="testSignal()">Send Test</button>
-            <div id="test-result" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:10px">Recent Signals</div>
-        <div id="signal-log" style="max-height:180px;overflow-y:auto">
-          <div class="empty">No signals yet</div>
-        </div>
-      </div>
-    </div>
-
     <!-- ══ AI ANALYST ═════════════════════════════════════════════════════════ -->
     <div class="tab-content" id="tab-ai">
       <div class="two-col" style="margin-bottom:16px">
@@ -1224,7 +1142,7 @@ async function refreshSession() {
       S.cst = cst;
       S.xst = xst;
       addLog('system', 'Session refreshed successfully.');
-      document.getElementById('conn-label').textContent = S.env === 'live' ? 'Connected — Live' : 'Connected — Demo';
+      const cl = document.getElementById('conn-label'); if(cl) cl.textContent = S.env === 'live' ? 'Live' : 'Demo';
       return true;
     }
   } catch(e) {
