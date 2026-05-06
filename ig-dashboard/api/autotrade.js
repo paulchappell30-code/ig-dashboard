@@ -33,7 +33,9 @@ const CORRELATION_GROUPS = {
 
 const TRADING_HOURS = {
   indices:{open:7,close:16},
-  nikkei:{open:0,close:6},   // Nikkei trades Asian hours (UTC)
+  nikkei:{open:0,close:6},
+  commodities:{open:1,close:23},
+  fx:{open:0,close:24}
   commodities:{open:1,close:23},
   fx:{open:0,close:24},
 };
@@ -643,7 +645,8 @@ async function closeAll(igBase,igH){
 }
 
 function isMarketOpen(group){
-  const h=TRADING_HOURS[group]||TRADING_HOURS['indices']||{open:7,close:16};
+  if(group==='fx') return true; // FX trades 24hrs
+  const h=TRADING_HOURS[group]||{open:7,close:16};
   const u=new Date().getUTCHours();return u>=h.open&&u<h.close;
 }
 
