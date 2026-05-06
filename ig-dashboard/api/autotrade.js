@@ -135,6 +135,7 @@ module.exports = async (req,res) => {
             await new Promise(r => setTimeout(r, 200));
           } catch(e) { L(`TD ${instr}: ${e.message}`); }
         }
+        if (!globalThis._tdCache) globalThis._tdCache = {};
         globalThis._tdCache.data = newTdSignals;
         globalThis._tdCache.ts = Date.now();
         tdSignals = newTdSignals;
