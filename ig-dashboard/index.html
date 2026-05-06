@@ -1355,29 +1355,7 @@ function renderRules() {
     </div>`).join('');
 }
 
-function renderAlloc() {
-  const bar = document.getElementById('alloc-bar');
-  const leg = document.getElementById('alloc-legend');
-  bar.innerHTML = S.alloc.map(a => `<div class="alloc-seg" style="flex:${a.pct};background:${a.color};opacity:0.85"></div>`).join('');
-  leg.innerHTML = S.alloc.map(a => `<span style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:${a.color};display:inline-block"></span>${a.name} ${a.pct}%</span>`).join('');
-  document.getElementById('alloc-table').innerHTML = `<table>
-    <thead><tr><th>Instrument</th><th>Target</th><th>Current</th><th>Drift</th></tr></thead>
-    <tbody>${S.allocItems.map(a => {
-      const d = a.current - a.target;
-      return `<tr><td class="fw">${a.name}</td><td>${a.target}%</td><td>${a.current}%</td><td class="${Math.abs(d)>3?'neg':Math.abs(d)>1?'neu':'pos'}">${d>0?'+':''}${d}%</td></tr>`;
-    }).join('')}</tbody></table>`;
-  document.getElementById('drift-chart').innerHTML = S.allocItems.map(a => {
-    const d = a.current - a.target;
-    const col = Math.abs(d)>3?'var(--red)':Math.abs(d)>1?'var(--amber)':'var(--green)';
-    return `<div class="drift-row">
-      <div class="dlabel"><span>${a.name}</span><span style="color:${col};font-weight:500">${d>0?'+':''}${d}%</span></div>
-      <div class="drift-track">
-        <div class="drift-mid"></div>
-        <div class="drift-fill" style="background:${col};${d>=0?`left:50%;width:${Math.min(Math.abs(d)*6,50)}%`:`right:50%;width:${Math.min(Math.abs(d)*6,50)}%`}"></div>
-      </div>
-    </div>`;
-  }).join('');
-}
+function renderAlloc() { /* removed - rebalancer tab deleted */ }
 
 function renderOrders_old() {
   document.getElementById('orders-body').innerHTML = S.orders.map(o => `
