@@ -14,17 +14,26 @@ const EPIC_MAP = {
   'DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
   'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.MINI.IP',
   'EUR/USD':'CS.D.EURUSD.MINI.IP','USD/JPY':'CS.D.USDJPY.MINI.IP',
+  'CAC 40':'IX.D.CAC.DAILY.IP',
+  'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
+  'Nasdaq':'IX.D.NASDAQ.CASH.IP',
+  'Gold':'CS.D.USCGC.TODAY.IP',
 };
 
 const CORRELATION_GROUPS = {
   'IX.D.FTSE.DAILY.IP':'indices','IX.D.SPTRD.DAILY.IP':'indices',
   'IX.D.DAX.DAILY.IP':'indices','IX.D.DOW.DAILY.IP':'indices',
+  'IX.D.CAC.DAILY.IP':'indices',
+  'IX.D.NIKKEI.DAILY.IP':'indices',
+  'IX.D.NASDAQ.CASH.IP':'indices',
   'CC.D.LCO.USS.IP':'commodities',
+  'CS.D.USCGC.TODAY.IP':'commodities',
   'CS.D.GBPUSD.MINI.IP':'fx','CS.D.EURUSD.MINI.IP':'fx','CS.D.USDJPY.MINI.IP':'fx',
 };
 
 const TRADING_HOURS = {
   indices:{open:7,close:16},
+  nikkei:{open:0,close:6},   // Nikkei trades Asian hours (UTC)
   commodities:{open:1,close:23},
   fx:{open:0,close:24},
 };
@@ -227,7 +236,9 @@ module.exports = async (req,res) => {
     const epic=EPIC_MAP[instr];const grp=CORRELATION_GROUPS[epic];
     if(openPos.some(p=>p.market.epic===epic)){L(`${instr}: open`);continue;}
     if(grp&&occupied.has(grp)){L(`${instr}: group occupied`);continue;}
-    if(!isMarketOpen(grp)){L(`${instr}: closed`);continue;}
+    // Nikkei has different hours
+    const mktHrs = instr === 'Nikkei 225' ? 'nikkei' : grp;
+    if(!isMarketOpen(mktHrs)){L(`${instr}: market closed`);continue;}
 
     try{
       // Try DB first (free), fall back to IG API
@@ -557,7 +568,7 @@ async function closeAll(igBase,igH){
 }
 
 function isMarketOpen(group){
-  const h=TRADING_HOURS[group]||{open:0,close:24};
+  const h=TRADING_HOURS[group]||TRADING_HOURS['indices']||{open:7,close:16};
   const u=new Date().getUTCHours();return u>=h.open&&u<h.close;
 }
 
