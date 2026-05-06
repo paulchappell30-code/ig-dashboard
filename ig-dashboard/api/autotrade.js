@@ -96,6 +96,27 @@ module.exports = async (req,res) => {
 
   const igH={'Content-Type':'application/json','X-IG-API-KEY':process.env.IG_API_KEY||'','CST':cst,'X-SECURITY-TOKEN':xst};
 
+  // Twelve Data — fetch enhanced indicators if API key configured
+  let tdSignals = {};
+  if (process.env.TWELVE_DATA_KEY) {
+    try {
+      const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+      const tdRes = await fetch(`${base}/api/indicators`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval: '1h' })
+      });
+      if (tdRes.ok) {
+        const tdData = await tdRes.json();
+        if (tdData.signals) {
+          tdSignals = {};
+          tdData.signals.forEach(s => { tdSignals[s.instr] = s; });
+          L(`Twelve Data: ${tdData.signals.length} signals loaded`);
+        }
+      }
+    } catch(e) { L('Twelve Data fetch failed: ' + e.message); }
+  }
+
   // Account
   let balance,dailyPL,available;
   try{
@@ -184,8 +205,17 @@ module.exports = async (req,res) => {
       const sc=calcScore(closes,regime);
       const newsAdj=getNewsAdj(instr,newsSentiment);
       const sentAdj=await getIGSentiment(epic,igBase,igH,L);
-      const total=sc+newsAdj+sentAdj;
-      L(`${instr}: score ${sc}+news${newsAdj}+sent${sentAdj}=${total} regime:${regime}`);
+
+      // Boost/reduce score using Twelve Data if available
+      let tdAdj=0;
+      if (tdSignals[instr]) {
+        const tds=tdSignals[instr];
+        tdAdj=Math.round(tds.score/2); // Half weight to blend with our score
+        L(`${instr}: Twelve Data score ${tds.score} (RSI:${tds.rsi?.toFixed(0)} MACD:${tds.macdCrossover}) → adj ${tdAdj}`);
+      }
+
+      const total=sc+newsAdj+sentAdj+tdAdj;
+      L(`${instr}: score ${sc}+news${newsAdj}+sent${sentAdj}+td${tdAdj}=${total} regime:${regime}`);
 
       if(Math.abs(total)<cfg.signalThreshold){L(`${instr}: below threshold`);continue;}
 
@@ -206,7 +236,7 @@ module.exports = async (req,res) => {
         sentAdj!==0?`Sentiment:${sentAdj>0?'+':''}${sentAdj}`:'',
       ].filter(Boolean);
 
-      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,regime,
+      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,regime,
         reasons,rsi,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
         atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
       if(grp)occupied.add(grp);
