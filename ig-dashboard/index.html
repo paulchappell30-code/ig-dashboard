@@ -3206,7 +3206,7 @@ function startLightstreamer() {
         if (!isNaN(bid)) {
           const sf = m.scalingFactor || 1;
           const displayBid = bid / sf;
-          const prevPrice = parseFloat(m.price.replace(/,/g,''));
+          const prevPrice = parseFloat((m.price||'0').replace(/[^0-9.-]/g,'')) || 0;
           m.flash = displayBid > prevPrice ? 'up' : displayBid < prevPrice ? 'down' : null;
           m.price = displayBid > 999 ? Math.round(displayBid).toLocaleString('en-GB') : displayBid.toFixed(2);
           m.pos = pct >= 0;
@@ -3227,8 +3227,17 @@ function startLightstreamer() {
             }
           });
 
+          // Update DOM directly for performance
+          const epicId = epic.replace(/\./g, '-');
+          const priceEl = document.getElementById('ws-price-' + epicId);
+          const chgEl = document.getElementById('ws-chg-' + epicId);
+          const lbPrice = document.getElementById('lb-price-' + epicId);
+          const lbChg = document.getElementById('lb-chg-' + epicId);
+          if (priceEl) { priceEl.textContent = m.price; priceEl.style.color = m.flash === 'up' ? 'var(--green)' : m.flash === 'down' ? 'var(--red)' : ''; }
+          if (chgEl) { chgEl.textContent = m.change; chgEl.className = 'w-chg ' + (m.pos ? 'up' : 'dn'); }
+          if (lbPrice) lbPrice.textContent = m.price;
+          if (lbChg) { lbChg.textContent = m.change; lbChg.className = 'chg ' + (m.pos ? 'up' : 'dn'); }
           if (document.getElementById('tab-overview').classList.contains('active')) {
-            renderWatchlist();
             renderPositions();
           }
         }
