@@ -35,8 +35,6 @@ const TRADING_HOURS = {
   indices:{open:7,close:16},
   nikkei:{open:0,close:6},
   commodities:{open:1,close:23},
-  fx:{open:0,close:24}
-  commodities:{open:1,close:23},
   fx:{open:0,close:24},
 };
 
