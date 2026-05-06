@@ -1634,16 +1634,17 @@ async function runAI(type) {
     rules: '⚡ Rule Suggestions',
     journal: '📖 Trade Journal Analysis'
   };
-  document.getElementById('ai-panel-title').textContent = titles[type] || 'AI Analysis';
+  const _apt = (document.getElementById('ai-panel-title') || document.getElementById('ai-panel-title'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}); if(_apt) _apt.textContent = titles[type] || 'AI Analysis';
   const ctx = getPortfolioContext();
   const prompt = AI_PROMPTS[type](ctx);
   await callClaude(prompt, type);
 }
 
 async function runAICustom() {
-  const question = document.getElementById('ai-question').value.trim();
+  const _aiq = (document.getElementById('ai-question') || document.getElementById('ai-question'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}) || document.getElementById('ai-custom-q');
+  const question = _aiq ? _aiq.value.trim() : '';
   if (!question) return;
-  document.getElementById('ai-panel-title').textContent = '💬 Custom Analysis';
+  (document.getElementById('ai-panel-title') || document.getElementById('ai-panel-title'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}).textContent = '💬 Custom Analysis';
   const ctx = getPortfolioContext();
   const prompt = `You are an expert investment analyst. The user has a spread betting account on IG Index with the following context:
 
@@ -1656,11 +1657,11 @@ User question: ${question}
 
 Answer specifically and practically, using the portfolio data above where relevant.`;
   await callClaude(prompt, 'custom');
-  document.getElementById('ai-question').value = '';
+  (document.getElementById('ai-question') || document.getElementById('ai-question'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}).value = '';
 }
 
 async function callClaude(prompt, type) {
-  const responseEl = document.getElementById('ai-response');
+  const responseEl = (document.getElementById('ai-response') || document.getElementById('ai-response'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {});
   const loadingEl = document.getElementById('ai-loading');
 
   responseEl.innerHTML = '';
@@ -1732,8 +1733,8 @@ function renderAIHistory() {
 }
 
 function clearAI() {
-  document.getElementById('ai-response').innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text2)"><div style="font-size:32px;margin-bottom:12px">🤖</div><div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div><div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div></div>';
-  document.getElementById('ai-panel-title').textContent = 'AI Investment Analyst';
+  (document.getElementById('ai-response') || document.getElementById('ai-response'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}).innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text2)"><div style="font-size:32px;margin-bottom:12px">🤖</div><div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div><div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div></div>';
+  (document.getElementById('ai-panel-title') || document.getElementById('ai-panel-title'.replace('ai-response','ai-history').replace('ai-question','ai-custom-q')) || {}).textContent = 'AI Investment Analyst';
 }
 
 
@@ -2358,7 +2359,7 @@ async function runAutoTrade() {
     });
     const data = await res.json();
     (data.log || []).forEach(l => appendAtLog(l));
-    appendAtLog('✅ Done — action: ' + (data.action || 'unknown'));
+    appendAtLog('✅ Done — ' + (data.action === 'no_signals' ? 'No signals this cycle' : data.action === 'trade_placed' ? '🎯 Trade placed: ' + (data.instrument||'') + ' ' + (data.direction||'') : data.action === 'calendar_block' ? '📅 Calendar block active' : data.action === 'profit_lock_hit' ? '✅ Profit lock hit' : data.action === 'loss_limit_hit' ? '🛑 Loss limit hit' : 'Action: ' + (data.action || 'completed')));
     addLog('system', 'Auto-trade run: ' + (data.action || 'unknown'));
     setTimeout(() => { loadAccount(); loadPositions(); updateDailyPLDisplay(); }, 2000);
   } catch(e) {
