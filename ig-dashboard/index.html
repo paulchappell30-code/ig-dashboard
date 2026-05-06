@@ -1519,6 +1519,13 @@ async function doLogin() {
       S.connected = true;
       S.igUser = user;
       S.igPass = pass;
+      // Clear historical blocked flag if it's been more than 24 hours
+      const blockedTime = sessionStorage.getItem('ig_blocked_time');
+      if (blockedTime && Date.now() - parseInt(blockedTime) > 24*60*60*1000) {
+        sessionStorage.removeItem('ig_historical_blocked');
+        sessionStorage.removeItem('ig_blocked_time');
+        S.historicalBlocked = false;
+      }
       const data = await res.json();
       const sbAcct = data.accounts && data.accounts.find(a => a.accountType === 'SPREADBET');
       S.accountId = sbAcct ? sbAcct.accountId : data.currentAccountId;
@@ -2275,8 +2282,10 @@ const PRICE_CACHE_TTL = {
 };
 
 async function fetchPricesWithCache(epic, resolution, count) {
-  if (S.historicalBlocked) {
-    return null; // Silently skip — already shown warning
+  // Check sessionStorage so blocked flag persists across re-logins
+  if (S.historicalBlocked || sessionStorage.getItem('ig_historical_blocked') === 'true') {
+    S.historicalBlocked = true;
+    return null;
   }
   const key = epic + '_' + resolution + '_' + count;
   const cached = S.priceCache[key];
@@ -2295,12 +2304,16 @@ async function fetchPricesWithCache(epic, resolution, count) {
   if (res.status === 403) {
     const errData = await res.json().catch(() => ({}));
     if (errData.errorCode && errData.errorCode.includes('historical-data-allowance')) {
-      console.warn('[Cache] Historical data allowance exceeded');
-      // Return cached data even if stale rather than failing
-      if (cached) {
-        console.log('[Cache] Returning stale cache as fallback');
-        return cached.data;
+      S.historicalBlocked = true;
+      sessionStorage.setItem('ig_historical_blocked', 'true');
+      sessionStorage.setItem('ig_blocked_time', Date.now().toString());
+      const chartUpdated = document.getElementById('chart-updated');
+      if (chartUpdated) chartUpdated.textContent = 'IG historical data allowance exceeded — clears Thu/Fri this week';
+      const techEl = document.getElementById('tech-signals');
+      if (techEl && techEl.innerHTML.includes('Loading')) {
+        techEl.innerHTML = '<div style="padding:12px;color:var(--text2);background:var(--bg2);border-radius:var(--radius);font-size:13px">IG historical data allowance exceeded. Clears later this week. Live prices via Lightstreamer still active.</div>';
       }
+      return null;
     }
     throw new Error('403:' + (errData.errorCode || 'forbidden'));
   }
