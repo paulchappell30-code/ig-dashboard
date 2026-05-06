@@ -2,6 +2,7 @@
 // Features: Price history DB, regime detection, news sentiment, time filter,
 // active position management, Kelly sizing, portfolio heat, sentiment divergence
 const fetch = require('node-fetch');
+const TD_CACHE_TTL = 30 * 60 * 1000; // 30 min Twelve Data cache TTL
 
 const IG_BASES = {
   live: 'https://api.ig.com/gateway/deal',
