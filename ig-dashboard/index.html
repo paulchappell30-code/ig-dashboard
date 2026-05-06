@@ -3261,7 +3261,8 @@ function startLightstreamer() {
   try {
     // Lightstreamer endpoint from IG session
     const lsEndpoint = S.lsEndpoint || 'https://demo-apd.marketdatasystems.com';
-    lsClient = new LightstreamerClient(lsEndpoint, 'DEFAULT');
+    const lsAdapter = S.env === 'live' ? 'BROKER' : 'DEFAULT';
+    lsClient = new LightstreamerClient(lsEndpoint, lsAdapter);
     lsClient.connectionDetails.setUser(S.accountId || '');
     lsClient.connectionDetails.setPassword('CST-' + S.cst + '|XST-' + S.xst);
 
