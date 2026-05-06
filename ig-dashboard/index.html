@@ -1075,20 +1075,23 @@ async function doLogin() {
   }
 }
 
-function showLoginError() {
-  document.getElementById('login-error').style.display = 'block';
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  if (!el) return;
+  if (msg) el.textContent = msg;
+  el.style.display = 'block';
 }
 
 function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   const banner = document.getElementById('env-banner');
-  if (S.env === 'live') {
-    banner.textContent = '⚠ Live mode — real orders will be placed. Trade carefully.';
+  if (S.env === 'live' && banner) {
+    if (banner) banner.textContent = '⚠ Live mode — real orders will be placed. Trade carefully.';
     banner.className = 'env-banner live';
   }
   document.getElementById('conn-dot').className = 'status-dot' + (S.connected ? '' : ' off');
-  document.getElementById('conn-label').textContent = S.connected
+  const _cl = document.getElementById('conn-label'); if(_cl) _cl.textContent = S.connected
     ? (S.env === 'live' ? 'Connected — Live' : 'Connected — Demo')
     : 'Demo mode (no API)';
   renderAll();
@@ -1171,10 +1174,10 @@ async function loadAccount() {
     const bal = a.balance.balance;
     const pl = a.balance.profitLoss;
     const avail = a.balance.available;
-    document.getElementById('pv').textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
-    document.getElementById('pv-change').textContent = 'Available: £' + Number(avail).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    (document.getElementById('pv')||{}).textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    (document.getElementById('pv-change')||{}).textContent = 'Available: £' + Number(avail).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
     document.getElementById('pv-change').className = 'sub neu';
-    document.getElementById('today-pl').textContent = (pl >= 0 ? '+' : '') + '£' + Number(pl).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    (document.getElementById('today-pl')||{}).textContent = (pl >= 0 ? '+' : '') + '£' + Number(pl).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
     document.getElementById('today-pl').className = 'value ' + (pl >= 0 ? 'pos' : 'neg');
     addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + bal + ', P&L £' + pl);
   } catch(e) {
@@ -1217,7 +1220,7 @@ async function loadPositions() {
       };
     });
     const totalUpl = S.positions.reduce((sum, p) => sum + p.upl, 0);
-    document.getElementById('pos-count').textContent = S.positions.length + ' open position' + (S.positions.length !== 1 ? 's' : '');
+    (document.getElementById('pos-count')||{}).textContent = S.positions.length + ' open position' + (S.positions.length !== 1 ? 's' : '');
     renderPositions();
     addLog('system', S.positions.length + ' positions loaded — Total UPL: £' + totalUpl.toFixed(2));
   } catch(e) {
@@ -1277,11 +1280,11 @@ function renderAll() {
 function renderMetrics() {
   // Account balance updated by loadAccount() — don't overwrite here
   if (!S.connected) {
-    document.getElementById('pv').textContent = '—';
-    document.getElementById('today-pl').textContent = '—';
+    (document.getElementById('pv')||{}).textContent = '—';
+    (document.getElementById('today-pl')||{}).textContent = '—';
   }
   const next = S.dca.filter(d=>d.status==='active')[0];
-  document.getElementById('next-dca').textContent = next ? next.next : '—';
+  (document.getElementById('next-dca')||{}).textContent = next ? next.next : '—';
   document.getElementById('next-dca-amt').textContent = next ? next.amt + ' scheduled' : 'No active schedules';
   const active = S.rules.filter(r=>r.active).length;
   document.getElementById('active-rules').textContent = active + ' / ' + S.rules.length;
