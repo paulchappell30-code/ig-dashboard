@@ -2897,6 +2897,89 @@ function renderMetrics() {
   updateDailyPLDisplay();
 }
 
+
+// ─── JOURNAL V4 EXTRAS ───────────────────────────────────────────────────────
+async function loadCalibration() {
+  try {
+    const res = await fetch('/api/db?action=calibration');
+    const data = await res.json();
+    const rows = data.calibration || [];
+    const el = document.getElementById('cal-table');
+    if (!el) return;
+    if (!rows.length) { el.innerHTML = '<div class="empty">No outcome data yet — trades need to close first</div>'; return; }
+    el.innerHTML = `<table class="data-table">
+      <thead><tr><th>AI Confidence</th><th>Trades</th><th>Actual Win Rate</th><th>Avg P&L</th><th>Calibration</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const expected = r.confidence_bracket === '90-100%' ? 95 : r.confidence_bracket === '80-89%' ? 85 : r.confidence_bracket === '70-79%' ? 75 : 65;
+        const actual = parseFloat(r.actual_win_rate);
+        const diff = actual - expected;
+        const cal = diff > 5 ? '✅ Better than expected' : diff < -10 ? '❌ Worse than expected' : '~ As expected';
+        return `<tr>
+          <td style="font-weight:500">${r.confidence_bracket}</td>
+          <td>${r.total_trades}</td>
+          <td class="${actual>=50?'pos':'neg'}">${r.actual_win_rate}%</td>
+          <td class="${parseFloat(r.avg_pnl)>=0?'pos':'neg'}">${parseFloat(r.avg_pnl)>=0?'+':''}£${parseFloat(r.avg_pnl).toFixed(2)}</td>
+          <td style="font-size:11px;color:var(--text2)">${cal}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch(e) { console.warn('Calibration load error:', e.message); }
+}
+
+async function loadTimeOfDay() {
+  try {
+    const res = await fetch('/api/db?action=timeofday');
+    const data = await res.json();
+    const rows = (data.byHour || []).filter(r => parseInt(r.total_trades) >= 2);
+    const el = document.getElementById('tod-table');
+    if (!el) return;
+    if (!rows.length) { el.innerHTML = '<div class="empty">Need more trades for time analysis</div>'; return; }
+    const best = data.bestHour;
+    el.innerHTML = `
+      ${best ? `<div class="alert alert-success" style="margin-bottom:10px">Best hour: <strong>${best.open_hour}:00 UTC</strong> — avg £${parseFloat(best.avg_pnl).toFixed(2)} per trade</div>` : ''}
+      <table class="data-table">
+        <thead><tr><th>Hour (UTC)</th><th>Trades</th><th>Win Rate</th><th>Avg P&L</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td style="font-family:var(--font-mono)">${r.open_hour}:00</td>
+          <td>${r.total_trades}</td>
+          <td class="${parseFloat(r.win_rate)>=50?'pos':'neg'}">${r.win_rate}%</td>
+          <td class="${parseFloat(r.avg_pnl)>=0?'pos':'neg'}">${parseFloat(r.avg_pnl)>=0?'+':''}£${parseFloat(r.avg_pnl).toFixed(2)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  } catch(e) { console.warn('Time of day load error:', e.message); }
+}
+
+async function runOptimization() {
+  const el = document.getElementById('opt-result');
+  if (el) el.innerHTML = '<div class="loading" style="padding:12px;font-size:13px;color:var(--text2)">Running walk-forward optimisation... this may take 30 seconds</div>';
+  try {
+    const res = await fetch('/api/review?action=optimize');
+    const data = await res.json();
+    if (data.message) {
+      if (el) el.innerHTML = `<div class="alert alert-warn">${data.message} (${data.candles||0} candles available, need 50+)</div>`;
+      return;
+    }
+    if (el) el.innerHTML = `
+      <div class="alert alert-success" style="margin-bottom:10px">
+        ✅ Best parameters: Signal threshold = <strong>${data.bestThreshold}</strong> | AI confidence min = <strong>${data.bestConfidence}%</strong>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Threshold</th><th>Trades</th><th>Win Rate</th><th>P&L</th><th>Score</th></tr></thead>
+        <tbody>${(data.results||[]).map(r => `<tr ${r.threshold===data.bestThreshold?'style="background:var(--green-dim)"':''}>
+          <td>${r.threshold}${r.threshold===data.bestThreshold?' ⭐':''}</td>
+          <td>${r.trades}</td>
+          <td class="${parseFloat(r.winRate)>=50?'pos':'neg'}">${r.winRate}%</td>
+          <td class="${parseFloat(r.pnl)>=0?'pos':'neg'}">${parseFloat(r.pnl)>=0?'+':''}${parseFloat(r.pnl).toFixed(4)}</td>
+          <td style="font-family:var(--font-mono)">${r.score}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div style="font-size:12px;color:var(--text2);margin-top:10px">To apply: set SIGNAL_THRESHOLD=${data.bestThreshold} and AI_CONFIDENCE_MIN=${data.bestConfidence} in Vercel environment variables</div>`;
+    addLog('system', `Optimisation complete: threshold=${data.bestThreshold}, confidence=${data.bestConfidence}%`);
+  } catch(e) {
+    if (el) el.innerHTML = `<div class="alert alert-warn">Error: ${e.message}</div>`;
+  }
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
