@@ -241,27 +241,34 @@ module.exports = async (req,res) => {
     if(!isMarketOpen(mktHrs)){L(`${instr}: market closed`);continue;}
 
     try{
-      // Try DB first (free), fall back to IG API
+      // Try DB first, fall back to IG, then Twelve Data
       let closes=await getDbPrices(epic,60,L);
       let src='DB';
       if(!closes||closes.length<5){
         const candles=await getIGPrices(epic,MAX_CANDLES_IG,igBase,igH);
-        if(!candles||candles.length<5){L(`${instr}: no data`);continue;}
-        closes=candles.map(c=>c.close);src='IG';
+        if(candles&&candles.length>=5){closes=candles.map(c=>c.close);src='IG';}
       }
-      L(`${instr}: ${closes.length} candles from ${src}`);
 
-      const regime=detectRegime(closes);
-      const sc=calcScore(closes,regime);
       const newsAdj=getNewsAdj(instr,newsSentiment);
       const sentAdj=await getIGSentiment(epic,igBase,igH,L);
+      let sc=0,regime='unknown',tdAdj=0;
 
-      // Boost/reduce score using Twelve Data if available
-      let tdAdj=0;
-      if (tdSignals[instr]) {
-        const tds=tdSignals[instr];
-        tdAdj=Math.round(tds.score/2); // Half weight to blend with our score
-        L(`${instr}: Twelve Data score ${tds.score} (RSI:${tds.rsi?.toFixed(0)} MACD:${tds.macdCrossover}) → adj ${tdAdj}`);
+      if(closes&&closes.length>=5){
+        L(`${instr}: ${closes.length} candles from ${src}`);
+        regime=detectRegime(closes);
+        sc=calcScore(closes,regime);
+        if(tdSignals[instr]){
+          tdAdj=Math.round(tdSignals[instr].score/2);
+          L(`${instr}: TD adj ${tdAdj} (RSI:${tdSignals[instr].rsi?.toFixed(0)})`);
+        }
+      } else if(tdSignals[instr]){
+        // No candles — use Twelve Data as primary signal
+        sc=tdSignals[instr].score;
+        src='TwelveData';
+        L(`${instr}: no candles — TD primary signal (RSI:${tdSignals[instr].rsi?.toFixed(0)} score:${sc})`);
+      } else {
+        L(`${instr}: no data from any source — skip`);
+        continue;
       }
 
       const total=sc+newsAdj+sentAdj+tdAdj;
