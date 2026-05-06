@@ -77,6 +77,17 @@ module.exports = async (req,res) => {
   if(req.method==='GET') return res.status(200).json({status:'Auto-trading engine v3 ready',cfg,version:'3.0',time:new Date().toISOString()});
   if(!cfg.enabled) return res.status(200).json({message:'Auto-trading disabled'});
 
+  // Override config with values from dashboard UI request body
+  const body=req.body||{};
+  if(body.calendarEnabled!==undefined) cfg.calendarEnabled=!!body.calendarEnabled;
+  if(body.requireAIConfirm!==undefined) cfg.requireAIConfirm=!!body.requireAIConfirm;
+  if(body.signalThreshold!==undefined) cfg.signalThreshold=parseInt(body.signalThreshold);
+  if(body.dailyProfitLock!==undefined) cfg.dailyProfitLock=parseFloat(body.dailyProfitLock);
+  if(body.dailyLossLimit!==undefined) cfg.dailyLossLimit=parseFloat(body.dailyLossLimit);
+  if(body.maxPositions!==undefined) cfg.maxPositions=parseInt(body.maxPositions);
+  if(body.defaultSize!==undefined) cfg.defaultSize=parseInt(body.defaultSize);
+  if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
+
   const igBase=IG_BASES[process.env.IG_ENV||'demo'];
   let cst,xst;
   const log=[];
