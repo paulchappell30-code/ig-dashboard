@@ -10,7 +10,7 @@
 
 /* ═══ RESET & BASE ═══════════════════════════════════════════════════════════ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-size:14px}
+html,body{height:100%;font-size:14px;overflow:hidden}
 
 /* ═══ DESIGN TOKENS ══════════════════════════════════════════════════════════ */
 :root{
@@ -50,7 +50,7 @@ body{
 }
 
 /* ═══ LAYOUT ══════════════════════════════════════════════════════════════════ */
-#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden;min-height:0}
 
 /* Header */
 #header{
@@ -132,9 +132,9 @@ body{
 .live-item .chg.dn{color:var(--red)}
 
 /* Content */
-#content{flex:1;overflow-y:auto;padding:20px}
-.tab-content{display:none}
-.tab-content.active{display:block}
+#content{flex:1;overflow-y:auto;padding:20px;min-height:0}
+.tab-content{display:none;min-height:0}
+.tab-content.active{display:block;min-height:0}
 
 /* ═══ COMPONENTS ═════════════════════════════════════════════════════════════ */
 
