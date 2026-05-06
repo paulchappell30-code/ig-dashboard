@@ -2358,10 +2358,21 @@ async function runAutoTrade() {
   btn.disabled = true;
   appendAtLog('▶ Manual run triggered...');
   try {
+    const uiConfig = {
+      manualRun: true,
+      calendarEnabled: document.getElementById('at-cal-toggle')?.classList.contains('on') ?? true,
+      requireAIConfirm: document.getElementById('at-ai-toggle')?.classList.contains('on') ?? true,
+      signalThreshold: parseInt(document.getElementById('at-threshold')?.value) || 2,
+      dailyProfitLock: parseFloat(document.getElementById('at-profit-lock')?.value) || 2,
+      dailyLossLimit: parseFloat(document.getElementById('at-loss-limit')?.value) || 1,
+      maxPositions: parseInt(document.getElementById('at-max-pos')?.value) || 3,
+      defaultSize: parseInt(document.getElementById('at-size')?.value) || 1,
+    };
+    const secret = document.getElementById('at-cron-secret')?.value || '';
     const res = await fetch('/api/autotrade', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manualRun: true })
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + secret },
+      body: JSON.stringify(uiConfig)
     });
     const data = await res.json();
     (data.log || []).forEach(l => appendAtLog(l));
