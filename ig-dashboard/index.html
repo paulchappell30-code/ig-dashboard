@@ -735,6 +735,10 @@ code{
             <button class="btn btn-sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.MINI.IP',this)">GBP/USD</button>
             <button class="btn btn-sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.MINI.IP',this)">EUR/USD</button>
             <button class="btn btn-sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
+            <button class="btn btn-sm" id="chart-btn-CAC" onclick="selectChartInstrument('CAC 40','IX.D.CAC.DAILY.IP',this)">CAC 40</button>
+            <button class="btn btn-sm" id="chart-btn-NIKKEI" onclick="selectChartInstrument('Nikkei 225','IX.D.NIKKEI.DAILY.IP',this)">Nikkei</button>
+            <button class="btn btn-sm" id="chart-btn-NASDAQ" onclick="selectChartInstrument('Nasdaq','IX.D.NASDAQ.CASH.IP',this)">Nasdaq</button>
+            <button class="btn btn-sm" id="chart-btn-GOLD" onclick="selectChartInstrument('Gold','CS.D.USCGC.TODAY.IP',this)">Gold</button>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:18px;font-weight:700;font-family:var(--font-mono)" id="chart-price">—</span>
@@ -895,6 +899,7 @@ code{
                 <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
                 <option>Dow Jones</option><option>Brent Oil</option>
                 <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
+                <option>CAC 40</option><option>Nikkei 225</option><option>Nasdaq</option><option>Gold</option>
               </select>
             </div>
             <div class="form-row">
@@ -1020,6 +1025,10 @@ const S = {
     { name:'GBP/USD', epic:'CS.D.GBPUSD.MINI.IP', price:'—', change:'—', pos:true, icon:'💷' },
     { name:'EUR/USD', epic:'CS.D.EURUSD.MINI.IP', price:'—', change:'—', pos:true, icon:'💶' },
     { name:'USD/JPY', epic:'CS.D.USDJPY.MINI.IP', price:'—', change:'—', pos:true, icon:'💴' },
+    { name:'CAC 40', epic:'IX.D.CAC.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇫🇷' },
+    { name:'Nikkei 225', epic:'IX.D.NIKKEI.DAILY.IP', price:'—', change:'—', pos:true, icon:'🇯🇵' },
+    { name:'Nasdaq', epic:'IX.D.NASDAQ.CASH.IP', price:'—', change:'—', pos:true, icon:'💻' },
+    { name:'Gold', epic:'CS.D.USCGC.TODAY.IP', price:'—', change:'—', pos:true, icon:'🥇' },
   ]
 };
 
@@ -3004,7 +3013,11 @@ async function placeManualOrder() {
     'Brent Oil':'CC.D.LCO.USS.IP',
     'GBP/USD':'CS.D.GBPUSD.MINI.IP',
     'EUR/USD':'CS.D.EURUSD.MINI.IP',
-    'USD/JPY':'CS.D.USDJPY.MINI.IP'
+    'USD/JPY':'CS.D.USDJPY.MINI.IP',
+    'CAC 40':'IX.D.CAC.DAILY.IP',
+    'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
+    'Nasdaq':'IX.D.NASDAQ.CASH.IP',
+    'Gold':'CS.D.USCGC.TODAY.IP'
   };
   const epic = epicMap[instr] || epicMap['FTSE 100'];
 
