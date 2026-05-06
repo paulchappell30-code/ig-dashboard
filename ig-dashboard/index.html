@@ -2,1033 +2,802 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IG Automated Investment Programme</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IG Investment Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  :root {
-    --bg: #ffffff;
-    --bg2: #f5f5f3;
-    --bg3: #eeece8;
-    --text: #1a1a18;
-    --text2: #6b6b67;
-    --text3: #9b9b96;
-    --border: rgba(0,0,0,0.10);
-    --border2: rgba(0,0,0,0.18);
-    --radius: 8px;
-    --radius-lg: 12px;
-    --blue: #0072CE;
-    --blue-bg: #e6f1fb;
-    --blue-text: #185fa5;
-    --green: #1D9E75;
-    --green-bg: #eaf3de;
-    --green-text: #3b6d11;
-    --red: #E24B4A;
-    --red-bg: #fcebeb;
-    --red-text: #a32d2d;
-    --amber: #BA7517;
-    --amber-bg: #faeeda;
-    --amber-text: #854f0b;
-    --success-bg: #eaf3de;
-    --success-text: #3b6d11;
-    --danger-bg: #fcebeb;
-    --danger-text: #a32d2d;
-    --warn-bg: #faeeda;
-    --warn-text: #854f0b;
-    --info-bg: #e6f1fb;
-    --info-text: #185fa5;
-  }
+/* ═══ RESET & BASE ═══════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-size:14px}
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1c1c1a;
-      --bg2: #252523;
-      --bg3: #2e2e2b;
-      --text: #e8e6de;
-      --text2: #9b9b96;
-      --text3: #6b6b67;
-      --border: rgba(255,255,255,0.10);
-      --border2: rgba(255,255,255,0.18);
-      --blue-bg: #0c447c;
-      --blue-text: #b5d4f4;
-      --green-bg: #27500a;
-      --green-text: #c0dd97;
-      --red-bg: #501313;
-      --red-text: #f7c1c1;
-      --amber-bg: #412402;
-      --amber-text: #fac775;
-      --success-bg: #27500a;
-      --success-text: #c0dd97;
-      --danger-bg: #501313;
-      --danger-text: #f7c1c1;
-      --warn-bg: #412402;
-      --warn-text: #fac775;
-      --info-bg: #0c447c;
-      --info-text: #b5d4f4;
-    }
-  }
+/* ═══ DESIGN TOKENS ══════════════════════════════════════════════════════════ */
+:root{
+  --bg0:#080c10;
+  --bg1:#0d1117;
+  --bg2:#161b22;
+  --bg3:#1c2330;
+  --bg4:#21262d;
+  --border:#30363d;
+  --border2:#3d444d;
+  --text1:#e6edf3;
+  --text2:#8b949e;
+  --text3:#484f58;
+  --blue:#58a6ff;
+  --blue2:#1f6feb;
+  --blue-dim:#1a3560;
+  --green:#3fb950;
+  --green-dim:#1a3a1f;
+  --red:#f85149;
+  --red-dim:#3d1a1a;
+  --gold:#d29922;
+  --gold-dim:#2d2105;
+  --purple:#bc8cff;
+  --radius:6px;
+  --radius-lg:10px;
+  --shadow:0 8px 24px rgba(0,0,0,0.4);
+  --font-mono:'JetBrains Mono',monospace;
+}
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg3);
-    color: var(--text);
-    font-size: 14px;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
+/* ═══ TYPOGRAPHY ═════════════════════════════════════════════════════════════ */
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg0);
+  color:var(--text1);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
 
-  /* LOGIN */
-  #login-screen {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg3);
-  }
-  .login-card {
-    background: var(--bg);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 36px 40px;
-    width: 360px;
-  }
-  .login-card .logo-row {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
-  }
-  .login-card h2 { font-size: 16px; font-weight: 500; }
-  .login-card .sub { font-size: 13px; color: var(--text2); margin-top: 3px; }
-  .login-error {
-    background: var(--danger-bg);
-    color: var(--danger-text);
-    font-size: 13px;
-    padding: 8px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-    display: none;
-  }
+/* ═══ LAYOUT ══════════════════════════════════════════════════════════════════ */
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
 
-  /* APP */
-  #app { display: none; }
+/* Header */
+#header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;height:52px;
+  background:var(--bg1);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+  position:relative;z-index:10;
+}
+#header-logo{
+  display:flex;align-items:center;gap:10px;
+  font-weight:700;font-size:15px;letter-spacing:-0.3px;
+  color:var(--text1);
+}
+#header-logo .logo-mark{
+  width:28px;height:28px;border-radius:6px;
+  background:linear-gradient(135deg,var(--blue2),var(--blue));
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:900;color:#fff;
+}
+#header-right{display:flex;align-items:center;gap:12px}
+#conn-badge{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:20px;
+  background:var(--bg3);border:1px solid var(--border);
+  font-size:12px;color:var(--text2);
+}
+#conn-dot{width:6px;height:6px;border-radius:50%;background:var(--text3)}
+#conn-badge.live #conn-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+#conn-badge.demo #conn-dot{background:var(--gold)}
+#header-balance{font-size:13px;font-weight:600;color:var(--text1)}
+#header-pl{font-size:12px;padding:3px 8px;border-radius:4px;font-weight:500}
+#header-pl.pos{color:var(--green);background:var(--green-dim)}
+#header-pl.neg{color:var(--red);background:var(--red-dim)}
+#logout-btn{
+  padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);
+  background:transparent;color:var(--text2);font-size:12px;cursor:pointer;
+}
+#logout-btn:hover{border-color:var(--border2);color:var(--text1)}
 
-  .header {
-    background: var(--bg);
-    border-bottom: 0.5px solid var(--border);
-    padding: 12px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-  .header-left { display: flex; align-items: center; gap: 12px; }
-  .logo {
-    background: #0072CE;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: var(--radius);
-    letter-spacing: 0.5px;
-  }
-  .header h1 { font-size: 15px; font-weight: 500; }
-  .status-indicator {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 13px; color: var(--text2);
-  }
-  .status-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--green);
-  }
-  .status-dot.off { background: var(--red); }
+/* Nav */
+#nav{
+  display:flex;align-items:center;gap:2px;
+  padding:0 16px;height:40px;
+  background:var(--bg1);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;overflow-x:auto;scrollbar-width:none;
+}
+#nav::-webkit-scrollbar{display:none}
+.nav-tab{
+  padding:6px 14px;border-radius:var(--radius);
+  font-size:13px;font-weight:500;color:var(--text2);
+  cursor:pointer;white-space:nowrap;
+  transition:all .15s;border:1px solid transparent;
+}
+.nav-tab:hover{color:var(--text1);background:var(--bg3)}
+.nav-tab.active{
+  color:var(--text1);background:var(--bg3);
+  border-color:var(--border);
+}
 
-  .nav {
-    display: flex;
-    gap: 2px;
-    padding: 0 24px;
-    background: var(--bg);
-    border-bottom: 0.5px solid var(--border);
-    overflow-x: auto;
-  }
-  .nav-tab {
-    padding: 10px 16px;
-    font-size: 13px;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    color: var(--text2);
-    user-select: none;
-    white-space: nowrap;
-    transition: color .15s;
-    margin-bottom: -0.5px;
-  }
-  .nav-tab.active {
-    color: var(--text);
-    border-bottom-color: var(--blue);
-    font-weight: 500;
-  }
-  .nav-tab:hover:not(.active) { color: var(--text); }
+/* Live indicator */
+#live-bar{
+  display:flex;align-items:center;gap:16px;
+  padding:0 20px;height:32px;
+  background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;overflow:hidden;
+}
+.live-item{
+  display:flex;align-items:center;gap:8px;
+  font-size:12px;white-space:nowrap;
+}
+.live-item .name{color:var(--text2)}
+.live-item .price{color:var(--text1);font-weight:600;font-family:var(--font-mono)}
+.live-item .chg{font-family:var(--font-mono);font-size:11px}
+.live-item .chg.up{color:var(--green)}
+.live-item .chg.dn{color:var(--red)}
 
-  .main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+/* Content */
+#content{flex:1;overflow-y:auto;padding:20px}
+.tab-content{display:none}
+.tab-content.active{display:block}
 
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
+/* ═══ COMPONENTS ═════════════════════════════════════════════════════════════ */
 
-  /* CARDS */
-  .cards-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-  @media (max-width: 900px) { .cards-row { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 500px) { .cards-row { grid-template-columns: 1fr; } }
+/* Cards */
+.card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--radius-lg);padding:16px;
+}
+.card-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;
+}
+.card-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text2)}
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.metric-grid.cols-3{grid-template-columns:repeat(3,1fr)}
+.metric-grid.cols-2{grid-template-columns:repeat(2,1fr)}
+.metric{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px 14px;
+}
+.metric .label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.metric .value{font-size:20px;font-weight:700;font-family:var(--font-mono);color:var(--text1)}
+.metric .sub{font-size:11px;color:var(--text2);margin-top:2px}
+.metric .value.pos{color:var(--green)}
+.metric .value.neg{color:var(--red)}
+.metric .value.gold{color:var(--gold)}
 
-  .metric-card {
-    background: var(--bg2);
-    border-radius: var(--radius);
-    padding: 16px 18px;
-  }
-  .metric-card .label { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
-  .metric-card .value { font-size: 22px; font-weight: 500; }
-  .metric-card .sub { font-size: 12px; margin-top: 4px; }
+/* Two column layout */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
 
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+/* Tables */
+.data-table{width:100%;border-collapse:collapse}
+.data-table th{
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;
+  color:var(--text2);padding:8px 12px;text-align:left;
+  border-bottom:1px solid var(--border);
+}
+.data-table td{
+  padding:10px 12px;font-size:13px;
+  border-bottom:1px solid var(--border);color:var(--text1);
+}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr:hover td{background:var(--bg3)}
 
-  .panel {
-    background: var(--bg);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 18px 20px;
-    margin-bottom: 16px;
-  }
-  .section-title {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text2);
-    margin-bottom: 14px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  .section-title-row {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
-  }
-  .section-title-row .section-title { margin-bottom: 0; }
+/* Badges */
+.badge{
+  display:inline-flex;align-items:center;
+  padding:2px 8px;border-radius:4px;
+  font-size:11px;font-weight:600;letter-spacing:.3px;
+}
+.badge-buy{background:var(--green-dim);color:var(--green);border:1px solid rgba(63,185,80,.2)}
+.badge-sell{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,.2)}
+.badge-neutral{background:var(--bg4);color:var(--text2);border:1px solid var(--border)}
+.badge-live{background:var(--green-dim);color:var(--green)}
+.badge-demo{background:var(--gold-dim);color:var(--gold)}
 
-  /* TABLE */
-  table { width: 100%; font-size: 13px; border-collapse: collapse; }
-  th {
-    font-weight: 500; color: var(--text2); text-align: left;
-    padding: 6px 12px 6px 0; border-bottom: 0.5px solid var(--border);
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
-  }
-  td { padding: 11px 12px 11px 0; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
+/* Buttons */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 14px;border-radius:var(--radius);border:1px solid var(--border);
+  background:var(--bg3);color:var(--text1);
+  font-size:13px;font-weight:500;cursor:pointer;
+  transition:all .15s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--border2);background:var(--bg4)}
+.btn-primary{background:var(--blue2);border-color:var(--blue2);color:#fff}
+.btn-primary:hover{background:#1a7ef5;border-color:#1a7ef5}
+.btn-danger{background:var(--red-dim);border-color:rgba(248,81,73,.3);color:var(--red)}
+.btn-danger:hover{background:#4a1f1f}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-icon{padding:6px;border-radius:var(--radius)}
 
-  /* BADGES */
-  .badge {
-    display: inline-block; font-size: 11px;
-    padding: 2px 8px; border-radius: 99px; font-weight: 500;
-  }
-  .bg { background: var(--success-bg); color: var(--success-text); }
-  .br { background: var(--danger-bg); color: var(--danger-text); }
-  .bb { background: var(--info-bg); color: var(--info-text); }
-  .ba { background: var(--warn-bg); color: var(--warn-text); }
-  .bgr { background: var(--bg2); color: var(--text2); }
+/* Form elements */
+input[type=text],input[type=number],input[type=password],input[type=email],select,textarea{
+  background:var(--bg3);border:1px solid var(--border);
+  color:var(--text1);border-radius:var(--radius);
+  padding:7px 10px;font-size:13px;width:100%;
+  transition:border-color .15s;
+  font-family:inherit;
+}
+input:focus,select:focus,textarea:focus{
+  outline:none;border-color:var(--blue);
+  box-shadow:0 0 0 3px rgba(88,166,255,.1);
+}
+label{font-size:12px;color:var(--text2);display:block;margin-bottom:5px}
+.form-row{margin-bottom:12px}
+.form-inline{display:flex;gap:8px;align-items:flex-end}
 
-  /* BUTTONS */
-  button {
-    font-family: inherit; font-size: 13px; cursor: pointer;
-    border-radius: var(--radius); border: 0.5px solid var(--border2);
-    background: transparent; color: var(--text);
-    padding: 7px 14px; transition: background .15s;
-  }
-  button:hover { background: var(--bg2); }
-  button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
-  button.primary:hover { background: #005ba5; }
-  button.danger { color: var(--danger-text); border-color: var(--danger-bg); }
-  button.sm { padding: 4px 10px; font-size: 12px; }
+/* Toggle */
+.toggle{
+  position:relative;width:36px;height:20px;cursor:pointer;
+  background:var(--bg4);border:1px solid var(--border);
+  border-radius:10px;transition:all .2s;flex-shrink:0;
+}
+.toggle::after{
+  content:'';position:absolute;top:2px;left:2px;
+  width:14px;height:14px;border-radius:50%;
+  background:var(--text3);transition:all .2s;
+}
+.toggle.on{background:var(--blue2);border-color:var(--blue2)}
+.toggle.on::after{left:18px;background:#fff}
 
-  /* FORMS */
-  .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
-  .form-row label { font-size: 12px; color: var(--text2); }
-  input[type=text], input[type=password], input[type=number], select, textarea {
-    padding: 8px 10px;
-    border-radius: var(--radius);
-    border: 0.5px solid var(--border2);
-    background: var(--bg);
-    color: var(--text);
-    font-size: 13px;
-    font-family: inherit;
-    width: 100%;
-  }
-  input:focus, select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,114,206,0.15); }
-  input[type=range] { accent-color: var(--blue); padding: 0; border: none; }
+/* Status row */
+.status-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0;border-bottom:1px solid var(--border);
+}
+.status-row:last-child{border-bottom:none}
 
-  .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-  .form-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; }
-  @media (max-width: 700px) { .form-grid-3, .form-grid-6 { grid-template-columns: 1fr 1fr; } }
+/* Log */
+.log-entry{
+  display:flex;gap:10px;padding:5px 0;
+  border-bottom:1px solid rgba(48,54,61,.5);font-size:12px;
+}
+.log-entry:last-child{border-bottom:none}
+.log-time{color:var(--text3);font-family:var(--font-mono);flex-shrink:0}
+.log-msg{color:var(--text2)}
 
-  /* TOGGLE */
-  .toggle-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-bottom: 0.5px solid var(--border);
-    font-size: 13px;
-  }
-  .toggle-row:last-child { border-bottom: none; }
-  .toggle-row .desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
-  .toggle {
-    position: relative; width: 36px; height: 20px;
-    background: var(--border2); border-radius: 10px;
-    cursor: pointer; transition: background .2s; flex-shrink: 0;
-    border: none; padding: 0;
-  }
-  .toggle.on { background: var(--blue); }
-  .toggle::after {
-    content: ''; position: absolute;
-    width: 14px; height: 14px; background: white;
-    border-radius: 50%; top: 3px; left: 3px;
-    transition: transform .2s;
-  }
-  .toggle.on::after { transform: translateX(16px); }
+/* Position card */
+.position-card{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px 14px;
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:8px;
+}
+.position-card:last-child{margin-bottom:0}
 
-  /* MARKET ROW */
-  .market-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 0; border-bottom: 0.5px solid var(--border);
-    font-size: 13px;
-  }
-  .market-row:last-child { border-bottom: none; }
-  .micon { width: 32px; height: 32px; border-radius: 6px; background: var(--bg2); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
-  .market-row .mname { flex: 1; }
-  .market-row .mticker { font-size: 11px; color: var(--text2); }
-  .market-row .mprice { font-weight: 500; min-width: 70px; text-align: right; }
-  .market-row .mchange { min-width: 60px; text-align: right; font-size: 12px; }
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--border2)}
 
-  /* RULE CARD */
-  .rule-card {
-    background: var(--bg2); border-radius: var(--radius);
-    padding: 14px 16px; margin-bottom: 10px;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .rule-card .rinfo { flex: 1; }
-  .rule-card .rname { font-size: 13px; font-weight: 500; }
-  .rule-card .rdesc { font-size: 12px; color: var(--text2); margin-top: 3px; }
+/* Chart */
+#chart-canvas{display:block;width:100%;border-radius:var(--radius)}
 
-  /* ALLOC */
-  .alloc-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 10px; gap: 1px; }
-  .alloc-seg { height: 100%; transition: flex .4s; }
+/* Signals row */
+.signal-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;
+}
+.signal-item:last-child{border-bottom:none}
 
-  /* PNL CHART */
-  .pnl-chart { height: 80px; margin: 12px 0 4px; }
-  .pnl-chart svg { width: 100%; height: 100%; }
+/* Range input */
+input[type=range]{
+  -webkit-appearance:none;background:var(--bg4);
+  height:4px;border-radius:2px;border:none;padding:0;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;
+  border-radius:50%;background:var(--blue);cursor:pointer;
+}
 
-  /* LOG */
-  .log-row {
-    display: flex; gap: 10px; align-items: flex-start;
-    padding: 8px 0; border-bottom: 0.5px solid var(--border); font-size: 12px;
-  }
-  .log-row:last-child { border-bottom: none; }
-  .log-time { color: var(--text2); min-width: 72px; font-variant-numeric: tabular-nums; }
+/* Empty state */
+.empty{
+  text-align:center;padding:32px;color:var(--text3);font-size:13px;
+}
 
-  /* DRIFT */
-  .drift-row { margin-bottom: 10px; }
-  .drift-row .dlabel { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-  .drift-track { position: relative; height: 8px; background: var(--border); border-radius: 4px; }
-  .drift-mid { position: absolute; left: 50%; top: -1px; width: 1px; height: 10px; background: var(--border2); }
-  .drift-fill { position: absolute; height: 8px; border-radius: 4px; }
+/* Code block */
+pre{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px;
+  font-family:var(--font-mono);font-size:12px;
+  color:var(--text2);overflow-x:auto;white-space:pre;
+}
+code{
+  font-family:var(--font-mono);font-size:12px;
+  background:var(--bg3);padding:2px 6px;border-radius:3px;
+  color:var(--blue);
+}
 
-  /* MODAL */
-  .modal-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.4); z-index: 100;
-    align-items: center; justify-content: center;
-  }
-  .modal-overlay.open { display: flex; }
-  .modal {
-    background: var(--bg);
-    border-radius: var(--radius-lg);
-    padding: 24px; width: 440px;
-    border: 0.5px solid var(--border2);
-    max-height: 90vh; overflow-y: auto;
-  }
-  .modal-title { font-size: 15px; font-weight: 500; margin-bottom: 18px; }
-  .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+/* Watchlist ticker */
+.watchlist-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.watch-item{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:var(--radius);padding:12px;cursor:pointer;
+  transition:border-color .15s;
+}
+.watch-item:hover{border-color:var(--border2)}
+.watch-item .w-name{font-size:12px;color:var(--text2);margin-bottom:4px}
+.watch-item .w-price{font-size:18px;font-weight:700;font-family:var(--font-mono);color:var(--text1)}
+.watch-item .w-chg{font-size:12px;font-family:var(--font-mono);margin-top:2px}
+.watch-item .w-chg.up{color:var(--green)}
+.watch-item .w-chg.dn{color:var(--red)}
 
-  .pos { color: var(--green); }
-  #price-chart { display:block; }
-  .signal-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:0.5px solid var(--border); font-size:13px; }
-  .signal-row:last-child { border-bottom:none; }
-  .signal-badge { font-size:11px; font-weight:600; padding:3px 10px; border-radius:99px; }
-  .sig-buy { background:var(--success-bg); color:var(--success-text); }
-  .sig-sell { background:var(--danger-bg); color:var(--danger-text); }
-  .sig-neutral { background:var(--bg2); color:var(--text2); }
-  .sentiment-bar { height:12px; border-radius:6px; overflow:hidden; display:flex; margin:8px 0; }
-  .sentiment-long { background:var(--green); height:100%; transition:width .5s; }
-  .sentiment-short { background:var(--red); height:100%; transition:width .5s; }
-  .ai-score-circle { width:100px; height:100px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:0 auto 12px; border:3px solid; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-  .ai-response-content { line-height:1.7; font-size:14px; }
-  .ai-response-content h2 { font-size:15px; font-weight:600; margin:16px 0 8px; }
-  .ai-response-content h3 { font-size:14px; font-weight:600; margin:12px 0 6px; color:var(--text2); }
-  .ai-response-content p { margin:0 0 10px; }
-  .ai-response-content ul { padding-left:20px; margin:0 0 10px; }
-  .ai-response-content li { margin-bottom:4px; }
-  .ai-response-content strong { font-weight:600; color:var(--text); }
-  .ai-response-content .positive { color:var(--green); font-weight:500; }
-  .ai-response-content .negative { color:var(--red); font-weight:500; }
-  .flash-up { animation: flashUp 0.6s ease-out; }
-  .flash-down { animation: flashDown 0.6s ease-out; }
-  @keyframes flashUp { 0%{background:rgba(29,158,117,0.3)} 100%{background:transparent} }
-  @keyframes flashDown { 0%{background:rgba(226,75,74,0.3)} 100%{background:transparent} }
-  .neg { color: var(--red); }
-  .neu { color: var(--text2); }
-  .fw { font-weight: 500; }
+/* AI chat */
+.ai-msg{
+  margin-bottom:14px;padding:12px 14px;
+  border-radius:var(--radius);font-size:13px;line-height:1.6;
+}
+.ai-msg.user{background:var(--blue-dim);border-left:2px solid var(--blue)}
+.ai-msg.ai{background:var(--bg3);border-left:2px solid var(--text3)}
 
-  .env-banner {
-    background: var(--warn-bg); color: var(--warn-text);
-    font-size: 12px; text-align: center; padding: 6px;
-    border-bottom: 0.5px solid var(--border);
-  }
-  .env-banner.live { background: var(--danger-bg); color: var(--danger-text); }
+/* Progress bar */
+.progress-bar{
+  height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;
+}
+.progress-fill{height:100%;border-radius:2px;transition:width .5s}
 
-  .empty { text-align: center; padding: 40px; color: var(--text2); font-size: 13px; }
+/* Alert banner */
+.alert{
+  padding:10px 14px;border-radius:var(--radius);
+  font-size:13px;margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.alert-warn{background:var(--gold-dim);border:1px solid rgba(210,153,34,.2);color:var(--gold)}
+.alert-info{background:var(--blue-dim);border:1px solid rgba(88,166,255,.2);color:var(--blue)}
+.alert-success{background:var(--green-dim);border:1px solid rgba(63,185,80,.2);color:var(--green)}
+.alert-danger{background:var(--red-dim);border:1px solid rgba(248,81,73,.2);color:var(--red)}
 
-  .tag-num { font-variant-numeric: tabular-nums; }
+/* Responsive */
+@media(max-width:900px){
+  .metric-grid{grid-template-columns:repeat(2,1fr)}
+  .two-col,.three-col{grid-template-columns:1fr}
+  .watchlist-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:600px){
+  #content{padding:12px}
+  .metric-grid{grid-template-columns:1fr 1fr}
+}
+
+/* Animations */
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.tab-content.active{animation:fadeIn .2s ease}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.loading{animation:pulse 1.5s infinite}
+
 </style>
-<script src="/lightstreamer.min.js"></script>
 </head>
 <body>
 
-<!-- LOGIN -->
-<div id="login-screen">
-  <div class="login-card">
-    <div class="logo-row">
-      <span class="logo">IG</span>
-      <div>
-        <div style="font-size:15px;font-weight:500">Investment Programme</div>
-        <div style="font-size:12px;color:var(--text2)">Sign in to continue</div>
+<!-- ═══ LOGIN ════════════════════════════════════════════════════════════════ -->
+<div id="login-screen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg0)">
+  <div style="width:360px">
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--blue2),var(--blue));display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;margin-bottom:14px">IG</div>
+      <div style="font-size:22px;font-weight:700;color:var(--text1)">Investment Dashboard</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:4px">Automated Trading System v3</div>
+    </div>
+    <div class="card">
+      <div class="form-row">
+        <label>Environment</label>
+        <select id="login-env">
+          <option value="live">Live Account</option>
+          <option value="demo">Demo Account</option>
+        </select>
       </div>
+      <div class="form-row">
+        <label>Username / Email</label>
+        <input type="text" id="login-user" placeholder="IG username or email" autocomplete="username">
+      </div>
+      <div class="form-row" style="margin-bottom:16px">
+        <label>Password</label>
+        <input type="password" id="login-pass" placeholder="IG password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Sign In</button>
+      <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;text-align:center;display:none"></div>
     </div>
-    <div class="login-error" id="login-error">Incorrect username or password.</div>
-    <div class="form-row">
-      <label>Username</label>
-      <input type="text" id="login-user" placeholder="Your IG username" autocomplete="username">
+    <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--text3)">
+      Live orders will be placed on your IG account
     </div>
-    <div class="form-row">
-      <label>Password</label>
-      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
-    </div>
-    <div class="form-row" style="margin-top:4px">
-      <label>Environment</label>
-      <select id="login-env">
-        <option value="demo">Demo (Paper Trading)</option>
-        <option value="live">Live</option>
-      </select>
-    </div>
-    <button class="primary" style="width:100%;margin-top:8px" onclick="doLogin()">Connect to IG</button>
-    <p style="font-size:11px;color:var(--text2);margin-top:14px;text-align:center">
-      Your credentials are sent directly to IG's API and never stored.
-    </p>
   </div>
 </div>
 
-<!-- APP -->
+<!-- ═══ APP ═══════════════════════════════════════════════════════════════════ -->
 <div id="app">
-  <div id="env-banner" class="env-banner">Demo mode — paper trading active. No real orders will be placed.</div>
-  <div class="header">
-    <div class="header-left">
-      <span class="logo">IG</span>
-      <h1>Automated Investment Programme</h1>
+
+  <!-- Header -->
+  <div id="header">
+    <div id="header-logo">
+      <div class="logo-mark">IG</div>
+      Investment Dashboard
+      <span style="font-size:10px;color:var(--text3);font-weight:400;background:var(--bg3);padding:2px 6px;border-radius:3px;border:1px solid var(--border)">v3</span>
     </div>
-    <div style="display:flex;align-items:center;gap:16px">
-      <div class="status-indicator">
-        <div class="status-dot" id="conn-dot"></div>
-        <span id="conn-label">Connecting…</span>
+    <div id="header-right">
+      <div id="conn-badge">
+        <div id="conn-dot"></div>
+        <span id="conn-label">Connecting...</span>
       </div>
-      <button onclick="openModal('api-modal')">API Settings</button>
-      <button onclick="refreshAll()">↻ Refresh</button><button class="primary" id="master-btn" onclick="toggleMaster()">Pause All</button>
-      <button onclick="doLogout()">Sign out</button>
+      <div id="header-balance" style="font-family:var(--font-mono)">—</div>
+      <div id="header-pl" class="neu" style="font-family:var(--font-mono)">—</div>
+      <button class="btn btn-sm" onclick="doLogout()" id="logout-btn">Sign Out</button>
     </div>
   </div>
 
-  <div class="nav">
+  <!-- Nav -->
+  <div id="nav">
     <div class="nav-tab active" onclick="switchTab('overview',this)">Overview</div>
-    <div class="nav-tab" onclick="switchTab('dca',this)">DCA Programme</div>
-    <div class="nav-tab" onclick="switchTab('rules',this)">Rule Engine</div>
-    <div class="nav-tab" onclick="switchTab('rebalance',this)">Rebalancer</div>
-    <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
-    <div class="nav-tab" onclick="switchTab('log',this)">Activity Log</div>
+    <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
+    <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
     <div class="nav-tab" onclick="switchTab('signals',this)">📡 Signals</div>
-    <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
-    <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
+    <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
+    <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
   </div>
 
-  <div class="main">
+  <!-- Live price bar -->
+  <div id="live-bar" style="display:none">
+    <!-- Populated by Lightstreamer -->
+  </div>
 
-    <!-- OVERVIEW -->
+  <!-- Content -->
+  <div id="content">
+
+    <!-- ══ OVERVIEW ══════════════════════════════════════════════════════════ -->
     <div class="tab-content active" id="tab-overview">
-      <div class="cards-row">
-        <div class="metric-card">
-          <div class="label">Portfolio Value</div>
-          <div class="value" id="pv">—</div>
-          <div class="sub neu" id="pv-change">Loading…</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Today P&L</div>
-          <div class="value" id="today-pl">—</div>
-          <div class="sub neu" id="pos-count">— positions</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Next DCA</div>
-          <div class="value" style="font-size:16px;margin-top:4px" id="next-dca">—</div>
-          <div class="sub neu" id="next-dca-amt">Loading…</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Active Rules</div>
-          <div class="value" id="active-rules">—</div>
-          <div class="sub neu" id="paused-rules">—</div>
-        </div>
-      </div>
-      <div class="two-col">
-        <div class="panel">
-          <div class="section-title">Watchlist</div>
-          <div id="watchlist"><div class="empty">Loading prices…</div></div>
-        </div>
-        <div class="panel">
-          <div class="section-title">Portfolio P&L (30d)</div>
-          <div class="pnl-chart">
-            <svg id="pnl-svg" viewBox="0 0 400 80" preserveAspectRatio="none">
-              <polyline id="pnl-line" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>
-              <polygon id="pnl-fill" opacity="0.08" fill="var(--blue)"/>
-            </svg>
-          </div>
-          <div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between">
-            <span>30 days ago</span><span>Today</span>
-          </div>
-          <div class="section-title" style="margin-top:16px">Allocation</div>
-          <div class="alloc-bar" id="alloc-bar"></div>
-          <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap" id="alloc-legend"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="section-title">Open Positions</div>
-        <table>
-          <thead><tr>
-            <th>Instrument</th><th>Direction</th><th>Size</th><th>Open</th><th>Current</th><th>P&L</th><th>Status</th><th></th>
-          </tr></thead>
-          <tbody id="positions-body"><tr><td colspan="8" class="empty">Loading positions…</td></tr></tbody>
-        </table>
-      </div>
-    </div>
 
-    <!-- DCA -->
-    <div class="tab-content" id="tab-dca">
-      <div class="two-col">
-        <div class="panel">
-          <div class="section-title-row">
-            <div class="section-title">DCA Schedules</div>
-          </div>
-          <table>
-            <thead><tr>
-              <th>Instrument</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Status</th><th></th>
-            </tr></thead>
-            <tbody id="dca-body"></tbody>
-          </table>
-          <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
-            <div class="section-title">Add Schedule</div>
-            <div class="form-grid-3">
-              <div class="form-row">
-                <label>Instrument</label>
-                <select id="dca-instr">
-                  <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-                  <option>Dow Jones</option><option>Brent Oil</option>
-                  <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label>Amount (£)</label>
-                <input type="number" id="dca-amt" value="100" min="10">
-              </div>
-              <div class="form-row">
-                <label>Frequency</label>
-                <select id="dca-freq">
-                  <option>Daily</option><option>Weekly</option><option selected>Monthly</option>
-                </select>
-              </div>
-            </div>
-            <button class="primary" onclick="addDCA()">Add Schedule</button>
-          </div>
+      <!-- Metrics row -->
+      <div class="metric-grid" style="margin-bottom:16px">
+        <div class="metric">
+          <div class="label">Account Balance</div>
+          <div class="value" id="m-balance">—</div>
+          <div class="sub" id="m-available">Available: —</div>
         </div>
-        <div class="panel">
-          <div class="section-title">DCA Performance</div>
-          <table>
-            <thead><tr><th>Instrument</th><th>Invested</th><th>Current</th><th>Return</th></tr></thead>
-            <tbody id="dca-perf-body"></tbody>
-          </table>
-          <div style="margin-top:16px">
-            <div class="section-title">Settings</div>
-            <div class="toggle-row">
-              <div>
-                <div>Auto-invest dividends</div>
-                <div class="desc">Reinvest any received dividends</div>
-              </div>
-              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-            </div>
-            <div class="toggle-row">
-              <div>
-                <div>Limit order only</div>
-                <div class="desc">Wait for limit price on DCA orders</div>
-              </div>
-              <button class="toggle" onclick="this.classList.toggle('on')"></button>
-            </div>
-            <div class="toggle-row">
-              <div>
-                <div>Skip on high volatility (>3%)</div>
-                <div class="desc">Avoid buying on extreme price moves</div>
-              </div>
-              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-            </div>
-            <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
-              <div class="section-title">Notifications & Cron</div>
-              <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
-                DCA auto-runs at 8am Monday–Friday via Vercel cron. Each schedule checks if it's due based on its frequency setting.
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button onclick="sendTestEmail()">📧 Send Test Email</button>
-                <button onclick="checkCronStatus()">⏱ Check Cron Status</button>
-              </div>
-              <div id="cron-status" style="font-size:12px;color:var(--text2);margin-top:10px"></div>
-            </div>
-          </div>
+        <div class="metric">
+          <div class="label">Daily P&L</div>
+          <div class="value" id="m-pnl">—</div>
+          <div class="sub" id="m-pnl-pct">0.00% today</div>
         </div>
-      </div>
-    </div>
-
-    <!-- RULES -->
-    <div class="tab-content" id="tab-rules">
-      <div class="two-col">
-        <div>
-          <div class="panel">
-            <div class="section-title">Active Rules</div>
-            <div id="rules-list"></div>
-          </div>
+        <div class="metric">
+          <div class="label">Open Positions</div>
+          <div class="value" id="m-positions">0</div>
+          <div class="sub" id="m-positions-sub">of 3 max</div>
         </div>
-        <div class="panel">
-          <div class="section-title">New Rule Builder</div>
-          <div class="form-row">
-            <label>Rule Name</label>
-            <input type="text" id="rule-name" placeholder="e.g. Gold RSI Buy">
-          </div>
-          <div class="form-row">
-            <label>Instrument</label>
-            <select id="rule-instr">
-              <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-              <option>Dow Jones</option><option>Crude Oil</option><option>Apple</option>
-            </select>
-          </div>
-          <div class="form-grid-3">
-            <div class="form-row">
-              <label>Indicator</label>
-              <select id="rule-ind">
-                <option>RSI</option><option>SMA Cross</option><option>EMA</option>
-                <option>MACD</option><option>Bollinger</option><option>Price Change</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label>Condition</label>
-              <select id="rule-cond">
-                <option>Below</option><option>Above</option>
-                <option>Crosses above</option><option>Crosses below</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label>Threshold</label>
-              <input type="number" id="rule-thresh" value="30">
-            </div>
-          </div>
-          <div class="form-grid-3">
-            <div class="form-row">
-              <label>Action</label>
-              <select id="rule-action"><option>Buy</option><option>Sell</option><option>Alert only</option></select>
-            </div>
-            <div class="form-row">
-              <label>Size (£)</label>
-              <input type="number" id="rule-size" value="500">
-            </div>
-            <div class="form-row">
-              <label>Order Type</label>
-              <select id="rule-order"><option>Market</option><option>Limit</option><option>Stop</option></select>
-            </div>
-          </div>
-          <button class="primary" onclick="addRule()">Create Rule</button>
-          <div style="margin-top:16px;border-top:0.5px solid var(--border);padding-top:16px">
-            <div class="section-title">Rule Engine</div>
-            <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Rules auto-evaluate every 15 minutes during market hours (8am–4pm Mon–Fri) via Vercel cron.</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button onclick="evaluateAllRules()">▶ Evaluate All Rules</button>
-              <button onclick="checkRuleStatus()">⏱ Check Status</button>
-            </div>
-            <div id="rule-status" style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.6"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- REBALANCER -->
-    <div class="tab-content" id="tab-rebalance">
-      <div class="two-col">
-        <div class="panel">
-          <div class="section-title">Target Allocation</div>
-          <div id="alloc-table"></div>
-          <div style="margin-top:16px">
-            <div class="section-title">Settings</div>
-            <div class="toggle-row">
-              <div>
-                <div>Auto-rebalance</div>
-                <div class="desc">Trigger when drift exceeds threshold</div>
-              </div>
-              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-            </div>
-            <div class="form-row" style="margin-top:12px">
-              <label>Drift Threshold: <span id="drift-val">5%</span></label>
-              <input type="range" min="1" max="20" value="5" oninput="document.getElementById('drift-val').textContent=this.value+'%'">
-            </div>
-          </div>
-          <div style="display:flex;gap:10px;margin-top:12px">
-            <button class="primary" onclick="doRebalance()">Rebalance Now</button>
-            <button onclick="previewRebalance()">Preview Trades</button>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="section-title">Current vs Target Drift</div>
-          <div id="drift-chart"></div>
-          <div id="rebalance-preview" style="margin-top:16px;display:none"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ORDERS -->
-    <div class="tab-content" id="tab-orders">
-      <div class="panel" style="margin-bottom:16px">
-        <div class="section-title">Manual Order</div>
-        <div class="form-grid-6">
-          <div class="form-row">
-            <label>Instrument</label>
-            <select id="ord-instr">
-              <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-              <option>Dow Jones</option><option>Brent Oil</option>
-              <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>Direction</label>
-            <select id="ord-dir"><option>Buy</option><option>Sell</option></select>
-          </div>
-          <div class="form-row">
-            <label>Size (£)</label>
-            <input type="number" id="ord-size" value="1000">
-          </div>
-          <div class="form-row">
-            <label>Order Type</label>
-            <select id="ord-type"><option>Market</option><option>Limit</option><option>Stop</option></select>
-          </div>
-          <div class="form-row">
-            <label>Limit Price</label>
-            <input type="number" id="ord-price" placeholder="Optional">
-          </div>
-          <div class="form-row">
-            <label>&nbsp;</label>
-            <button class="primary" onclick="placeManualOrder()">Place Order</button>
-          </div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="section-title">Order History</div>
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Instrument</th><th>Action</th><th>Description</th><th>Status</th>
-          </tr></thead>
-          <tbody id="orders-body"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- LOG -->
-    <div class="tab-content" id="tab-log">
-      <div class="panel">
-        <div class="section-title-row">
-          <div class="section-title">Activity Log</div>
-          <div style="display:flex;gap:6px">
-            <button class="sm" onclick="renderLog('all')">All</button>
-            <button class="sm" onclick="renderLog('order')">Orders</button>
-            <button class="sm" onclick="renderLog('rule')">Rules</button>
-            <button class="sm" onclick="renderLog('system')">System</button>
-          </div>
-        </div>
-        <div id="log-container"></div>
-      </div>
-    </div>
-
-
-
-
-
-    <!-- JOURNAL -->
-    <div class="tab-content" id="tab-journal">
-
-      <div class="cards-row" style="grid-template-columns:repeat(4,1fr)">
-        <div class="metric-card">
-          <div class="label">Total Trades</div>
-          <div class="value" id="j-total">—</div>
-          <div class="sub neu" id="j-winrate">Win rate: —</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Total P&L</div>
-          <div class="value" id="j-pnl">—</div>
-          <div class="sub neu" id="j-avgpnl">Avg: —</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Best Trade</div>
-          <div class="value pos" id="j-best">—</div>
-          <div class="sub neu" id="j-best-instr">—</div>
-        </div>
-        <div class="metric-card">
-          <div class="label">Worst Trade</div>
-          <div class="value neg" id="j-worst">—</div>
-          <div class="sub neu" id="j-worst-instr">—</div>
+        <div class="metric">
+          <div class="label">Engine Status</div>
+          <div class="value gold" id="m-engine">Waiting</div>
+          <div class="sub" id="m-engine-sub">Cron: every 5 min</div>
         </div>
       </div>
 
       <div class="two-col">
-        <div class="panel">
-          <div class="section-title-row">
-            <div class="section-title">Equity Curve</div>
-            <button class="sm" onclick="loadJournal()">↻ Refresh</button>
+
+        <!-- Positions -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Open Positions</div>
+            <button class="btn btn-sm" onclick="loadPositions()">↻ Refresh</button>
           </div>
-          <canvas id="equity-chart" style="width:100%;height:200px"></canvas>
-          <div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between;margin-top:4px">
-            <span id="eq-from">—</span><span id="eq-to">Today</span>
+          <div id="positions-list">
+            <div class="empty">No open positions</div>
           </div>
         </div>
 
-        <div class="panel">
-          <div class="section-title">Daily Performance</div>
-          <div id="daily-stats" style="font-size:13px">
-            <div class="empty">Load journal to see daily stats</div>
+        <!-- Watchlist -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Live Prices</div>
+            <div style="font-size:11px;color:var(--green);display:flex;align-items:center;gap:4px">
+              <div style="width:5px;height:5px;border-radius:50%;background:var(--green)"></div>
+              Lightstreamer
+            </div>
+          </div>
+          <div class="watchlist-grid" id="watchlist-grid">
+            <!-- Populated by JS -->
           </div>
         </div>
+
       </div>
 
-      <div class="panel">
-        <div class="section-title-row">
-          <div class="section-title">Trade History</div>
-          <div style="display:flex;gap:8px">
-            <button class="sm" onclick="sendWeeklyReport()">📧 Weekly Report</button>
-            <button class="sm" onclick="runBacktestQuick()">🔬 Quick Backtest</button>
-            <button class="sm" onclick="initDb()">⚙ Init DB</button>
-          </div>
+      <!-- P&L Chart -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Portfolio Performance (30d)</div>
+          <div style="font-size:11px;color:var(--text3)" id="pnl-chart-note">FTSE 100 benchmark</div>
         </div>
-        <div id="journal-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
-        <table>
-          <thead><tr>
-            <th>Opened</th><th>Instrument</th><th>Direction</th><th>Size</th>
-            <th>Open</th><th>Close</th><th>P&L</th><th>AI%</th><th>Status</th>
-          </tr></thead>
-          <tbody id="journal-body"><tr><td colspan="9" class="empty">Click Refresh to load trade history</td></tr></tbody>
-        </table>
+        <svg id="pnl-svg" viewBox="0 0 600 80" preserveAspectRatio="none" style="width:100%;height:80px">
+          <defs>
+            <linearGradient id="pnl-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#58a6ff" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <polygon id="pnl-fill" fill="url(#pnl-grad)"/>
+          <polyline id="pnl-line" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
       </div>
 
     </div>
-    <!-- AUTO-TRADE -->
+
+    <!-- ══ AUTO-TRADE ════════════════════════════════════════════════════════ -->
     <div class="tab-content" id="tab-autotrade">
 
       <!-- Status banner -->
-      <div id="at-banner" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div id="at-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text3)"></div>
-          <div>
-            <div style="font-weight:500" id="at-status-label">Auto-Trading: Loading...</div>
-            <div style="font-size:12px;color:var(--text2)" id="at-status-sub">Check status to initialise</div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div id="at-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text3)"></div>
+            <div>
+              <div style="font-weight:600" id="at-status-label">Auto-Trading: Loading...</div>
+              <div style="font-size:12px;color:var(--text2)" id="at-status-sub">Check status to initialise</div>
+            </div>
           </div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="checkAutoTradeStatus()">Check Status</button>
-          <button id="at-stop-btn" onclick="stopAutoTrade()" style="background:var(--red);color:#fff;border-color:var(--red)">⏹ Stop</button>
-          <button class="primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="checkAutoTradeStatus()">Check Status</button>
+            <button class="btn btn-danger btn-sm" id="at-stop-btn" onclick="stopAutoTrade()">⏹ Stop</button>
+            <button class="btn btn-primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
+          </div>
         </div>
       </div>
 
-      <!-- Daily limits -->
       <div class="two-col">
-        <div class="panel">
-          <div class="section-title">Daily Limits</div>
 
-          <div style="margin-bottom:20px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <label style="font-size:13px;font-weight:500">Daily Profit Lock</label>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="number" id="at-profit-lock" value="2" min="0.1" max="20" step="0.1" style="width:70px;text-align:center">
-                <span style="font-size:13px;color:var(--text2)">%</span>
-              </div>
+        <!-- Config -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">Configuration</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div class="form-row">
+              <label>Daily Profit Lock %</label>
+              <input type="number" id="at-profit-lock" value="2" min="0.1" max="20" step="0.1">
             </div>
-            <div style="font-size:12px;color:var(--text2)">Stop opening new positions when daily P&L reaches this target. Existing positions stay open.</div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <label style="font-size:13px;font-weight:500;color:var(--red)">Daily Loss Limit</label>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="number" id="at-loss-limit" value="1" min="0.1" max="10" step="0.1" style="width:70px;text-align:center">
-                <span style="font-size:13px;color:var(--text2)">%</span>
-              </div>
+            <div class="form-row">
+              <label>Daily Loss Limit %</label>
+              <input type="number" id="at-loss-limit" value="1" min="0.1" max="10" step="0.1" style="border-color:rgba(248,81,73,.3)">
             </div>
-            <div style="font-size:12px;color:var(--text2)">Close ALL positions immediately and stop trading when daily loss reaches this level.</div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <label style="font-size:13px;font-weight:500">Max Open Positions</label>
-              <input type="number" id="at-max-pos" value="3" min="1" max="10" style="width:70px;text-align:center">
+            <div class="form-row">
+              <label>Max Positions</label>
+              <input type="number" id="at-max-pos" value="3" min="1" max="10">
+            </div>
+            <div class="form-row">
+              <label>Trade Size (units)</label>
+              <input type="number" id="at-size" value="1" min="1" max="10">
             </div>
           </div>
-          <div style="font-size:12px;padding:10px 12px;background:var(--info-bg);border-radius:var(--radius);color:var(--info-text);margin-bottom:16px">
-            <strong>Correlation filter active</strong> — 3 uncorrelated groups: Indices (FTSE/S&P/DAX/Dow), Commodities (Oil), FX (GBP/USD, EUR/USD, USD/JPY). Max 1 per group = up to 3 simultaneous positions.
-          </div>
 
-          <div style="margin-bottom:20px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <label style="font-size:13px;font-weight:500">Default Trade Size</label>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input type="number" id="at-size" value="1" min="1" max="10" style="width:70px;text-align:center">
-                <span style="font-size:13px;color:var(--text2)">units</span>
-              </div>
-            </div>
-            <div style="font-size:12px;color:var(--text2)">Size per trade in units (£1/pt on FTSE = 1 unit)</div>
-          </div>
-
-          <div class="toggle-row">
+          <div class="status-row">
             <div>
-              <div style="font-weight:500">AI Confirmation Required</div>
-              <div class="desc">Claude must approve signals before orders are placed</div>
+              <div style="font-size:13px;font-weight:500">AI Confirmation</div>
+              <div style="font-size:12px;color:var(--text2)">Claude must approve before execution</div>
             </div>
             <button class="toggle on" id="at-ai-toggle" onclick="this.classList.toggle('on')"></button>
           </div>
-          <div class="toggle-row">
+          <div class="status-row">
             <div>
-              <div style="font-weight:500">Multi-Timeframe Confirmation</div>
-              <div class="desc">Require daily AND hourly charts to agree</div>
+              <div style="font-size:13px;font-weight:500">Multi-Timeframe</div>
+              <div style="font-size:12px;color:var(--text2)">Daily + hourly alignment required</div>
             </div>
             <button class="toggle on" id="at-mtf-toggle" onclick="this.classList.toggle('on')"></button>
           </div>
-          <div class="toggle-row">
+          <div class="status-row">
             <div>
-              <div style="font-weight:500">Economic Calendar Filter</div>
-              <div class="desc">Skip trades 30 mins before major data releases</div>
+              <div style="font-size:13px;font-weight:500">Calendar Filter</div>
+              <div style="font-size:12px;color:var(--text2)">Skip trades near major events</div>
             </div>
             <button class="toggle on" id="at-cal-toggle" onclick="this.classList.toggle('on')"></button>
           </div>
-          <div style="margin-top:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <label style="font-size:13px">Signal Threshold (min score)</label>
-              <span style="font-size:13px;font-weight:500" id="at-thresh-val">3</span>
-            </div>
-            <input type="range" id="at-threshold" min="2" max="7" value="3" oninput="document.getElementById('at-thresh-val').textContent=this.value" style="width:100%">
-          </div>
-          <div style="margin-top:10px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <label style="font-size:13px">Trailing Stop %</label>
-              <span style="font-size:13px;font-weight:500" id="at-trail-val">1.5%</span>
-            </div>
-            <input type="range" min="0" max="5" step="0.5" value="1.5" oninput="document.getElementById('at-trail-val').textContent=this.value+'%'" style="width:100%">
-          </div>
 
           <div style="margin-top:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <label style="font-size:13px">Min AI Confidence</label>
-              <span style="font-size:13px;font-weight:500" id="at-confidence-val">60%</span>
-            </div>
-            <input type="range" min="50" max="95" value="60" oninput="document.getElementById('at-confidence-val').textContent=this.value+'%'" style="width:100%">
+            <label style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Min AI Confidence</span>
+              <span style="color:var(--text1);font-weight:500" id="at-confidence-val">60%</span>
+            </label>
+            <input type="range" min="50" max="95" value="60" oninput="document.getElementById('at-confidence-val').textContent=this.value+'%'">
           </div>
 
-            <div class="form-row" style="margin-top:14px">
-            <label>Cron Secret (for Run Now button)</label>
-            <input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET value">
+          <div style="margin-top:12px">
+            <label style="margin-bottom:6px;display:flex;justify-content:space-between">
+              <span>Signal Threshold</span>
+              <span style="color:var(--text1);font-weight:500" id="at-thresh-val">2</span>
+            </label>
+            <input type="range" id="at-threshold" min="1" max="7" value="2" oninput="document.getElementById('at-thresh-val').textContent=this.value">
           </div>
-        <button class="primary" onclick="saveAutoTradeConfig()" style="width:100%;margin-top:8px">Save Config to Vercel</button>
+
+          <div class="form-row" style="margin-top:14px">
+            <label>Cron Secret</label>
+            <input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET">
+          </div>
+
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="saveAutoTradeConfig()">Generate Vercel Config</button>
         </div>
 
         <div>
-          <!-- Daily P&L tracker -->
-          <div class="panel" style="margin-bottom:16px">
-            <div class="section-title">Today's Performance</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-              <div class="metric-card">
+          <!-- Daily P&L -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:12px">Today's Performance</div>
+            <div class="metric-grid cols-2" style="margin-bottom:12px">
+              <div class="metric">
                 <div class="label">Daily P&L</div>
                 <div class="value" id="at-daily-pl">—</div>
               </div>
-              <div class="metric-card">
-                <div class="label">Daily P&L %</div>
+              <div class="metric">
+                <div class="label">P&L %</div>
                 <div class="value" id="at-daily-pct">—</div>
               </div>
             </div>
-
-            <!-- Progress bar -->
-            <div style="margin-bottom:8px">
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:4px">
-                <span id="at-loss-label">Loss limit: -1%</span>
-                <span id="at-profit-label">Profit lock: +2%</span>
-              </div>
-              <div style="height:8px;background:var(--border);border-radius:4px;position:relative;overflow:hidden">
-                <div id="at-pl-bar" style="position:absolute;height:100%;border-radius:4px;transition:all .5s;background:var(--green);left:50%;width:0"></div>
-                <div style="position:absolute;left:50%;top:0;width:1px;height:100%;background:var(--border2)"></div>
-              </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:11px;color:var(--text2)">
+              <span id="at-loss-label">Loss: -1%</span>
+              <span id="at-profit-label">Lock: +2%</span>
             </div>
+            <div class="progress-bar">
+              <div id="at-pl-bar" class="progress-fill" style="background:var(--green);width:0;margin-left:50%"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:4px">Midpoint = break even</div>
           </div>
 
-          <!-- Activity log -->
-          <div class="panel">
-            <div class="section-title-row">
-              <div class="section-title">Engine Log</div>
-              <button class="sm" onclick="document.getElementById('at-log').innerHTML=''">Clear</button>
+          <!-- Engine Log -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Engine Log</div>
+              <button class="btn btn-sm" onclick="document.getElementById('at-log').innerHTML=''">Clear</button>
             </div>
-            <div id="at-log" style="font-size:12px;max-height:240px;overflow-y:auto;line-height:1.6;color:var(--text2)">
-              No activity yet — click Run Now or wait for scheduled run.
+            <div id="at-log" style="max-height:220px;overflow-y:auto">
+              <div class="empty">No activity yet — click Run Now</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Setup instructions -->
-      <div class="panel" style="background:var(--info-bg);border-color:var(--blue)">
-        <div class="section-title" style="color:var(--blue-text)">Setup — cron-job.org</div>
-        <div style="font-size:13px;color:var(--blue-text);line-height:1.7">
-          Add a new cron job at <strong>cron-job.org</strong> pointing to your Vercel URL:<br>
-          <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px" id="at-cron-url"></code><br>
-          Schedule: <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px">*/5 8-16 * * 1-5</code> (every 5 mins, 8am–4pm Mon–Fri)<br>
-          Method: POST &nbsp;|&nbsp; Header: <code style="background:rgba(0,0,0,0.08);padding:2px 8px;border-radius:4px;font-size:12px">Authorization: Bearer YOUR_CRON_SECRET</code>
-        </div>
+      <!-- Correlation info -->
+      <div class="alert alert-info">
+        <span>ℹ</span>
+        <span><strong>Correlation filter active</strong> — max 1 index (FTSE/S&P/DAX/Dow), 1 commodity (Oil), 1 FX pair simultaneously. Kelly Criterion sizing scales with win rate history.</span>
       </div>
 
     </div>
 
-    <!-- BACKTEST -->
+    <!-- ══ JOURNAL ════════════════════════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-journal">
+
+      <div class="metric-grid" style="margin-bottom:16px">
+        <div class="metric">
+          <div class="label">Total Trades</div>
+          <div class="value" id="j-total">—</div>
+          <div class="sub" id="j-winrate">Win rate: —</div>
+        </div>
+        <div class="metric">
+          <div class="label">Total P&L</div>
+          <div class="value" id="j-pnl">—</div>
+          <div class="sub" id="j-avgpnl">Avg per trade: —</div>
+        </div>
+        <div class="metric">
+          <div class="label">Best Trade</div>
+          <div class="value pos" id="j-best">—</div>
+          <div class="sub" id="j-best-instr">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Worst Trade</div>
+          <div class="value neg" id="j-worst">—</div>
+          <div class="sub" id="j-worst-instr">—</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Equity Curve</div>
+            <button class="btn btn-sm" onclick="loadJournal()">↻ Refresh</button>
+          </div>
+          <canvas id="equity-chart" style="width:100%;height:180px"></canvas>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px">
+            <span id="eq-from">—</span><span id="eq-to">Today</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Daily Performance</div>
+          <div id="daily-stats"><div class="empty">Load journal to see stats</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Trade History</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="sendWeeklyReport()">📧 Weekly Report</button>
+            <button class="btn btn-sm" onclick="initDb()">⚙ Init DB</button>
+            <button class="btn btn-sm" onclick="loadJournal()">↻ Refresh</button>
+          </div>
+        </div>
+        <div id="journal-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th><th>Instrument</th><th>Direction</th><th>Size</th>
+              <th>Entry</th><th>Exit</th><th>P&L</th><th>AI %</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="journal-body">
+            <tr><td colspan="9" class="empty">Click Refresh to load trades</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ CHARTS ═════════════════════════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-charts">
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <!-- Instrument buttons -->
+            <button class="btn btn-sm active" id="chart-btn-FTSE" onclick="selectChartInstrument('FTSE 100','IX.D.FTSE.DAILY.IP',this)">FTSE</button>
+            <button class="btn btn-sm" id="chart-btn-SP500" onclick="selectChartInstrument('S&P 500','IX.D.SPTRD.DAILY.IP',this)">S&P 500</button>
+            <button class="btn btn-sm" id="chart-btn-DAX" onclick="selectChartInstrument('DAX 40','IX.D.DAX.DAILY.IP',this)">DAX</button>
+            <button class="btn btn-sm" id="chart-btn-DOW" onclick="selectChartInstrument('Dow Jones','IX.D.DOW.DAILY.IP',this)">Dow</button>
+            <button class="btn btn-sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Oil</button>
+            <button class="btn btn-sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.MINI.IP',this)">GBP/USD</button>
+            <button class="btn btn-sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.MINI.IP',this)">EUR/USD</button>
+            <button class="btn btn-sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-mono)" id="chart-price">—</span>
+            <span id="chart-change" style="font-size:12px;font-family:var(--font-mono)"></span>
+            <span id="chart-regime" class="badge badge-neutral" style="font-size:10px">—</span>
+          </div>
+        </div>
+
+        <!-- Timeframe + type -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="selectTimeframe('MINUTE',10,this)">1H</button>
+            <button class="btn btn-sm" onclick="selectTimeframe('HOUR',10,this)">1D</button>
+            <button class="btn btn-sm active" onclick="selectTimeframe('DAY',10,this)">10D</button>
+            <button class="btn btn-sm" onclick="selectTimeframe('WEEK',10,this)">10W</button>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm active" onclick="setChartType('candle',this)">Candle</button>
+            <button class="btn btn-sm" onclick="setChartType('line',this)">Line</button>
+          </div>
+        </div>
+
+        <canvas id="chart-canvas" height="300"></canvas>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px" id="chart-updated">Click an instrument to load chart</div>
+      </div>
+
+      <div class="two-col">
+        <!-- Technical Signals -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Technical Signals</div>
+          <div id="tech-signals"><div class="empty loading">Load chart data first</div></div>
+        </div>
+        <!-- AI Score -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">AI Recommendation</div>
+            <button class="btn btn-sm btn-primary" onclick="getAIScore()">Analyse</button>
+          </div>
+          <div id="ai-score-result"><div class="empty">Click Analyse after loading chart</div></div>
+        </div>
+      </div>
+
+      <!-- IG Sentiment -->
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px">IG Client Sentiment</div>
+        <div id="sentiment-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+          <div class="empty" style="grid-column:1/-1">Load chart data to see sentiment</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ BACKTEST ═══════════════════════════════════════════════════════════ -->
     <div class="tab-content" id="tab-backtest">
-      <div class="panel" style="margin-bottom:16px">
-        <div class="section-title">Backtest Configuration</div>
-        <div class="form-grid-3" style="margin-bottom:14px">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:14px">Backtest Configuration</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
           <div class="form-row">
             <label>Instrument</label>
             <select id="bt-instrument">
               <option value="IX.D.FTSE.DAILY.IP">FTSE 100</option>
               <option value="IX.D.SPTRD.DAILY.IP">S&P 500</option>
               <option value="IX.D.DAX.DAILY.IP">DAX 40</option>
-              <option value="IX.D.DOW.DAILY.IP">Dow Jones</option>
               <option value="CC.D.LCO.USS.IP">Brent Oil</option>
               <option value="CS.D.GBPUSD.MINI.IP">GBP/USD</option>
             </select>
@@ -1042,387 +811,231 @@
             <input type="number" id="bt-threshold" value="2" min="1" max="7">
           </div>
         </div>
-        <button class="primary" onclick="runBacktest()">▶ Run Backtest</button>
-        <span style="font-size:12px;color:var(--text2);margin-left:12px">Uses stored price history — run price collector first for best results</span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn btn-primary" onclick="runBacktest()">▶ Run Backtest</button>
+          <span style="font-size:12px;color:var(--text2)">Uses stored price history — build with price collector first</span>
+        </div>
       </div>
 
       <div id="bt-results" style="display:none">
-        <div class="cards-row" style="grid-template-columns:repeat(5,1fr)">
-          <div class="metric-card">
-            <div class="label">Total Trades</div>
-            <div class="value" id="bt-trades">—</div>
-          </div>
-          <div class="metric-card">
-            <div class="label">Win Rate</div>
-            <div class="value" id="bt-winrate">—</div>
-          </div>
-          <div class="metric-card">
-            <div class="label">Total P&L</div>
-            <div class="value" id="bt-pnl">—</div>
-          </div>
-          <div class="metric-card">
-            <div class="label">Profit Factor</div>
-            <div class="value" id="bt-pf">—</div>
-          </div>
-          <div class="metric-card">
-            <div class="label">Max Drawdown</div>
-            <div class="value neg" id="bt-dd">—</div>
-          </div>
+        <div class="metric-grid" style="margin-bottom:16px">
+          <div class="metric"><div class="label">Total Trades</div><div class="value" id="bt-trades">—</div></div>
+          <div class="metric"><div class="label">Win Rate</div><div class="value" id="bt-winrate">—</div></div>
+          <div class="metric"><div class="label">Total P&L</div><div class="value" id="bt-pnl">—</div></div>
+          <div class="metric"><div class="label">Profit Factor</div><div class="value" id="bt-pf">—</div></div>
         </div>
-
         <div class="two-col">
-          <div class="panel">
-            <div class="section-title">Performance by Regime</div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px">By Market Regime</div>
             <div id="bt-regime"></div>
           </div>
-          <div class="panel">
-            <div class="section-title">Recent Backtest Trades</div>
-            <table>
-              <thead><tr><th>Direction</th><th>Open</th><th>Close</th><th>P&L pts</th><th>Regime</th><th>Exit</th></tr></thead>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px">Recent Trades</div>
+            <table class="data-table">
+              <thead><tr><th>Dir</th><th>Open</th><th>Close</th><th>P&L</th><th>Regime</th></tr></thead>
               <tbody id="bt-trade-list"></tbody>
             </table>
           </div>
         </div>
-
-        <div class="panel">
-          <div class="section-title">Interpretation</div>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px">Interpretation</div>
           <div id="bt-interpretation" style="font-size:13px;line-height:1.7;color:var(--text2)"></div>
         </div>
       </div>
-
-      <div id="bt-error" style="display:none" class="panel">
-        <div style="color:var(--red);font-size:13px" id="bt-error-msg"></div>
+      <div id="bt-error" style="display:none">
+        <div class="alert alert-warn" id="bt-error-msg"></div>
       </div>
     </div>
 
-
-    <!-- SIGNALS -->
+    <!-- ══ SIGNALS ════════════════════════════════════════════════════════════ -->
     <div class="tab-content" id="tab-signals">
-
-      <!-- Status -->
-      <div id="sig-banner" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:10px;height:10px;border-radius:50%;background:var(--green)"></div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
-            <div style="font-weight:500">Signal Webhook: Active</div>
+            <div style="font-weight:600;margin-bottom:2px">Signal Webhook Receiver</div>
             <div style="font-size:12px;color:var(--text2)" id="sig-url"></div>
           </div>
+          <button class="btn" onclick="testSignal()">🧪 Test Signal</button>
         </div>
-        <button onclick="testSignal()">🧪 Test Signal</button>
       </div>
 
       <div class="two-col">
-
-        <!-- ProRealTime Setup -->
-        <div class="panel">
-          <div class="section-title">TradingView Setup Guide</div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 1 — Add Signal Key to Vercel</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Go to Vercel → Settings → Environment Variables → add:<br>
-              <code style="background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:12px">SIGNAL_KEY = your-secret-key</code><br>
-              Any string works — e.g. <code style="background:var(--bg3);padding:2px 4px;border-radius:3px;font-size:11px">TV-Signal-2026</code>. Redeploy after adding.
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 2 — Create TradingView Account</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Go to <strong>tradingview.com</strong> and create a free account. Webhooks are available on the free plan — no subscription needed.
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 3 — Open FTSE Chart</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              In TradingView, search for <strong>FTSE</strong> or <strong>UK100</strong> in the search bar and open the chart. Switch to Daily timeframe.
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 4 — Add RSI Indicator</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Click <strong>Indicators</strong> at the top of the chart → search <strong>RSI</strong> → click Relative Strength Index. It will appear in a panel below the chart.
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 5 — Create Alert</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Click the <strong>Alert</strong> button (clock icon) in the top toolbar, or press <strong>Alt+A</strong>.<br><br>
-              Set the alert condition:<br>
-              • Condition: <strong>Relative Strength Index</strong><br>
-              • Trigger: <strong>Crossing Down</strong><br>
-              • Value: <strong>30</strong><br>
-              • Frequency: <strong>Once Per Bar</strong>
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 6 — Enable Webhook</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              In the alert dialog, scroll down to <strong>Notifications</strong> → tick <strong>Webhook URL</strong>.<br><br>
-              Enter your webhook URL (shown on the right) and paste the JSON body shown below into the <strong>Message</strong> field.
-            </div>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:14px">TradingView Setup Guide</div>
+          <div style="font-size:13px;color:var(--text2);line-height:1.8">
+            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 1</strong> — Add to Vercel env vars:<br><code>SIGNAL_KEY = your-secret-key</code></div>
+            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 2</strong> — Go to <strong>tradingview.com</strong> (free account)</div>
+            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 3</strong> — Open FTSE/UK100 chart → Add RSI indicator</div>
+            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 4</strong> — Click Alert (clock icon) → Set RSI crossing below 30</div>
+            <div style="margin-bottom:14px"><strong style="color:var(--text1)">Step 5</strong> — Enable Webhook → paste endpoint URL + JSON body</div>
+            <div style="margin-bottom:6px"><strong style="color:var(--text1)">Alert message body:</strong></div>
+            <pre>{
+  "instrument": "FTSE 100",
+  "direction": "BUY",
+  "source": "TradingView",
+  "strength": 4,
+  "indicators": "RSI crossed below 30"
+}</pre>
           </div>
         </div>
 
-        <!-- Webhook config -->
         <div>
-          <div class="panel" style="margin-bottom:16px">
-            <div class="section-title">Webhook Configuration</div>
-
-            <div class="form-row" style="margin-bottom:12px">
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:12px">Webhook Config</div>
+            <div class="form-row">
               <label>Endpoint URL</label>
-              <div style="display:flex;gap:8px">
-                <input type="text" id="sig-endpoint" readonly style="font-size:12px;font-family:monospace">
-                <button class="sm" onclick="navigator.clipboard.writeText(document.getElementById('sig-endpoint').value)">Copy</button>
+              <div style="display:flex;gap:6px">
+                <input type="text" id="sig-endpoint" readonly style="font-family:var(--font-mono);font-size:11px">
+                <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('sig-endpoint').value)">Copy</button>
               </div>
             </div>
-
-            <div class="form-row" style="margin-bottom:12px">
-              <label>Method</label>
-              <input type="text" value="POST" readonly>
-            </div>
-
-            <div class="form-row" style="margin-bottom:12px">
+            <div class="form-row">
               <label>Auth Header</label>
-              <input type="text" value="X-Signal-Key: YOUR_SIGNAL_KEY" readonly style="font-size:12px;font-family:monospace">
-            </div>
-
-            <div style="font-weight:500;margin-bottom:8px;margin-top:16px">Example JSON Body</div>
-            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;overflow-x:auto">{
-  "instrument": "FTSE 100",
-  "direction": "BUY",
-  "source": "ProRealTime",
-  "strength": 4,
-  "indicators": "RSI oversold + BB lower",
-  "price": 8450.5
-}</pre>
-
-            <div style="font-weight:500;margin-bottom:8px;margin-top:16px">Supported Instruments</div>
-            <div style="font-size:12px;color:var(--text2);line-height:1.8">
-              FTSE 100, FTSE, S&P 500, SPX, SP500, DAX 40, DAX,<br>
-              Dow Jones, DOW, Brent Oil, OIL,<br>
-              GBP/USD, GBPUSD, EUR/USD, EURUSD, USD/JPY, USDJPY<br>
-              <em>Also accepts IG epics directly (IX.D.FTSE.DAILY.IP etc)</em>
+              <input type="text" value="X-Signal-Key: YOUR_SIGNAL_KEY" readonly style="font-family:var(--font-mono);font-size:11px">
             </div>
           </div>
 
-          <!-- Manual test -->
-          <div class="panel">
-            <div class="section-title">Manual Test Signal</div>
-            <div class="form-row" style="margin-bottom:10px">
-              <label>Instrument</label>
-              <select id="test-instr">
-                <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
-                <option>Brent Oil</option><option>GBP/USD</option><option>EUR/USD</option>
-              </select>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px">Test Signal</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+              <div class="form-row">
+                <label>Instrument</label>
+                <select id="test-instr">
+                  <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+                  <option>Brent Oil</option><option>GBP/USD</option><option>EUR/USD</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Direction</label>
+                <select id="test-dir"><option>BUY</option><option>SELL</option></select>
+              </div>
             </div>
-            <div class="form-row" style="margin-bottom:10px">
-              <label>Direction</label>
-              <select id="test-dir"><option>BUY</option><option>SELL</option></select>
-            </div>
-            <div class="form-row" style="margin-bottom:10px">
-              <label>Strength (1-5)</label>
-              <input type="number" id="test-strength" value="3" min="1" max="5">
-            </div>
-            <div class="form-row" style="margin-bottom:14px">
+            <div class="form-row">
               <label>Signal Key</label>
               <input type="password" id="test-key" placeholder="Your SIGNAL_KEY">
             </div>
-            <button class="primary" onclick="testSignal()" style="width:100%">Send Test Signal</button>
-            <div id="test-result" style="margin-top:12px;font-size:12px;color:var(--text2)"></div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="testSignal()">Send Test</button>
+            <div id="test-result" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
           </div>
         </div>
       </div>
 
-      <!-- Recent signals log -->
-      <div class="panel">
-        <div class="section-title">Recent Signals</div>
-        <div id="signal-log" style="font-size:12px;max-height:200px;overflow-y:auto;color:var(--text2)">
-          No signals received yet. Signals will appear here when ProRealTime alerts fire.
+      <div class="card">
+        <div class="card-title" style="margin-bottom:10px">Recent Signals</div>
+        <div id="signal-log" style="max-height:180px;overflow-y:auto">
+          <div class="empty">No signals yet</div>
         </div>
       </div>
-
     </div>
-    <!-- CHARTS -->
-    <div class="tab-content" id="tab-charts">
 
-      <!-- Instrument selector + controls -->
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-        <div style="display:flex;gap:6px">
-          <button class="sm" id="chart-btn-FTSE" onclick="selectChartInstrument('FTSE 100','IX.D.FTSE.DAILY.IP',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">FTSE 100</button>
-          <button class="sm" id="chart-btn-SP" onclick="selectChartInstrument('S&amp;P 500','IX.D.SPTRD.DAILY.IP',this)">S&amp;P 500</button>
-          <button class="sm" id="chart-btn-DAX" onclick="selectChartInstrument('DAX 40','IX.D.DAX.DAILY.IP',this)">DAX 40</button>
-          <button class="sm" id="chart-btn-DOW" onclick="selectChartInstrument('Dow Jones','IX.D.DOW.DAILY.IP',this)">Dow Jones</button>
-          <button class="sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Brent Oil</button>
-          <button class="sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.MINI.IP',this)">GBP/USD</button>
-          <button class="sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.MINI.IP',this)">EUR/USD</button>
-          <button class="sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
-        </div>
-        <div style="display:flex;gap:6px;margin-left:auto">
-          <button class="sm" id="tf-MINUTE-10" onclick="selectTimeframe('MINUTE',10,this)">1H</button>
-          <button class="sm" id="tf-MINUTE-10b" onclick="selectTimeframe('MINUTE',10,this)">4H</button>
-          <button class="sm" id="tf-HOUR-10" onclick="selectTimeframe('HOUR',10,this)">1D</button>
-          <button class="sm" id="tf-HOUR-10b" onclick="selectTimeframe('HOUR',10,this)">3D</button>
-          <button class="sm" id="tf-DAY-10" onclick="selectTimeframe('DAY',10,this)">10D</button>
-          <button class="sm" id="tf-DAY-10b" onclick="selectTimeframe('DAY',10,this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">1M</button>
-          <button class="sm" id="tf-DAY-10c" onclick="selectTimeframe('DAY',10,this)">3M</button>
-        </div>
-        <div style="display:flex;gap:6px">
-          <button class="sm" id="chart-type-candle" onclick="setChartType('candle',this)" style="background:var(--blue);color:#fff;border-color:var(--blue)">🕯 Candle</button>
-          <button class="sm" id="chart-type-line" onclick="setChartType('line',this)">📈 Line</button>
-        </div>
-      </div>
-
-      <div class="two-col" style="gap:16px">
-        <!-- Chart -->
-        <div style="grid-column:1/-1">
-          <div class="panel" style="padding:16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <div>
-                <span style="font-size:16px;font-weight:500" id="chart-title">FTSE 100</span>
-                <span style="font-size:13px;color:var(--text2);margin-left:10px" id="chart-price">—</span>
-              <span id="chart-regime" class="badge bgr" style="margin-left:8px;font-size:11px">—</span>
-                <span style="font-size:12px;margin-left:8px" id="chart-change">—</span>
-              </div>
-              <div style="font-size:11px;color:var(--text3)" id="chart-updated">Loading...</div>
-            </div>
-            <canvas id="price-chart" style="width:100%;height:280px"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- Signals row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
-
-        <!-- Technical Indicators -->
-        <div class="panel">
-          <div class="section-title">Technical Signals</div>
-          <div id="tech-signals"><div class="empty">Loading...</div></div>
-        </div>
-
-        <!-- IG Client Sentiment -->
-        <div class="panel">
-          <div class="section-title">IG Client Sentiment</div>
-          <div id="sentiment-panel"><div class="empty">Loading...</div></div>
-        </div>
-
-        <!-- AI Score -->
-        <div class="panel">
-          <div class="section-title">AI Recommendation</div>
-          <div id="ai-score-panel">
-            <div style="text-align:center;padding:20px;color:var(--text2)">
-              <div style="font-size:12px;margin-bottom:10px">Click to get AI analysis</div>
-              <button class="primary" onclick="getAIScore()">Get AI Score</button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-    </div>
-    <!-- AI ANALYST -->
+    <!-- ══ AI ANALYST ═════════════════════════════════════════════════════════ -->
     <div class="tab-content" id="tab-ai">
-      <div class="cards-row" style="grid-template-columns:repeat(4,1fr)">
-        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('portfolio')">
-          <div class="label">Portfolio Analyst</div>
-          <div style="font-size:22px;margin:8px 0">&#128202;</div>
-          <div style="font-size:12px;color:var(--text2)">Analyse positions and suggest actions</div>
-        </div>
-        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('market')">
-          <div class="label">Market Commentary</div>
-          <div style="font-size:22px;margin:8px 0">&#128240;</div>
-          <div style="font-size:12px;color:var(--text2)">Daily briefing on your markets</div>
-        </div>
-        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('rules')">
-          <div class="label">Rule Suggestions</div>
-          <div style="font-size:22px;margin:8px 0">&#9889;</div>
-          <div style="font-size:12px;color:var(--text2)">AI-suggested trading rules</div>
-        </div>
-        <div class="metric-card" style="cursor:pointer;border:0.5px solid var(--border)" onclick="runAI('journal')">
-          <div class="label">Trade Journal</div>
-          <div style="font-size:22px;margin:8px 0">&#128218;</div>
-          <div style="font-size:12px;color:var(--text2)">Analyse your trading patterns</div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="section-title-row">
-          <div class="section-title" id="ai-panel-title">AI Investment Analyst</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button class="sm" onclick="clearAI()">Clear</button>
+      <div class="two-col" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Quick Analysis</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <button class="btn" onclick="runAI('portfolio')">📊 Portfolio</button>
+            <button class="btn" onclick="runAI('market')">🌍 Market</button>
+            <button class="btn" onclick="runAI('journal')">📖 Journal</button>
+            <button class="btn" onclick="runAI('risk')">⚠️ Risk</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="ai-custom-q" placeholder="Ask anything about your portfolio...">
+            <button class="btn btn-primary" onclick="runAICustom()">Ask</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:16px">
-          <input type="text" id="ai-question" placeholder="Ask anything about your portfolio, markets, or strategy...">
-          <button class="primary" onclick="runAICustom()">Ask Claude</button>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:8px">Model</div>
+          <div style="font-size:13px;color:var(--text2);line-height:1.7">
+            Using <strong style="color:var(--text1)">Claude claude-sonnet-4-20250514</strong> for analysis.<br>
+            Analyses your live positions, account balance, recent trades, and market conditions.
+          </div>
+          <button class="btn btn-sm" style="margin-top:10px" onclick="clearAI()">Clear History</button>
         </div>
-        <div id="ai-response" style="min-height:200px">
-          <div style="text-align:center;padding:60px 20px;color:var(--text2)">
-            <div style="font-size:32px;margin-bottom:12px">&#129302;</div>
-            <div style="font-size:14px;font-weight:500;margin-bottom:6px">AI Investment Analyst</div>
-            <div style="font-size:13px">Click one of the analysis cards above or type a question to get started.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px">Conversation</div>
+        <div id="ai-history" style="max-height:400px;overflow-y:auto;margin-bottom:12px">
+          <div class="empty">Select an analysis type above to begin</div>
+        </div>
+        <div id="ai-loading" style="display:none;font-size:13px;color:var(--text2)">
+          <span class="loading">Claude is thinking...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ ORDERS ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-orders">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:14px">Manual Order</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="form-row">
+              <label>Instrument</label>
+              <select id="ord-instr">
+                <option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option>
+                <option>Dow Jones</option><option>Brent Oil</option>
+                <option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Direction</label>
+              <select id="ord-dir"><option>Buy</option><option>Sell</option></select>
+            </div>
+            <div class="form-row">
+              <label>Size (units)</label>
+              <input type="number" id="ord-size" value="1" min="0.01" step="0.01">
+            </div>
+            <div class="form-row">
+              <label>Order Type</label>
+              <select id="ord-type"><option>Market</option><option>Limit</option></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Limit Price (optional)</label>
+            <input type="number" id="ord-price" placeholder="Leave blank for market">
+          </div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="placeManualOrder()">Place Order</button>
+          <div class="alert alert-warn" style="margin-top:10px;font-size:12px">
+            ⚠️ Manual orders bypass AI confirmation and are placed immediately on your live account.
           </div>
         </div>
-        <div id="ai-loading" style="display:none;padding:16px;color:var(--text2);font-size:13px">
-          Analysing your portfolio...
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Recent Orders</div>
+          <table class="data-table">
+            <thead><tr><th>Time</th><th>Instrument</th><th>Dir</th><th>Size</th><th>Price</th><th>Status</th></tr></thead>
+            <tbody id="orders-body"><tr><td colspan="6" class="empty">No orders yet</td></tr></tbody>
+          </table>
         </div>
       </div>
-      <div class="panel">
-        <div class="section-title">Recent AI Insights</div>
-        <div id="ai-history" style="font-size:13px;color:var(--text2)">No insights yet.</div>
+    </div>
+
+    <!-- ══ LOG ═════════════════════════════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-log">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Activity Log</div>
+          <div style="display:flex;gap:8px">
+            <select id="log-filter" onchange="renderLog()" style="width:auto">
+              <option value="all">All</option>
+              <option value="order">Orders</option>
+              <option value="system">System</option>
+              <option value="error">Errors</option>
+            </select>
+            <button class="btn btn-sm" onclick="S.log=[];renderLog()">Clear</button>
+          </div>
+        </div>
+        <div id="activity-log" style="max-height:600px;overflow-y:auto"></div>
       </div>
     </div>
 
-  </div>
-</div>
+  </div><!-- /content -->
+</div><!-- /app -->
 
-<!-- API Modal -->
-<div class="modal-overlay" id="api-modal">
-  <div class="modal">
-    <div class="modal-title">API Configuration</div>
-    <div class="form-grid-2">
-      <div class="form-row">
-        <label>API Key</label>
-        <input type="password" id="cfg-key" placeholder="••••••••••••">
-      </div>
-      <div class="form-row">
-        <label>Account ID</label>
-        <input type="text" id="cfg-account" placeholder="Z12345">
-      </div>
-      <div class="form-row">
-        <label>Environment</label>
-        <select id="cfg-env">
-          <option value="demo">Demo</option>
-          <option value="live">Live</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <label>Timezone</label>
-        <select id="cfg-tz">
-          <option>Europe/London</option>
-          <option>UTC</option>
-          <option>America/New_York</option>
-        </select>
-      </div>
-    </div>
-    <div class="toggle-row">
-      <div>
-        <div>Paper trading mode</div>
-        <div class="desc">Simulate orders without real execution</div>
-      </div>
-      <button class="toggle on" id="paper-toggle" onclick="this.classList.toggle('on')"></button>
-    </div>
-    <div class="modal-footer">
-      <button onclick="closeModal('api-modal')">Cancel</button>
-      <button class="primary" onclick="saveApiConfig()">Save & Reconnect</button>
-    </div>
-  </div>
-</div>
-
+<script src="lightstreamer.min.js"></script>
 <script>
+
 // ─── STATE ───────────────────────────────────────────────────────────────────
 // Price caching handled by PRICE_CACHE_TTL and fetchPricesWithCache below
 
@@ -1757,7 +1370,7 @@ function renderMetrics() {
   document.getElementById('paused-rules').textContent = (S.rules.length - active) + ' paused';
 }
 
-function renderWatchlist() {
+function renderWatchlist_old() {
   document.getElementById('watchlist').innerHTML = S.markets.map(m => `
     <div class="market-row">
       <div class="micon">${m.icon}</div>
@@ -1770,7 +1383,7 @@ function renderWatchlist() {
     </div>`).join('');
 }
 
-function renderPositions() {
+function renderPositions_old_unused() {
   document.getElementById('positions-body').innerHTML = S.positions.length ? S.positions.map(p => `
     <tr>
       <td class="fw">${p.name}</td>
@@ -1845,7 +1458,7 @@ function renderAlloc() {
   }).join('');
 }
 
-function renderOrders() {
+function renderOrders_old() {
   document.getElementById('orders-body').innerHTML = S.orders.map(o => `
     <tr>
       <td class="tag-num neu" style="font-size:12px">${o.time}</td>
@@ -2599,7 +2212,7 @@ async function loadSentiment() {
   }
 }
 
-function renderSentimentFallback() {
+function renderSentimentFallback_old() {
   document.getElementById('sentiment-panel').innerHTML =
     '<div style="color:var(--text2);font-size:13px;padding:12px 0">Sentiment data unavailable for this instrument.</div>';
 }
@@ -3244,6 +2857,123 @@ function appendSignalLog(msg) {
   el.innerHTML = '<div><span style="color:var(--text3)">' + time + '</span> 📡 ' + msg + '</div>' + el.innerHTML;
 }
 
+
+// ─── NEW RENDER FUNCTIONS (redesigned UI) ────────────────────────────────────
+
+function renderPositions() {
+  const el = document.getElementById('positions-list');
+  if (!el) return;
+  if (!S.positions || S.positions.length === 0) {
+    el.innerHTML = '<div class="empty">No open positions</div>';
+    document.getElementById('m-positions').textContent = '0';
+    return;
+  }
+  document.getElementById('m-positions').textContent = S.positions.length;
+  el.innerHTML = S.positions.map(p => {
+    const plNum = parseFloat((p.pl || '0').replace(/[^\d.-]/g,''));
+    const isPos = plNum >= 0;
+    return `<div class="position-card">
+      <div>
+        <div style="font-weight:600;font-size:14px">${p.name}</div>
+        <div style="font-size:12px;color:var(--text2)">${p.dir} · Open: ${p.open} · Current: ${p.current}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:700;font-family:var(--font-mono);color:${isPos?'var(--green)':'var(--red)'}">${p.pl}</div>
+        <div style="font-size:12px;color:${isPos?'var(--green)':'var(--red)'};">${p.plPct}</div>
+      </div>
+      <button class="btn btn-sm btn-danger" style="margin-left:10px" onclick="closePos(${p.id})">Close</button>
+    </div>`;
+  }).join('');
+}
+
+function renderWatchlist() {
+  const el = document.getElementById('watchlist-grid');
+  if (!el) return;
+  if (!S.markets || S.markets.length === 0) return;
+  el.innerHTML = S.markets.map(m => {
+    const isPos = m.pos !== false;
+    return `<div class="watch-item" onclick="selectChartInstrument('${m.name}','${m.epic}',document.getElementById('chart-btn-FTSE'))">
+      <div class="w-name">${m.icon || ''} ${m.name}</div>
+      <div class="w-price" id="ws-price-${m.epic.replace(/\./g,'-')}">${m.price}</div>
+      <div class="w-chg ${isPos?'up':'dn'}" id="ws-chg-${m.epic.replace(/\./g,'-')}">${m.change}</div>
+    </div>`;
+  }).join('');
+  // Also populate live bar
+  const liveBar = document.getElementById('live-bar');
+  if (liveBar) {
+    liveBar.style.display = 'flex';
+    liveBar.innerHTML = S.markets.slice(0,6).map(m => `
+      <div class="live-item">
+        <span class="name">${m.name}</span>
+        <span class="price" id="lb-price-${m.epic.replace(/\./g,'-')}">${m.price}</span>
+        <span class="chg ${m.pos!==false?'up':'dn'}" id="lb-chg-${m.epic.replace(/\./g,'-')}">${m.change}</span>
+      </div>`).join('');
+  }
+}
+
+function renderOrders() {
+  const tbody = document.getElementById('orders-body');
+  if (!tbody) return;
+  if (!S.orders || S.orders.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No orders yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = S.orders.slice(0,20).map(o => `
+    <tr>
+      <td style="color:var(--text2);font-size:12px">${o.time}</td>
+      <td style="font-weight:500">${o.instr}</td>
+      <td><span class="badge ${o.dir==='Buy'?'badge-buy':'badge-sell'}">${o.dir}</span></td>
+      <td style="font-family:var(--font-mono)">${o.size}</td>
+      <td style="font-family:var(--font-mono)">${o.price}</td>
+      <td><span class="badge badge-neutral">${o.status}</span></td>
+    </tr>`).join('');
+}
+
+function renderLog() {
+  const el = document.getElementById('activity-log');
+  if (!el) return;
+  const filter = document.getElementById('log-filter')?.value || 'all';
+  const filtered = filter === 'all' ? S.log : S.log.filter(e => e.type === filter);
+  if (!filtered.length) { el.innerHTML = '<div class="empty">No entries</div>'; return; }
+  el.innerHTML = filtered.slice().reverse().slice(0,100).map(e =>
+    `<div class="log-entry">
+      <span class="log-time">${e.time}</span>
+      <span class="log-msg" style="color:${e.type==='error'?'var(--red)':e.type==='order'?'var(--blue)':'var(--text2)'}">${e.msg}</span>
+    </div>`
+  ).join('');
+}
+
+function renderMetrics() {
+  if (!S.accountData) return;
+  const bal = S.accountData.balance.balance;
+  const pl = S.accountData.balance.profitLoss;
+  const avail = S.accountData.balance.available;
+  const plPct = bal > 0 ? (pl/bal*100) : 0;
+  const isPos = pl >= 0;
+
+  // Header
+  const hbal = document.getElementById('header-balance');
+  const hpl = document.getElementById('header-pl');
+  if (hbal) hbal.textContent = '£' + bal.toLocaleString('en-GB', {minimumFractionDigits:2,maximumFractionDigits:2});
+  if (hpl) {
+    hpl.textContent = (isPos?'+':'') + '£' + pl.toFixed(2);
+    hpl.className = isPos ? 'pos' : 'neg';
+  }
+
+  // Overview metrics
+  const mbal = document.getElementById('m-balance');
+  const mpnl = document.getElementById('m-pnl');
+  const mpnlpct = document.getElementById('m-pnl-pct');
+  const mavail = document.getElementById('m-available');
+  if (mbal) mbal.textContent = '£' + bal.toLocaleString('en-GB', {minimumFractionDigits:2});
+  if (mpnl) { mpnl.textContent = (isPos?'+':'')+'£'+pl.toFixed(2); mpnl.className = 'value '+(isPos?'pos':'neg'); }
+  if (mpnlpct) mpnlpct.textContent = (isPos?'+':'')+plPct.toFixed(2)+'% today';
+  if (mavail) mavail.textContent = 'Available: £'+avail.toLocaleString('en-GB',{minimumFractionDigits:2});
+
+  // Auto-trade P&L display
+  updateDailyPLDisplay();
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
@@ -3454,6 +3184,7 @@ function saveApiConfig() {
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 function addLog(type, msg) {
+  // Also update log tab if active
   const now = new Date();
   const t = [now.getHours(),now.getMinutes(),now.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
   S.log.unshift({ time:t, type, msg });
@@ -3469,6 +3200,7 @@ function switchTab(id, el) {
   el.classList.add('active');
   // Auto-load chart data when switching to charts tab (only if no cached data)
   if (id === 'journal') { loadJournal(); }
+  if (id === 'log') { renderLog(); }
   if (id === 'charts' && S.connected) {
     const cacheKey = chartState.epic + '_' + chartState.resolution + '_' + chartState.count;
     const isCached = S.priceCache && S.priceCache[cacheKey] && (Date.now()-S.priceCache[cacheKey].ts < 30*60*1000);
@@ -3626,6 +3358,14 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
 document.getElementById('login-pass').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
+
+// Init signal endpoint display
+setTimeout(() => {
+  const ep = document.getElementById('sig-endpoint');
+  if (ep) ep.value = window.location.origin + '/api/signal';
+  const su = document.getElementById('sig-url');
+  if (su) su.textContent = window.location.origin + '/api/signal';
+}, 1000);
 </script>
 </body>
 </html>
