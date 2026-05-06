@@ -42,9 +42,10 @@ module.exports = async (req, res) => {
 
       if (action === 'equity') {
         const days = parseInt(req.query.days) || 30;
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
         const result = await sql`
-          SELECT * FROM equity_snapshots 
-          WHERE snapshot_time > NOW() - INTERVAL '${days} days'
+          SELECT * FROM equity_snapshots
+          WHERE snapshot_time > ${cutoff}
           ORDER BY snapshot_time ASC
         `;
         return res.status(200).json({ snapshots: result.rows });
