@@ -1058,9 +1058,13 @@ async function doLogin() {
       S.accountId = sbAcct ? sbAcct.accountId : data.currentAccountId;
       S.lsEndpoint = data.lightstreamerEndpoint || 'https://demo-apd.marketdatasystems.com';
       addLog('system', 'Logged in — Account: ' + S.accountId + ' Balance: £' + (data.accountInfo && data.accountInfo.balance));
-      showApp();
+      try {
+        showApp();
+      } catch(showErr) {
+        console.error('showApp error:', showErr.message, showErr.stack);
+      }
       // Small delay to let IG session fully initialise before REST calls
-      setTimeout(() => loadFromIG(), 1500);
+      setTimeout(() => { try { loadFromIG(); } catch(e) { console.error('loadFromIG error:', e.message); } }, 1500);
     } else {
       console.error('Login failed — no CST token returned');
       showLoginError();
@@ -1172,9 +1176,9 @@ async function loadAccount() {
     const avail = a.balance.available;
     (document.getElementById('pv')||{}).textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
     (document.getElementById('pv-change')||{}).textContent = 'Available: £' + Number(avail).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
-    document.getElementById('pv-change').className = 'sub neu';
+    (document.getElementById('pv-change')||{}).className = 'sub neu';
     (document.getElementById('today-pl')||{}).textContent = (pl >= 0 ? '+' : '') + '£' + Number(pl).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
-    document.getElementById('today-pl').className = 'value ' + (pl >= 0 ? 'pos' : 'neg');
+    (document.getElementById('today-pl')||{}).className = 'value ' + (pl >= 0 ? 'pos' : 'neg');
     addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + bal + ', P&L £' + pl);
   } catch(e) {
     addLog('system', 'Error loading account: ' + e.message);
@@ -1283,12 +1287,12 @@ function renderMetrics() {
   (document.getElementById('next-dca')||{}).textContent = next ? next.next : '—';
   document.getElementById('next-dca-amt').textContent = next ? next.amt + ' scheduled' : 'No active schedules';
   const active = S.rules.filter(r=>r.active).length;
-  document.getElementById('active-rules').textContent = active + ' / ' + S.rules.length;
-  document.getElementById('paused-rules').textContent = (S.rules.length - active) + ' paused';
+  (document.getElementById('active-rules')||{}).textContent = active + ' / ' + S.rules.length;
+  (document.getElementById('paused-rules')||{}).textContent = (S.rules.length - active) + ' paused';
 }
 
 function renderWatchlist_old() {
-  document.getElementById('watchlist').innerHTML = S.markets.map(m => `
+  (document.getElementById('watchlist')||{}).innerHTML = S.markets.map(m => `
     <div class="market-row">
       <div class="micon">${m.icon}</div>
       <div class="mname">
@@ -1301,7 +1305,7 @@ function renderWatchlist_old() {
 }
 
 function renderPositions_old_unused() {
-  document.getElementById('positions-body').innerHTML = S.positions.length ? S.positions.map(p => `
+  (document.getElementById('positions-body')||{}).innerHTML = S.positions.length ? S.positions.map(p => `
     <tr>
       <td class="fw">${p.name}</td>
       <td><span class="badge ${p.dir==='Long'?'bg':'br'}">${p.dir}</span></td>
@@ -1316,7 +1320,7 @@ function renderPositions_old_unused() {
 }
 
 function renderDCA() {
-  document.getElementById('dca-body').innerHTML = S.dca.map(d => `
+  (document.getElementById('dca-body')||{}).innerHTML = S.dca.map(d => `
     <tr>
       <td class="fw">${d.instr}</td>
       <td>${d.amt}</td>
@@ -1329,7 +1333,7 @@ function renderDCA() {
         <button class="sm danger" onclick="deleteDCA(${d.id})">Remove</button>
       </td>
     </tr>`).join('');
-  document.getElementById('dca-perf-body').innerHTML = S.dcaPerf.map(d => `
+  (document.getElementById('dca-perf-body')||{}).innerHTML = S.dcaPerf.map(d => `
     <tr>
       <td class="fw">${d.instr}</td>
       <td>${d.invested}</td>
@@ -1339,7 +1343,7 @@ function renderDCA() {
 }
 
 function renderRules() {
-  document.getElementById('rules-list').innerHTML = S.rules.map(r => `
+  (document.getElementById('rules-list')||{}).innerHTML = S.rules.map(r => `
     <div class="rule-card">
       <div class="rinfo">
         <div class="rname">${r.name} <span class="badge bb" style="margin-left:6px;font-size:10px">Fired ${r.fired}×</span></div>
@@ -1505,7 +1509,7 @@ async function checkCronStatus() {
     const el = document.getElementById('cron-status');
     el.innerHTML = '✅ Cron ready — ' + data.env + ' mode | Credentials: ' + (data.hasCredentials ? '✅ Set' : '❌ Missing') + ' | Schedules: ' + ((data.schedules && data.schedules.length) || 0) + ' | Server time: ' + new Date(data.time).toLocaleString('en-GB');
   } catch(e) {
-    document.getElementById('cron-status').textContent = 'Error: ' + e.message;
+    (document.getElementById('cron-status')||{}).textContent = 'Error: ' + e.message;
   }
 }
 
