@@ -83,7 +83,18 @@ module.exports = async (req,res) => {
     useKellyCriterion:process.env.USE_KELLY!=='false',
   };
 
-  if(req.method==='GET') return res.status(200).json({status:'Auto-trading engine v3 ready',cfg,version:'3.0',time:new Date().toISOString()});
+  // Load optimised params from DB if available
+  try {
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const optRes = await fetch(`${base}/api/db?action=optimize`);
+    if (optRes.ok) {
+      const optData = await optRes.json();
+      if (optData.signal_threshold) cfg.signalThreshold = optData.signal_threshold;
+      if (optData.ai_confidence_min) cfg.aiConfidenceMin = optData.ai_confidence_min;
+    }
+  } catch(e) { /* Use env var defaults if DB unavailable */ }
+
+  if(req.method==='GET') return res.status(200).json({status:'Auto-trading engine v4 ready',cfg,version:'4.0',time:new Date().toISOString()});
   if(!cfg.enabled) return res.status(200).json({message:'Auto-trading disabled'});
 
   // Override config with values from dashboard UI request body
@@ -133,15 +144,26 @@ module.exports = async (req,res) => {
           { instr: 'GBP/USD', symbol: 'GBP/USD' },
           { instr: 'EUR/USD', symbol: 'EUR/USD' },
         ];
+        const TD_INTERVALS = ['1h', '1day']; // Fetch both timeframes
         let tdLoaded = 0;
         const newTdSignals = {};
         for (const { instr, symbol } of TD_INSTRUMENTS) {
           try {
-            const [rsiRes, macdRes] = await Promise.all([
-              fetch(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=14&apikey=${TD_KEY}`),
-              fetch(`${TD_BASE}/macd?symbol=${encodeURIComponent(symbol)}&interval=1h&fast_period=12&slow_period=26&signal_period=9&apikey=${TD_KEY}`),
+            // Fetch with retry on connection reset
+            const tdGet = async (url) => {
+              for(let i=0;i<2;i++){
+                try{ return await fetch(url); }
+                catch(e){ if(i===0) await new Promise(r=>setTimeout(r,1500)); else throw e; }
+              }
+            };
+            const [rsiRes, macdRes, rsiDRes] = await Promise.all([
+              tdGet(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=14&apikey=${TD_KEY}`),
+              tdGet(`${TD_BASE}/macd?symbol=${encodeURIComponent(symbol)}&interval=1h&fast_period=12&slow_period=26&signal_period=9&apikey=${TD_KEY}`),
+              tdGet(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1day&time_period=14&apikey=${TD_KEY}`),
             ]);
-            const [rsiD, macdD] = await Promise.all([rsiRes.json(), macdRes.json()]);
+            const [rsiD, macdD, rsiDailyD] = await Promise.all([rsiRes.json(), macdRes.json(), rsiDRes.json()]);
+            // Multi-timeframe: require hourly and daily RSI to agree on direction
+            const rsiDaily = parseFloat(rsiDailyD.values?.[0]?.rsi) || null;
             if (rsiD.status === 'error') { L(`TD ${instr}: ${rsiD.message}`); continue; }
             const rsi = parseFloat(rsiD.values?.[0]?.rsi);
             const macd = parseFloat(macdD.values?.[0]?.macd);
@@ -150,17 +172,28 @@ module.exports = async (req,res) => {
             if (rsi < 25) sc += 4; else if (rsi < 30) sc += 3; else if (rsi < 40) sc += 2;
             else if (rsi > 75) sc -= 4; else if (rsi > 70) sc -= 3; else if (rsi > 60) sc -= 2;
             if (!isNaN(macd) && !isNaN(macdSig)) { if (macd > macdSig) sc += 2; else sc -= 2; }
+            // Multi-timeframe alignment bonus/penalty
+            if (rsiDaily !== null) {
+              const hourlyBull = rsi < 50; const dailyBull = rsiDaily < 50;
+              if (hourlyBull === dailyBull) sc += 1; // Aligned — boost
+              else sc -= 1; // Conflicting — reduce
+            }
             newTdSignals[instr] = { score: sc, rsi, macd, macdCrossover: macd > macdSig ? 'bullish' : 'bearish' };
             L(`TD ${instr}: RSI=${rsi?.toFixed(1)} MACD=${macd?.toFixed(4)} score=${sc}`);
             tdLoaded++;
             await new Promise(r => setTimeout(r, 200));
-          } catch(e) { L(`TD ${instr}: ${e.message}`); }
+          } catch(e) { L(`TD ${instr}: ${e.message.replace(TD_KEY,'***')}`); }
         }
         if (!globalThis._tdCache) globalThis._tdCache = {};
         globalThis._tdCache.data = newTdSignals;
         globalThis._tdCache.ts = Date.now();
         tdSignals = newTdSignals;
-        L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
+        if(tdLoaded===0 && globalThis._tdCache?.data && Object.keys(globalThis._tdCache.data).length>0){
+          L('Twelve Data: fetch failed — using stale cache');
+          tdSignals=globalThis._tdCache.data;
+        } else {
+          L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
+        }
       }
     } catch(e) { L('Twelve Data failed: ' + e.message); }
   }
@@ -354,6 +387,9 @@ module.exports = async (req,res) => {
     try{
       const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
+      // ATR-based stop loss (1.5x ATR)
+      const stopDist=sig.atr>0?Math.max(10,Math.round(sig.atr*1.5)):null;
+      if(stopDist){ob.stopDistance=stopDist;L(`Stop loss: ${stopDist}pts (1.5x ATR)`);}
       if(cfg.trailingStopPct>0&&sig.atr>0){
         const sd=Math.max(10,sig.atr*2);
         ob.trailingStop=true;ob.trailingStopDistance=Math.round(sd);ob.trailingStopIncrement=Math.max(1,Math.round(sd/4));
@@ -527,16 +563,48 @@ async function managePositions(positions,igBase,igH,cfg,balance,L){
       const open=p.position.openLevel;const bid=p.market.bid;
       const sz=p.position.size||p.position.dealSize||1;
       const upl=dir==='BUY'?(bid-open)*sz:(open-bid)*sz;
-      L(`Managing ${p.market.instrumentName}: UPL £${upl.toFixed(2)}`);
+      const uplPct=open>0?Math.abs(bid-open)/open*100:0;
+      L(`Managing ${p.market.instrumentName}: UPL £${upl.toFixed(2)} (${uplPct.toFixed(2)}%)`);
+
+      // Get ATR for this instrument
       const closes=await getDbPrices(epic,20,L);
+      const candles = closes ? closes.map(c=>({close:c,high:c*1.001,low:c*0.999})) : [];
+      const atr = candles.length>=5 ? calcATR(candles) : 50;
+
+      // Partial close: if profit >= 1x ATR, close 50% and let rest run
+      if(upl > 0 && sz > 1) {
+        const atrProfit = atr * sz;
+        if(upl >= atrProfit && !p.position.partialClosed) {
+          const halfSize = Math.floor(sz / 2);
+          if(halfSize >= 1) {
+            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close ${halfSize} units`);
+            try {
+              const closeBody = {epic,direction:dir==='BUY'?'SELL':'BUY',size:halfSize,
+                orderType:'MARKET',expiry:'DFB',guaranteedStop:false,forceOpen:false,
+                currencyCode:'GBP',dealType:'SPREADBET'};
+              const cr = await fetch(`${igBase}/positions/otc`,{method:'POST',
+                headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
+              const cd = await cr.json();
+              if(cd.dealReference) {
+                L(`Partial close order placed: ref ${cd.dealReference}`);
+                await saveToDb('engine_event',{eventType:'partial_close',instrument:p.market.instrumentName,
+                  details:{dealId:p.position.dealId,halfSize,upl,atr}});
+              }
+            } catch(e) { L(`Partial close error: ${e.message}`); }
+          }
+        }
+      }
+
+      // Signal reversal check
       if(closes&&closes.length>=5){
         const regime=detectRegime(closes);const sc=calcScore(closes,regime);
         if((dir==='BUY'&&sc<=-3)||(dir==='SELL'&&sc>=3)){
-          L(`${p.market.instrumentName}: signal reversed (${sc}) — logging recommendation`);
-          await saveToDb('engine_event',{eventType:'close_recommendation',instrument:p.market.instrumentName,details:{upl,sc,regime}});
+          L(`${p.market.instrumentName}: signal reversed (${sc}) — consider closing`);
+          await saveToDb('engine_event',{eventType:'close_recommendation',instrument:p.market.instrumentName,
+            details:{upl,sc,regime,dealId:p.position.dealId}});
         }
       }
-    }catch(e){}
+    }catch(e){ L(`Position management error: ${e.message}`); }
   }
 }
 
