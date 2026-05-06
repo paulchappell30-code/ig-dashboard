@@ -101,9 +101,9 @@ module.exports = async (req,res) => {
   if (process.env.TWELVE_DATA_KEY) {
     try {
       // Use cache if fresh (saves ~144 credits/day vs fetching every 5 mins)
-      if (tdCache.data && Date.now() - tdCache.ts < TD_CACHE_TTL) {
-        tdSignals = tdCache.data;
-        L(`Twelve Data: using cached data (${Math.round((Date.now()-tdCache.ts)/60000)}m old)`);
+      if (globalThis._tdCache.data && Date.now() - globalThis._tdCache.ts < TD_CACHE_TTL) {
+        tdSignals = globalThis._tdCache.data;
+        L(`Twelve Data: using cached data (${Math.round((Date.now()-globalThis._tdCache.ts)/60000)}m old)`);
       } else {
         const TD_KEY = process.env.TWELVE_DATA_KEY;
         const TD_BASE = 'https://api.twelvedata.com';
@@ -135,8 +135,8 @@ module.exports = async (req,res) => {
             await new Promise(r => setTimeout(r, 200));
           } catch(e) { L(`TD ${instr}: ${e.message}`); }
         }
-        tdCache.data = newTdSignals;
-        tdCache.ts = Date.now();
+        globalThis._tdCache.data = newTdSignals;
+        globalThis._tdCache.ts = Date.now();
         tdSignals = newTdSignals;
         L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
       }
@@ -469,10 +469,15 @@ async function fetchNews(L){
     const ar=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY||'','anthropic-version':'2023-06-01'},
       body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:200,
-        messages:[{role:'user',content:`Rate sentiment -2 to +2 for each market based on these headlines:\n${headlines}\n\nRespond ONLY JSON: {"FTSE":0,"SP500":0,"DAX":0,"DOW":0,"OIL":0,"GBPUSD":0,"EURUSD":0,"USDJPY":0,"summary":"one sentence"}`}]})});
+        messages:[{role:'user',content:`Analyse these financial headlines and rate market sentiment. Use ONLY integers: -2, -1, 0, 1, or 2. No + signs.\n\nHeadlines:\n${headlines}\n\nRespond with ONLY this exact JSON (no other text, no + signs before numbers):\n{"FTSE":0,"SP500":0,"DAX":0,"DOW":0,"OIL":0,"GBPUSD":0,"EURUSD":0,"USDJPY":0,"summary":"one sentence summary"}`}]})});
     const ad=await ar.json();
     const t=ad.content&&ad.content[0]&&ad.content[0].text||'{}';
-    const sentiment=JSON.parse(t.replace(/```json|```/g,'').trim());
+    // Clean up common JSON issues (+ signs before numbers, trailing commas)
+    const cleaned=t.replace(/```json|```/g,'').trim()
+      .replace(/:\s*\+?(\d)/g,': $1')  // Remove + before numbers
+      .replace(/,\s*}/g,'}')             // Remove trailing commas
+      .replace(/,\s*]/g,']');
+    const sentiment=JSON.parse(cleaned);
     L('News: '+sentiment.summary);return sentiment;
   }catch(e){L('News error: '+e.message);return {};}
 }
