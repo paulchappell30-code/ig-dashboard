@@ -1064,8 +1064,17 @@ async function doLogin() {
       }
       const data = await res.json();
       const sbAcct = data.accounts && data.accounts.find(a => a.accountType === 'SPREADBET');
-      S.accountId = sbAcct ? sbAcct.accountId : data.currentAccountId;
+      S.accountId = sbAcct ? sbAcct.accountId : (data.accountId || data.currentAccountId || 'CRTHL');
       S.lsEndpoint = data.lightstreamerEndpoint || 'https://demo-apd.marketdatasystems.com';
+      // If accountId still missing, fetch from session endpoint
+      if (!S.accountId || S.accountId === 'undefined') {
+        try {
+          const sessRes = await igFetch('session');
+          const sessData = await sessRes.json();
+          S.accountId = sessData.accountId || sessData.currentAccountId || 'CRTHL';
+          S.lsEndpoint = sessData.lightstreamerEndpoint || S.lsEndpoint;
+        } catch(e) {}
+      }
       addLog('system', 'Logged in — Account: ' + S.accountId + ' Balance: £' + (data.accountInfo && data.accountInfo.balance));
       try {
         showApp();
