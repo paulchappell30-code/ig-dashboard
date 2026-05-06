@@ -1770,7 +1770,7 @@ async function selectChartInstrument(name, epic, btn) {
   btn.style.borderColor = 'var(--blue)';
   chartState.name = name;
   chartState.epic = epic;
-  document.getElementById('chart-title').textContent = name;
+  const _ct = document.getElementById('chart-title') || document.getElementById('chart-price'); if(_ct) _ct.textContent = name;
   await loadChartData();
 }
 
