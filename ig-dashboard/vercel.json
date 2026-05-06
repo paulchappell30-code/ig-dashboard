@@ -10,6 +10,7 @@
     { "src": "/api/db", "dest": "/api/db" },
     { "src": "/api/prices", "dest": "/api/prices" },
     { "src": "/api/review", "dest": "/api/review" },
+    { "src": "/api/signal", "dest": "/api/signal" },
     { "src": "/ig/(.+)", "dest": "/api/ig?path=$1" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
