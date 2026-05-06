@@ -1,7 +1,7 @@
-// Weekly Review + Backtesting Engine v3
-// GET  /api/review?action=weekly  — generate weekly performance review email
-// GET  /api/review?action=backtest&epic=X&days=30  — backtest strategy on stored data
-// POST /api/review  — trigger weekly review manually
+// Review & Optimisation Engine v4
+// GET  /api/review?action=weekly    — weekly performance review email
+// GET  /api/review?action=optimize  — run walk-forward optimisation
+// POST /api/review                  — trigger manually
 const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
@@ -10,384 +10,192 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const action = req.query.action || 'weekly';
-
-  if (action === 'backtest') {
-    return await runBacktest(req, res);
-  }
-
-  // Weekly review
+  const action = req.query.action || req.body?.action || 'weekly';
+  if (action === 'optimize') return await runOptimization(req, res);
   return await sendWeeklyReview(req, res);
 };
 
 async function sendWeeklyReview(req, res) {
   try {
     const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const [statsRes, tradesRes, calRes, todRes] = await Promise.all([
+      fetch(`${base}/api/db?action=stats`),
+      fetch(`${base}/api/db?action=trades&limit=50`),
+      fetch(`${base}/api/db?action=calibration`),
+      fetch(`${base}/api/db?action=timeofday`),
+    ]);
+    const [stats, tradesData, calData, todData] = await Promise.all([
+      statsRes.json(), tradesRes.json(), calRes.json(), todRes.json()
+    ]);
 
-    // Fetch stats
-    const statsRes = await fetch(`${base}/api/db?action=stats`);
-    const stats = await statsRes.json();
+    if (!stats.totalTrades) return res.status(200).json({ message: 'No trades yet' });
 
-    // Fetch recent trades
-    const tradesRes = await fetch(`${base}/api/db?action=trades&limit=50`);
-    const tradesData = await tradesRes.json();
     const trades = tradesData.trades || [];
+    const oneWeekAgo = new Date(Date.now() - 7*24*60*60*1000);
+    const weekClosed = trades.filter(t => t.status==='closed' && new Date(t.opened_at) > oneWeekAgo);
+    const weekPnL = weekClosed.reduce((s,t) => s+(t.profit_loss||0), 0);
+    const weekWins = weekClosed.filter(t => (t.profit_loss||0) > 0).length;
+    const weekWinRate = weekClosed.length > 0 ? ((weekWins/weekClosed.length)*100).toFixed(1) : 'N/A';
 
-    // Fetch equity snapshots
-    const equityRes = await fetch(`${base}/api/db?action=equity&days=7`);
-    const equityData = await equityRes.json();
-    const snapshots = equityData.snapshots || [];
-
-    if (stats.totalTrades === 0) {
-      return res.status(200).json({ message: 'No trades to review yet' });
-    }
-
-    // Calculate week-specific stats
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-    const weekTrades = trades.filter(t => t.opened_at && new Date(t.opened_at) > oneWeekAgo);
-    const weekClosed = weekTrades.filter(t => t.status === 'closed');
-    const weekWins = weekClosed.filter(t => (t.profit_loss || 0) > 0);
-    const weekPnL = weekClosed.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
-    const weekWinRate = weekClosed.length > 0 ? (weekWins.length / weekClosed.length * 100).toFixed(1) : 'N/A';
-
-    // Instrument breakdown
-    const byInstrument = {};
+    const byInstr = {};
     weekClosed.forEach(t => {
-      if (!byInstrument[t.instrument]) byInstrument[t.instrument] = { trades: 0, pnl: 0, wins: 0 };
-      byInstrument[t.instrument].trades++;
-      byInstrument[t.instrument].pnl += t.profit_loss || 0;
-      if ((t.profit_loss || 0) > 0) byInstrument[t.instrument].wins++;
+      if (!byInstr[t.instrument]) byInstr[t.instrument] = {trades:0,pnl:0,wins:0};
+      byInstr[t.instrument].trades++;
+      byInstr[t.instrument].pnl += t.profit_loss||0;
+      if((t.profit_loss||0) > 0) byInstr[t.instrument].wins++;
     });
 
-    const instrBreakdown = Object.entries(byInstrument)
-      .map(([instr, d]) => `${instr}: ${d.trades} trades, £${d.pnl.toFixed(2)} P&L, ${((d.wins/d.trades)*100).toFixed(0)}% win rate`)
-      .join('\n');
+    const calRows = calData.calibration || [];
+    const calSummary = calRows.map(r => `  ${r.confidence_bracket}: ${r.total_trades} trades, ${r.actual_win_rate}% actual win rate`).join('\n');
+    const todRows = todData.byHour || [];
+    const bestHour = todData.bestHour;
+    const worstHour = todData.worstHour;
 
-    // Equity change this week
-    const firstSnap = snapshots[0];
-    const lastSnap = snapshots[snapshots.length - 1];
-    const weekEquityChange = firstSnap && lastSnap
-      ? lastSnap.balance - firstSnap.balance
-      : 0;
-
-    // Ask Claude for analysis
     let aiAnalysis = '';
     if (process.env.ANTHROPIC_API_KEY && weekClosed.length > 0) {
-      const tradeDetails = weekClosed.slice(0, 10).map(t =>
-        `${t.instrument} ${t.direction} → ${t.profit_loss >= 0 ? '+' : ''}£${(t.profit_loss || 0).toFixed(2)} (AI confidence: ${t.ai_confidence || '?'}%, score: ${t.signal_score || '?'})`
+      const tradeDetails = weekClosed.slice(0,15).map(t =>
+        `${t.instrument} ${t.direction}: ${t.profit_loss>=0?'+':''}£${(t.profit_loss||0).toFixed(2)} | AI:${t.ai_confidence||'?'}% | Regime:${t.regime||'?'} | Hour:${t.open_hour??'?'}:00`
       ).join('\n');
 
       const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5',
-          max_tokens: 500,
-          messages: [{
-            role: 'user',
-            content: `You are a trading performance coach. Analyse this week's automated trading results and provide actionable insights.
-
-WEEK SUMMARY:
-- Total trades: ${weekTrades.length} (${weekClosed.length} closed)
-- Win rate: ${weekWinRate}%
-- Total P&L: £${weekPnL.toFixed(2)}
-- Account equity change: £${weekEquityChange.toFixed(2)}
-
-INSTRUMENT BREAKDOWN:
-${instrBreakdown || 'No closed trades this week'}
-
-INDIVIDUAL TRADES:
-${tradeDetails || 'No trades'}
-
-Provide:
-1. What went well this week (if anything)
-2. What patterns you see in the winning vs losing trades
-3. 3 specific actionable improvements for next week
-4. One risk warning if applicable
-
-Be direct and specific. Focus on what the data shows, not generic advice.`
-          }]
-        })
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},
+        body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:600,messages:[{role:'user',content:
+          `Trading performance coach. Analyse week results, give specific recommendations.
+WEEK: ${weekClosed.length} trades | WR: ${weekWinRate}% | P&L: £${weekPnL.toFixed(2)}
+AI CALIBRATION:\n${calSummary||'Insufficient data'}
+BEST HOUR: ${bestHour?.open_hour??'N/A'}:00 UTC (avg £${parseFloat(bestHour?.avg_pnl||0).toFixed(2)})
+WORST HOUR: ${worstHour?.open_hour??'N/A'}:00 UTC (avg £${parseFloat(worstHour?.avg_pnl||0).toFixed(2)})
+TRADES:\n${tradeDetails}
+Give: 1)Key patterns 2)AI calibration quality 3)Recommended threshold adjustment 4)Recommended confidence minimum 5)Best trading hours. Under 400 words, specific numbers.`}]})
       });
       const aiData = await aiRes.json();
-      aiAnalysis = aiData.content && aiData.content[0] && aiData.content[0].text || '';
+      aiAnalysis = aiData.content?.[0]?.text || '';
     }
 
-    // Build email body
-    const emailBody = `WEEKLY TRADING REPORT
-Week ending ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+    const emailBody = `WEEKLY TRADING REPORT v4
+${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
 
-═══════════════════════════════════
-WEEK SUMMARY
-═══════════════════════════════════
-Trades this week:  ${weekTrades.length} opened, ${weekClosed.length} closed
-Win rate:          ${weekWinRate}%
-Weekly P&L:        ${weekPnL >= 0 ? '+' : ''}£${weekPnL.toFixed(2)}
-Account change:    ${weekEquityChange >= 0 ? '+' : ''}£${weekEquityChange.toFixed(2)}
+WEEK: ${weekClosed.length} trades | ${weekWinRate}% win rate | ${weekPnL>=0?'+':''}£${weekPnL.toFixed(2)}
+ALL-TIME: ${stats.totalTrades} trades | ${stats.winRate}% WR | £${stats.totalPnL.toFixed(2)} P&L
+AI ACCURACY: ${stats.aiAccuracy||'N/A'}% on ${stats.aiTotal} trades
 
-═══════════════════════════════════
-ALL-TIME STATS
-═══════════════════════════════════
-Total trades:    ${stats.totalTrades}
-Overall win rate: ${stats.winRate}%
-Total P&L:       £${(stats.totalPnL || 0).toFixed(2)}
-Best trade:      ${stats.bestTrade ? '+£' + stats.bestTrade.profit_loss + ' (' + stats.bestTrade.instrument + ')' : 'N/A'}
-Worst trade:     ${stats.worstTrade ? '£' + stats.worstTrade.profit_loss + ' (' + stats.worstTrade.instrument + ')' : 'N/A'}
+AI CALIBRATION:
+${calSummary||'Need more trades'}
 
-═══════════════════════════════════
-INSTRUMENT BREAKDOWN
-═══════════════════════════════════
-${instrBreakdown || 'No closed trades this week'}
+BEST HOURS (UTC):
+${todRows.slice(0,6).map(r=>`  ${r.open_hour}:00 — ${r.total_trades} trades, ${r.win_rate}% WR, avg £${parseFloat(r.avg_pnl).toFixed(2)}`).join('\n')||'Need more data'}
 
-${aiAnalysis ? `═══════════════════════════════════
-AI PERFORMANCE ANALYSIS
-═══════════════════════════════════
-${aiAnalysis}` : ''}
+${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}
 
-Generated: ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' })}`;
+Generated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`;
 
-    // Send email
-    const notifyRes = await fetch(`${base}/api/notify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'daily_summary',
-        subject: `📊 Weekly Trading Report — ${weekPnL >= 0 ? '+' : ''}£${weekPnL.toFixed(2)} | ${weekWinRate}% win rate`,
-        body: emailBody
-      })
-    });
+    const notifyRes = await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'daily_summary',subject:`📊 Weekly Report — ${weekPnL>=0?'+':''}£${weekPnL.toFixed(2)} | ${weekWinRate}% WR`,body:emailBody})});
     const notifyData = await notifyRes.json();
-
-    return res.status(200).json({
-      success: true,
-      weekTrades: weekTrades.length,
-      weekPnL: weekPnL.toFixed(2),
-      weekWinRate,
-      emailSent: notifyData.sent,
-      preview: emailBody.substring(0, 300) + '...'
-    });
-
-  } catch(e) {
-    console.error('[Review]', e.message);
-    return res.status(500).json({ error: e.message });
-  }
+    return res.status(200).json({success:true,weekTrades:weekClosed.length,weekPnL:weekPnL.toFixed(2),weekWinRate,emailSent:notifyData.sent});
+  } catch(e) { return res.status(500).json({error:e.message}); }
 }
 
-async function runBacktest(req, res) {
-  const epic = req.query.epic || 'IX.D.FTSE.DAILY.IP';
-  const days = parseInt(req.query.days) || 30;
-  const signalThreshold = parseInt(req.query.threshold) || 2;
-
+async function runOptimization(req, res) {
+  const log = [];
+  const L = msg => { console.log('[Optimize]', msg); log.push(msg); };
+  L('Walk-forward optimisation v4 started');
   try {
     const { sql } = require('@vercel/postgres');
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
 
-    // Fetch stored price history
-    const result = await sql`
-      SELECT close_price, candle_time FROM price_history
-      WHERE epic = ${epic} AND resolution = 'DAY' AND close_price > 0
-      ORDER BY candle_time ASC
-      LIMIT ${days + 60}
+    const priceResult = await sql`
+      SELECT epic, close_price, candle_time FROM price_history
+      WHERE resolution='DAY' AND close_price>0 AND candle_time > NOW() - INTERVAL '30 days'
+      ORDER BY epic, candle_time ASC
     `;
 
-    if (result.rows.length < 10) {
-      return res.status(200).json({
-        error: 'Insufficient price history for backtesting',
-        available: result.rows.length,
-        needed: 10,
-        hint: 'Run the price collector for at least a few days to build history'
-      });
+    if (priceResult.rows.length < 50) {
+      L(`Only ${priceResult.rows.length} candles — need 50+ for optimisation`);
+      return res.status(200).json({message:'Insufficient data',candles:priceResult.rows.length,log});
     }
 
-    const closes = result.rows.map(r => parseFloat(r.close_price));
-    const times = result.rows.map(r => r.candle_time);
+    const byEpic = {};
+    priceResult.rows.forEach(r => {
+      if(!byEpic[r.epic]) byEpic[r.epic]=[];
+      byEpic[r.epic].push(parseFloat(r.close_price));
+    });
+    L(`${Object.keys(byEpic).length} instruments, ${priceResult.rows.length} candles`);
 
-    // Backtest: walk through data generating signals
-    const trades = [];
-    let openTrade = null;
-    const lookback = 20; // Candles needed before first signal
+    const results = [];
+    for (const threshold of [1,2,3,4]) {
+      let trades=0,wins=0,pnl=0;
+      for (const [,closes] of Object.entries(byEpic)) {
+        if(closes.length<15) continue;
+        const r = backtest(closes, threshold);
+        trades+=r.trades; wins+=r.wins; pnl+=r.pnl;
+      }
+      const wr = trades>0?(wins/trades)*100:0;
+      const exp = trades>0?pnl/trades:0;
+      const score = exp*(wr/100);
+      results.push({threshold,trades,winRate:wr.toFixed(1),pnl:pnl.toFixed(4),expectancy:exp.toFixed(4),score:score.toFixed(4)});
+      L(`Threshold ${threshold}: ${trades} trades | ${wr.toFixed(1)}% WR | score ${score.toFixed(4)}`);
+    }
 
-    for (let i = lookback; i < closes.length; i++) {
-      const window = closes.slice(Math.max(0, i - 60), i);
-      const regime = detectRegime(window);
-      const score = calcScore(window, regime);
+    const best = results.reduce((a,b) => parseFloat(a.score)>parseFloat(b.score)?a:b);
+    L(`Best: threshold=${best.threshold} score=${best.score}`);
 
-      if (!openTrade && Math.abs(score) >= signalThreshold) {
-        // Open trade
-        openTrade = {
-          direction: score > 0 ? 'BUY' : 'SELL',
-          openPrice: closes[i],
-          openTime: times[i],
-          score, regime
-        };
-      } else if (openTrade) {
-        // Check exit conditions
-        const currentPrice = closes[i];
-        const upl = openTrade.direction === 'BUY'
-          ? currentPrice - openTrade.openPrice
-          : openTrade.openPrice - currentPrice;
-        const uplPct = (upl / openTrade.openPrice) * 100;
-
-        // Exit if signal reverses or after 5 candles
-        const holdingPeriod = i - closes.indexOf(openTrade.openPrice, Math.max(0, i - 20));
-        const reversal = (openTrade.direction === 'BUY' && score <= -signalThreshold) ||
-                        (openTrade.direction === 'SELL' && score >= signalThreshold);
-
-        if (reversal || holdingPeriod >= 5) {
-          trades.push({
-            direction: openTrade.direction,
-            openPrice: openTrade.openPrice,
-            closePrice: currentPrice,
-            openTime: openTrade.openTime,
-            closeTime: times[i],
-            pnl: upl,
-            pnlPct: uplPct,
-            holdingPeriod,
-            score: openTrade.score,
-            regime: openTrade.regime,
-            exitReason: reversal ? 'signal_reversal' : 'time_exit'
-          });
-          openTrade = null;
-        }
+    // Calibration-based confidence minimum
+    let bestConf = 60;
+    const calRes = await fetch(`${base}/api/db?action=calibration`);
+    const calData = await calRes.json();
+    if (calData.calibration?.length > 0) {
+      const profitable = calData.calibration.filter(r => parseFloat(r.actual_win_rate)>50 && parseInt(r.total_trades)>=3);
+      if (profitable.length > 0) {
+        const map = {'90-100%':90,'80-89%':80,'70-79%':70,'60-69%':60};
+        profitable.sort((a,b)=>(map[a.confidence_bracket]||60)-(map[b.confidence_bracket]||60));
+        bestConf = map[profitable[0].confidence_bracket] || 60;
+        L(`Calibration suggests confidence min: ${bestConf}%`);
       }
     }
 
-    // Calculate backtest stats
-    const wins = trades.filter(t => t.pnl > 0);
-    const losses = trades.filter(t => t.pnl <= 0);
-    const totalPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
-    const maxDrawdown = calculateMaxDrawdown(trades);
-    const winRate = trades.length > 0 ? (wins.length / trades.length * 100).toFixed(1) : 0;
-    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
-    const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0;
-    const profitFactor = Math.abs(avgLoss) > 0 ? Math.abs(avgWin / avgLoss) : 0;
+    await fetch(`${base}/api/db`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'save_params',data:{signalThreshold:best.threshold,aiConfidenceMin:bestConf,
+        backtestScore:parseFloat(best.score),backtestResults:results,optimizedAt:new Date().toISOString()}})});
 
-    // Regime breakdown
-    const byRegime = {};
-    trades.forEach(t => {
-      if (!byRegime[t.regime]) byRegime[t.regime] = { trades: 0, pnl: 0, wins: 0 };
-      byRegime[t.regime].trades++;
-      byRegime[t.regime].pnl += t.pnl;
-      if (t.pnl > 0) byRegime[t.regime].wins++;
-    });
+    await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type:'system',subject:'⚙️ Walk-Forward Optimisation Complete',
+        body:`Signal threshold: ${best.threshold}\nAI confidence min: ${bestConf}%\nScore: ${best.score}\n\nApply: SIGNAL_THRESHOLD=${best.threshold} AI_CONFIDENCE_MIN=${bestConf} in Vercel`})});
 
-    return res.status(200).json({
-      epic, days: result.rows.length, signalThreshold,
-      summary: {
-        totalTrades: trades.length,
-        winRate: parseFloat(winRate),
-        totalPnL: parseFloat(totalPnL.toFixed(4)),
-        maxDrawdown: parseFloat(maxDrawdown.toFixed(4)),
-        profitFactor: parseFloat(profitFactor.toFixed(2)),
-        avgWin: parseFloat(avgWin.toFixed(4)),
-        avgLoss: parseFloat(avgLoss.toFixed(4)),
-        expectancy: parseFloat(((parseFloat(winRate)/100 * avgWin) + ((1-parseFloat(winRate)/100) * avgLoss)).toFixed(4))
-      },
-      byRegime,
-      recentTrades: trades.slice(-10)
-    });
-
-  } catch(e) {
-    return res.status(500).json({ error: e.message });
-  }
+    return res.status(200).json({success:true,bestThreshold:best.threshold,bestConfidence:bestConf,results,log});
+  } catch(e) { L('Error: '+e.message); return res.status(500).json({error:e.message,log}); }
 }
 
-function calculateMaxDrawdown(trades) {
-  let peak = 0, maxDrawdown = 0, cumPnL = 0;
-  for (const t of trades) {
-    cumPnL += t.pnl;
-    if (cumPnL > peak) peak = cumPnL;
-    const drawdown = peak - cumPnL;
-    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+function backtest(closes, threshold) {
+  let trades=0,wins=0,pnl=0,openTrade=null;
+  for (let i=20;i<closes.length;i++) {
+    const sc = quickScore(closes.slice(Math.max(0,i-60),i));
+    if(!openTrade && Math.abs(sc)>=threshold) {
+      openTrade={direction:sc>0?'BUY':'SELL',entry:closes[i],index:i};
+    } else if(openTrade) {
+      const holding=i-openTrade.index;
+      const reversal=(openTrade.direction==='BUY'&&sc<=-threshold)||(openTrade.direction==='SELL'&&sc>=threshold);
+      if(reversal||holding>=5) {
+        const tp=openTrade.direction==='BUY'?closes[i]-openTrade.entry:openTrade.entry-closes[i];
+        trades++; if(tp>0)wins++; pnl+=tp; openTrade=null;
+      }
+    }
   }
-  return maxDrawdown;
+  return {trades,wins,pnl};
 }
 
-function detectRegime(closes) {
-  const n = closes.length;
-  if (n < 10) return 'unknown';
-  const recent = closes.slice(-5);
-  const recentRange = Math.max(...recent) - Math.min(...recent);
-  const totalRange = Math.max(...closes) - Math.min(...closes);
-  const trendStr = recentRange / (totalRange || 1);
-  const mid = Math.floor(n / 2);
-  const h1 = closes.slice(0, mid).reduce((a, b) => a + b, 0) / mid;
-  const h2 = closes.slice(mid).reduce((a, b) => a + b, 0) / (n - mid);
-  const slope = ((h2 - h1) / h1) * 100;
-  if (Math.abs(slope) > 3 && trendStr > 0.3) return slope > 0 ? 'uptrend' : 'downtrend';
-  return 'ranging';
-}
-
-function calcScore(closes, regime) {
-  const n = closes.length;
-  if (n < 5) return 0;
-  let s = 0;
-  const rsi = calcRSI(closes);
-  const sma20 = calcSMA(closes, Math.min(20, n));
-  const sma50 = calcSMA(closes, Math.min(50, n));
-  const macd = calcEMA(closes, Math.min(12, n)) - calcEMA(closes, Math.min(26, n));
-  const mom = n >= 10 ? ((closes[n-1] - closes[n-10]) / closes[n-10]) * 100 : 0;
-  const bb = calcBB(closes);
-
-  if (regime === 'ranging') {
-    if (rsi < 25) s += 4; else if (rsi < 35) s += 3;
-    else if (rsi > 75) s -= 4; else if (rsi > 65) s -= 3;
-    if (closes[n-1] < bb.lower) s += 3; else if (closes[n-1] > bb.upper) s -= 3;
-    if (mom > 1) s += 1; else if (mom < -1) s -= 1;
-    if (sma20 > sma50) s += 1; else s -= 1;
-    if (macd > 0) s += 1; else s -= 1;
-  } else if (regime === 'uptrend') {
-    if (sma20 > sma50) s += 3; else s -= 3;
-    if (mom > 2) s += 3; else if (mom > 1) s += 2; else if (mom < -1) s -= 2;
-    if (macd > 0) s += 2; else s -= 1;
-    if (rsi < 45) s += 2; else if (rsi > 75) s -= 2;
-  } else if (regime === 'downtrend') {
-    if (sma20 < sma50) s -= 3; else s += 3;
-    if (mom < -2) s -= 3; else if (mom < -1) s -= 2; else if (mom > 1) s += 2;
-    if (macd < 0) s -= 2; else s += 1;
-    if (rsi > 55) s -= 2;
-  } else {
-    if (rsi < 30) s += 2; else if (rsi < 40) s += 1;
-    else if (rsi > 70) s -= 2; else if (rsi > 60) s -= 1;
-    if (sma20 > sma50) s += 1; else s -= 1;
-    if (macd > 0) s += 1; else s -= 1;
-    if (mom > 1) s += 1; else if (mom < -1) s -= 1;
-    if (closes[n-1] < bb.lower) s += 1; else if (closes[n-1] > bb.upper) s -= 1;
-  }
+function quickScore(closes) {
+  const n=closes.length; if(n<5) return 0;
+  let s=0,g=0,l=0;
+  const p=Math.min(14,n-1);
+  for(let i=n-p;i<n;i++){const d=closes[i]-closes[i-1];if(d>0)g+=d;else l+=Math.abs(d);}
+  const rsi=l===0?100:100-(100/(1+(g/p)/(l/p)));
+  if(rsi<30)s+=3;else if(rsi<40)s+=2;else if(rsi>70)s-=3;else if(rsi>60)s-=2;
+  const sma5=closes.slice(-5).reduce((a,b)=>a+b,0)/5;
+  const sma10=closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
+  if(sma5>sma10)s+=1;else s-=1;
+  const mom=n>=5?((closes[n-1]-closes[n-5])/closes[n-5])*100:0;
+  if(mom>1)s+=1;else if(mom<-1)s-=1;
   return s;
-}
-
-function calcRSI(c, p = 14) {
-  const period = Math.min(p, c.length - 1);
-  if (period < 2) return 50;
-  let g = 0, l = 0;
-  for (let i = c.length - period; i < c.length; i++) {
-    const d = c[i] - c[i-1];
-    if (d > 0) g += d; else l += Math.abs(d);
-  }
-  const ag = g/period, al = l/period;
-  if (al === 0) return 100;
-  return 100 - (100 / (1 + ag/al));
-}
-
-function calcSMA(c, p) {
-  const n = Math.min(p, c.length);
-  return c.slice(-n).reduce((a, b) => a + b, 0) / n;
-}
-
-function calcEMA(c, p) {
-  const n = Math.min(p, c.length);
-  if (n < 2) return c[c.length-1];
-  const k = 2 / (n + 1);
-  let e = c.slice(0, n).reduce((a, b) => a + b, 0) / n;
-  for (let i = n; i < c.length; i++) e = c[i] * k + e * (1 - k);
-  return e;
-}
-
-function calcBB(c, p = 20) {
-  const n = Math.min(p, c.length);
-  const sma = c.slice(-n).reduce((a, b) => a + b, 0) / n;
-  const std = Math.sqrt(c.slice(-n).reduce((s, v) => s + Math.pow(v - sma, 2), 0) / n);
-  return { upper: sma + 2*std, middle: sma, lower: sma - 2*std };
 }
