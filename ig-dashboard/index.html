@@ -2276,8 +2276,7 @@ const PRICE_CACHE_TTL = {
 
 async function fetchPricesWithCache(epic, resolution, count) {
   if (S.historicalBlocked) {
-    console.log('[Cache] Allowance exceeded — skipping request for', epic);
-    return null;
+    return null; // Silently skip — already shown warning
   }
   const key = epic + '_' + resolution + '_' + count;
   const cached = S.priceCache[key];
