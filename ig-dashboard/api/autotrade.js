@@ -1,4 +1,4 @@
-// Automated Trading Engine v3
+// Automated Trading Engine v4
 // Features: Price history DB, regime detection, news sentiment, time filter,
 // active position management, Kelly sizing, portfolio heat, sentiment divergence
 const fetch = require('node-fetch');
@@ -113,7 +113,7 @@ module.exports = async (req,res) => {
   const log=[];
   const L=msg=>{console.log('[ATv3]',msg);log.push(msg);};
 
-  L('=== Engine v3 === '+new Date().toLocaleString('en-GB',{timeZone:'Europe/London'}));
+  L('=== Engine v4 === '+new Date().toLocaleString('en-GB',{timeZone:'Europe/London'}));
 
   // Auth
   try{
