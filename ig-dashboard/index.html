@@ -1115,48 +1115,56 @@
 
         <!-- ProRealTime Setup -->
         <div class="panel">
-          <div class="section-title">ProRealTime Setup Guide</div>
+          <div class="section-title">TradingView Setup Guide</div>
 
           <div style="margin-bottom:20px">
             <div style="font-weight:500;margin-bottom:8px">Step 1 — Add Signal Key to Vercel</div>
             <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Go to Vercel → Environment Variables → add:<br>
+              Go to Vercel → Settings → Environment Variables → add:<br>
               <code style="background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:12px">SIGNAL_KEY = your-secret-key</code><br>
-              This protects your endpoint from unauthorised signals.
+              Any string works — e.g. <code style="background:var(--bg3);padding:2px 4px;border-radius:3px;font-size:11px">TV-Signal-2026</code>. Redeploy after adding.
             </div>
           </div>
 
           <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 2 — Create ProRealTime Screener</div>
+            <div style="font-weight:500;margin-bottom:8px">Step 2 — Create TradingView Account</div>
             <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              In ProRealTime, open <strong>ProScreener</strong> and create a new screener with your conditions. Example for RSI oversold on FTSE:
-            </div>
-            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;margin-top:8px;overflow-x:auto">// ProRealTime ProScreener code
-r = RSI[14](close)
-SCREENER[r < 30]("RSI Oversold")</pre>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 3 — Set Up Alert with Webhook</div>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              In ProRealTime → Alerts → Create Alert → select your screener → Alert type: <strong>Webhook</strong>.<br><br>
-              Set the webhook URL to your signal endpoint and configure the JSON body as shown on the right.
+              Go to <strong>tradingview.com</strong> and create a free account. Webhooks are available on the free plan — no subscription needed.
             </div>
           </div>
 
           <div style="margin-bottom:20px">
-            <div style="font-weight:500;margin-bottom:8px">Step 4 — ProOrder Automated Strategy</div>
+            <div style="font-weight:500;margin-bottom:8px">Step 3 — Open FTSE Chart</div>
             <div style="font-size:13px;color:var(--text2);line-height:1.7">
-              Alternatively, use ProOrder to run strategies that call the webhook. Add this to any ProOrder strategy to send signals to our system instead of placing orders directly:
+              In TradingView, search for <strong>FTSE</strong> or <strong>UK100</strong> in the search bar and open the chart. Switch to Daily timeframe.
             </div>
-            <pre style="background:var(--bg3);padding:12px;border-radius:var(--radius);font-size:12px;margin-top:8px;overflow-x:auto">// Add to your ProOrder strategy
-// Replace YOUR_KEY with your SIGNAL_KEY
-IF barindex = 1 THEN
-  url = "https://ig-dashboard-roan.vercel.app/api/signal"
-  key = "YOUR_KEY"
-  body = "instrument=FTSE&direction=BUY&source=ProRealTime&strength=4"
-  WEBHOOK(url, body, "X-Signal-Key: " + key)
-ENDIF</pre>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 4 — Add RSI Indicator</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              Click <strong>Indicators</strong> at the top of the chart → search <strong>RSI</strong> → click Relative Strength Index. It will appear in a panel below the chart.
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 5 — Create Alert</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              Click the <strong>Alert</strong> button (clock icon) in the top toolbar, or press <strong>Alt+A</strong>.<br><br>
+              Set the alert condition:<br>
+              • Condition: <strong>Relative Strength Index</strong><br>
+              • Trigger: <strong>Crossing Down</strong><br>
+              • Value: <strong>30</strong><br>
+              • Frequency: <strong>Once Per Bar</strong>
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <div style="font-weight:500;margin-bottom:8px">Step 6 — Enable Webhook</div>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">
+              In the alert dialog, scroll down to <strong>Notifications</strong> → tick <strong>Webhook URL</strong>.<br><br>
+              Enter your webhook URL (shown on the right) and paste the JSON body shown below into the <strong>Message</strong> field.
+            </div>
           </div>
         </div>
 
