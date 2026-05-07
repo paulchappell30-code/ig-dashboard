@@ -2302,7 +2302,7 @@ async function checkAutoTradeStatus() {
       headers: { 'Authorization': 'Bearer ' + secret }
     });
     const data = await res.json();
-    const cfg = data.config || {};
+    const cfg = data.cfg || data.config || {};
     document.getElementById('at-status-label').textContent = 'Auto-Trading: ' + (cfg.enabled ? 'Enabled' : 'Disabled');
     document.getElementById('at-status-sub').textContent = 'Profit lock: +' + (cfg.dailyProfitLock||cfg.profitLock||2) + '% | Loss limit: -' + (cfg.dailyLossLimit||cfg.lossLimit||1) + '%';
     document.getElementById('at-status-dot').style.background = cfg.enabled ? 'var(--green)' : 'var(--text3)';
