@@ -46,6 +46,7 @@ const DEFAULT_CONFIG = {
   requireAIConfirm:true,aiConfidenceMin:60,enabled:true,
   trailingStopPct:1.5,signalThreshold:2,useNewsFilter:true,
   usePreferredWindow:false,useKellyCriterion:true,winRateLookback:20,
+  eodClose:true,eodCloseTime:{h:16,m:15},
 };
 
 const priceCache = {};
@@ -81,6 +82,7 @@ module.exports = async (req,res) => {
     useNewsFilter:process.env.USE_NEWS_FILTER!=='false',
     usePreferredWindow:process.env.USE_PREFERRED_WINDOW==='true',
     useKellyCriterion:process.env.USE_KELLY!=='false',
+    eodClose:process.env.EOD_CLOSE!=='false',
   };
 
   // Load optimised params from DB if available
