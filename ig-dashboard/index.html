@@ -3094,8 +3094,8 @@ async function fetchTdPrices() {
 async function loadCalendarData() {
   try {
     const [upcomingRes, surpriseRes] = await Promise.all([
-      fetch('/api/calendar?action=upcoming'),
-      fetch('/api/calendar?action=surprise')
+      fetch('/api/indicators?action=upcoming'),
+      fetch('/api/indicators?action=surprise')
     ]);
     const [upcoming, surprise] = await Promise.all([upcomingRes.json(), surpriseRes.json()]);
 
