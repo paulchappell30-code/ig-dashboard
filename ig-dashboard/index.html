@@ -606,7 +606,18 @@ code{
             <input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET">
           </div>
 
-          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="saveAutoTradeConfig()">Generate Vercel Config</button>
+          <div class="status-row" style="margin-top:8px">
+            <div>
+              <div style="font-size:13px;font-weight:500">End-of-Day Close</div>
+              <div style="font-size:12px;color:var(--text2)">Close all positions at 4:15pm UTC (set EOD_CLOSE=false to disable)</div>
+            </div>
+            <button class="toggle on" id="at-eod-toggle" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="alert alert-warn" style="margin-top:12px;font-size:12px">
+            ⚠️ To fully stop the engine, pause the cron job at
+            <a href="https://cron-job.org" target="_blank" style="color:var(--gold)">cron-job.org</a>
+          </div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="saveAutoTradeConfig()">Generate Vercel Config</button>
         </div>
 
         <div>
@@ -2376,17 +2387,20 @@ function updateDailyPLDisplay() {
 }
 
 async function stopAutoTrade() {
-  if (!confirm('Stop auto-trading? This will prevent new positions being opened. Go to cron-job.org to also pause the scheduled runs.')) return;
-  // Set a session-level flag
-  S.autoTradingStopped = true;
-  document.getElementById('at-status-dot').style.background = 'var(--red)';
-  document.getElementById('at-status-label').textContent = 'Auto-Trading: STOPPED';
-  document.getElementById('at-status-sub').textContent = 'Manually stopped — restart by clicking Run Now or re-enabling in Vercel';
-  document.getElementById('at-run-btn').textContent = '▶ Resume';
-  document.getElementById('at-stop-btn').style.display = 'none';
-  appendAtLog('⏹ Auto-trading stopped by user.');
-  addLog('system', 'Auto-trading stopped manually.');
-  alert('Auto-trading stopped.\n\nTo fully stop the cron job: go to cron-job.org and disable your autotrade job.\n\nTo permanently disable: set AUTO_TRADING_ENABLED=false in Vercel.');
+  if (!confirm('Pause auto-trading for this session? The cron job will still run — go to cron-job.org to fully stop.')) return;
+  try {
+    appendAtLog('⏹ Pausing auto-trading...');
+    S.tradingPaused = true;
+    appendAtLog('⏹ Trading paused this session. Visit cron-job.org to stop the scheduled cron job.');
+    const label = document.getElementById('at-status-label');
+    const dot = document.getElementById('at-status-dot');
+    const sub = document.getElementById('at-status-sub');
+    if(label) label.textContent = 'Auto-Trading: Paused';
+    if(dot) dot.style.background = 'var(--red)';
+    if(sub) sub.textContent = 'Session paused — cron job still active on cron-job.org';
+  } catch(e) {
+    appendAtLog('Stop error: ' + e.message);
+  }
 }
 
 async function runAutoTrade() {
@@ -2406,6 +2420,7 @@ async function runAutoTrade() {
       dailyLossLimit: parseFloat(document.getElementById('at-loss-limit')?.value) || 1,
       maxPositions: parseInt(document.getElementById('at-max-pos')?.value) || 3,
       defaultSize: parseInt(document.getElementById('at-size')?.value) || 1,
+      eodClose: document.getElementById('at-eod-toggle')?.classList.contains('on') ?? true,
     };
     const secret = document.getElementById('at-cron-secret')?.value || '';
     const res = await fetch('/api/autotrade', {
