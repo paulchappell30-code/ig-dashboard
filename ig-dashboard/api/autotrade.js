@@ -156,14 +156,12 @@ module.exports = async (req,res) => {
                 catch(e){ if(i===0) await new Promise(r=>setTimeout(r,1500)); else throw e; }
               }
             };
-            const [rsiRes, macdRes, rsiDRes] = await Promise.all([
+            const [rsiRes, macdRes] = await Promise.all([
               tdGet(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=14&apikey=${TD_KEY}`),
               tdGet(`${TD_BASE}/macd?symbol=${encodeURIComponent(symbol)}&interval=1h&fast_period=12&slow_period=26&signal_period=9&apikey=${TD_KEY}`),
-              tdGet(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1day&time_period=14&apikey=${TD_KEY}`),
             ]);
-            const [rsiD, macdD, rsiDailyD] = await Promise.all([rsiRes.json(), macdRes.json(), rsiDRes.json()]);
-            // Multi-timeframe: require hourly and daily RSI to agree on direction
-            const rsiDaily = parseFloat(rsiDailyD.values?.[0]?.rsi) || null;
+            const [rsiD, macdD] = await Promise.all([rsiRes.json(), macdRes.json()]);
+            const rsiDaily = null; // Daily RSI removed to stay within 8 calls/min free tier
             if (rsiD.status === 'error') { L(`TD ${instr}: ${rsiD.message}`); continue; }
             const rsi = parseFloat(rsiD.values?.[0]?.rsi);
             const macd = parseFloat(macdD.values?.[0]?.macd);
@@ -245,7 +243,27 @@ module.exports = async (req,res) => {
   }
 
   // Calendar
-  if(await nearHighImpact(L)) return res.status(200).json({action:'calendar_block',log});
+  // Smart Calendar — fetch surprise scores and upcoming blocks
+  let calSurprises = {};
+  if(cfg.calendarEnabled){
+    try {
+      const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+      const calRes = await fetch(`${base}/api/calendar?action=surprise`);
+      if(calRes.ok){
+        const calData = await calRes.json();
+        calSurprises = calData.surprises || {};
+        // Block if high-impact event imminent (within 10 mins)
+        if(calData.shouldBlock && calData.nextBlock && calData.nextBlock.minutesUntil <= 10){
+          L(`Calendar: blocking — ${calData.nextBlock.event} in ${calData.nextBlock.minutesUntil} mins`);
+          return res.status(200).json({action:'calendar_block',event:calData.nextBlock.event,log});
+        }
+        if(Object.keys(calSurprises).length > 0) L(`Calendar surprises active: ${JSON.stringify(calSurprises)}`);
+      }
+    } catch(e) {
+      // Fall back to time-based blocking if calendar API unavailable
+      if(await nearHighImpact(L)) return res.status(200).json({action:'calendar_block',log});
+    }
+  }
 
   // News sentiment
   let newsSentiment={};
@@ -305,8 +323,11 @@ module.exports = async (req,res) => {
       }
 
       const safeNewsAdj = newsAdj||0; const safeSentAdj = sentAdj||0; const safeTdAdj = tdAdj||0;
-      const total=sc+safeNewsAdj+safeSentAdj+safeTdAdj;
-      L(`${instr}: score ${sc}+news${safeNewsAdj}+sent${safeSentAdj}+td${safeTdAdj}=${total} regime:${regime}`);
+      // Apply economic surprise score if available
+      const calAdj = calSurprises[instr] || 0;
+      if(calAdj !== 0) L(`${instr}: calendar surprise adj ${calAdj}`);
+      const total=sc+safeNewsAdj+safeSentAdj+safeTdAdj+calAdj;
+      L(`${instr}: score ${sc}+news${safeNewsAdj}+sent${safeSentAdj}+td${safeTdAdj}+cal${calAdj}=${total} regime:${regime}`);
 
       if(Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
 
@@ -327,7 +348,7 @@ module.exports = async (req,res) => {
         sentAdj!==0?`Sentiment:${sentAdj>0?'+':''}${sentAdj}`:'',
       ].filter(Boolean);
 
-      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,regime,
+      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,
         reasons,rsi,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
         atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
       if(grp)occupied.add(grp);
