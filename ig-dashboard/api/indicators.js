@@ -40,6 +40,51 @@ const INTRADAY_SYMBOLS = {
   'USD/JPY':   'USD/JPY',
 };
 
+const EVENT_IMPACT = {
+  // UK events → FTSE, GBP/USD
+  'UK': {
+    instruments: ['FTSE 100', 'GBP/USD'],
+    events: ['CPI', 'GDP', 'Unemployment', 'Retail Sales', 'PMI', 'Interest Rate', 'BoE', 'Inflation']
+  },
+  // US events → S&P, Dow, Nasdaq, GBP/USD, EUR/USD, USD/JPY
+  'US': {
+    instruments: ['S&P 500', 'Dow Jones', 'Nasdaq', 'GBP/USD', 'EUR/USD', 'USD/JPY'],
+    events: ['NFP', 'Non-Farm', 'CPI', 'GDP', 'Fed', 'FOMC', 'Unemployment', 'Retail', 'PMI', 'ISM']
+  },
+  // EU events → DAX, CAC, EUR/USD
+  'EU': {
+    instruments: ['DAX 40', 'CAC 40', 'EUR/USD'],
+    events: ['ECB', 'CPI', 'GDP', 'PMI', 'Unemployment', 'ZEW', 'IFO']
+  },
+  // Germany events → DAX
+  'DE': {
+    instruments: ['DAX 40'],
+    events: ['CPI', 'GDP', 'PMI', 'IFO', 'ZEW', 'Unemployment']
+  },
+  // Japan events → Nikkei, USD/JPY
+  'JP': {
+    instruments: ['Nikkei 225', 'USD/JPY'],
+    events: ['BOJ', 'CPI', 'GDP', 'Tankan', 'PMI']
+  },
+};
+
+const BEAT_DIRECTION = {
+  // Good US data = stocks up, USD up (bad for GBP/USD, EUR/USD)
+  'S&P 500':   { beat: 'BUY',  miss: 'SELL' },
+  'Dow Jones': { beat: 'BUY',  miss: 'SELL' },
+  'Nasdaq':    { beat: 'BUY',  miss: 'SELL' },
+  'FTSE 100':  { beat: 'BUY',  miss: 'SELL' },
+  'DAX 40':    { beat: 'BUY',  miss: 'SELL' },
+  'CAC 40':    { beat: 'BUY',  miss: 'SELL' },
+  'Nikkei 225':{ beat: 'BUY',  miss: 'SELL' },
+  // For FX: good UK/EU data = currency up vs USD
+  'GBP/USD':   { beat: 'BUY',  miss: 'SELL' }, // UK beat = GBP up
+  'EUR/USD':   { beat: 'BUY',  miss: 'SELL' }, // EU beat = EUR up
+  'USD/JPY':   { beat: 'SELL', miss: 'BUY'  }, // JPY safe haven: risk-off = JPY up = pair down
+  'Brent Oil': { beat: 'BUY',  miss: 'SELL' },
+  'Gold':      { beat: 'SELL', miss: 'BUY'  }, // Good data = less safe haven demand
+};
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -55,6 +100,100 @@ module.exports = async (req, res) => {
   }
 
   // GET — fetch indicators for a single instrument
+
+  // ─── CALENDAR ACTIONS ────────────────────────────────────────────────────────
+  if (req.query.action === 'upcoming' || req.query.action === 'recent' || req.query.action === 'surprise') {
+    const finnhubKey = process.env.FINNHUB_API_KEY;
+    if (!finnhubKey) {
+      return res.status(200).json({
+        configured: false,
+        message: 'Add FINNHUB_API_KEY to Vercel (free at finnhub.io)',
+        surprises: {}, upcomingBlocks: []
+      });
+    }
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const tomorrowStr = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+    const action = req.query.action;
+
+    try {
+      const calRes = await fetch(`https://finnhub.io/api/v1/calendar/economic?from=${todayStr}&to=${tomorrowStr}&token=${finnhubKey}`);
+      const calData = await calRes.json();
+      const events = calData.economicCalendar || [];
+
+      if (action === 'upcoming') {
+        const upcoming = events
+          .filter(e => e.impact === 'high' && new Date(e.time) > now)
+          .map(e => ({ time:e.time, event:e.event, country:e.country, impact:e.impact, forecast:e.estimate, previous:e.prev, minutesUntil:Math.round((new Date(e.time)-now)/60000) }))
+          .sort((a,b) => a.minutesUntil - b.minutesUntil);
+        return res.status(200).json({ upcoming, count: upcoming.length });
+      }
+
+      if (action === 'recent') {
+        const recentCutoff = new Date(now.getTime() - 4*60*60*1000);
+        const recent = events
+          .filter(e => e.actual != null && new Date(e.time) > recentCutoff && new Date(e.time) < now)
+          .map(e => ({ time:e.time, event:e.event, country:e.country, impact:e.impact, actual:e.actual, forecast:e.estimate, previous:e.prev, beat:e.estimate?(parseFloat(e.actual)>parseFloat(e.estimate)):null }));
+        return res.status(200).json({ recent, count: recent.length });
+      }
+
+      if (action === 'surprise') {
+        const surprises = {};
+        const upcomingBlocks = [];
+        const log = [];
+        const recentCutoff = new Date(now.getTime() - 4*60*60*1000);
+
+        for (const event of events) {
+          const eventTime = new Date(event.time);
+          const isReleased = eventTime < now && eventTime > recentCutoff;
+          const isUpcoming = eventTime > now && eventTime < new Date(now.getTime() + 30*60*1000);
+
+          if (event.impact === 'high' && isUpcoming) {
+            upcomingBlocks.push({ time:event.time, event:event.event, country:event.country, minutesUntil:Math.round((eventTime-now)/60000) });
+          }
+
+          if (isReleased && event.actual != null && event.estimate != null) {
+            const actual = parseFloat(event.actual);
+            const estimate = parseFloat(event.estimate);
+            if (isNaN(actual) || isNaN(estimate)) continue;
+            const surprise = actual - estimate;
+            const pctSurprise = estimate !== 0 ? (surprise/Math.abs(estimate))*100 : 0;
+
+            let country = null;
+            if (['United States','US'].includes(event.country)) country = 'US';
+            else if (['United Kingdom','UK'].includes(event.country)) country = 'UK';
+            else if (['European Union','Euro Area'].includes(event.country)) country = 'EU';
+            else if (event.country === 'Germany') country = 'DE';
+            else if (event.country === 'Japan') country = 'JP';
+            if (!country || !EVENT_IMPACT[country] || event.impact !== 'high') continue;
+
+            const isBeat = surprise > 0;
+            const magnitude = Math.min(3, Math.abs(pctSurprise) > 20 ? 3 : Math.abs(pctSurprise) > 10 ? 2 : 1);
+            log.push(`${event.event} (${country}): ${isBeat?'BEAT':'MISS'} by ${pctSurprise.toFixed(1)}%`);
+
+            for (const instr of EVENT_IMPACT[country].instruments) {
+              const dir = BEAT_DIRECTION[instr];
+              if (!dir) continue;
+              const scoreAdj = isBeat ? (dir.beat==='BUY'?magnitude:-magnitude) : (dir.miss==='SELL'?-magnitude:magnitude);
+              surprises[instr] = (surprises[instr]||0) + scoreAdj;
+            }
+          }
+        }
+
+        return res.status(200).json({
+          surprises, upcomingBlocks,
+          shouldBlock: upcomingBlocks.length > 0,
+          nextBlock: upcomingBlocks[0] || null,
+          log, eventsProcessed: events.length,
+          configured: true, time: now.toISOString()
+        });
+      }
+    } catch(e) {
+      return res.status(200).json({ surprises:{}, upcomingBlocks:[], error:e.message, configured:true });
+    }
+  }
+
   if (req.method === 'GET') {
     // Bulk price fetch for watchlist
     if (req.query.action === 'prices') {
