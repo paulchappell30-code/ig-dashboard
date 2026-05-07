@@ -56,6 +56,30 @@ module.exports = async (req, res) => {
 
   // GET — fetch indicators for a single instrument
   if (req.method === 'GET') {
+    // Bulk price fetch for watchlist
+    if (req.query.action === 'prices') {
+      const symbols = (req.query.symbols || '').split(',').filter(Boolean).slice(0, 12);
+      if (!symbols.length) return res.status(400).json({ error: 'symbols required' });
+      try {
+        const prices = {};
+        // Batch fetch using Twelve Data price endpoint
+        const symbolStr = symbols.map(s => encodeURIComponent(s.trim())).join('%2C');
+        const res2 = await fetch(`https://api.twelvedata.com/price?symbol=${symbolStr}&apikey=${apiKey}`);
+        const data = await res2.json();
+        // Response is either {price: "123"} for single or {SYMBOL: {price: "123"}} for multiple
+        if (data.price) {
+          prices[symbols[0]] = data.price;
+        } else {
+          for (const [sym, val] of Object.entries(data)) {
+            if (val && val.price) prices[sym] = val.price;
+          }
+        }
+        return res.status(200).json({ prices, count: Object.keys(prices).length });
+      } catch(e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+
     const instrument = req.query.instrument || req.query.symbol || 'GBP/USD';
     const interval = req.query.interval || '1h';
     const symbol = INTRADAY_SYMBOLS[instrument] || instrument;
