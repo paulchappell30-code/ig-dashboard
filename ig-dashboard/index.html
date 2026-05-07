@@ -2993,18 +2993,14 @@ async function runOptimization() {
 // ─── TWELVE DATA PRICE FALLBACK ──────────────────────────────────────────────
 // When Lightstreamer isn't delivering ticks, poll Twelve Data for live prices
 const TD_PRICE_MAP = {
-  'IX.D.FTSE.DAILY.IP':  'IX:FTSE',
-  'IX.D.SPTRD.DAILY.IP': 'SPX',
-  'IX.D.DAX.DAILY.IP':   'DAX',
-  'IX.D.DOW.DAILY.IP':   'DJI',
-  'IX.D.CAC.DAILY.IP':   'CAC40',
-  'IX.D.NIKKEI.DAILY.IP':'N225',
-  'IX.D.NASDAQ.CASH.IP': 'IXIC',
-  'CC.D.LCO.USS.IP':     'BCO/USD',
-  'CS.D.USCGC.TODAY.IP': 'XAU/USD',
+  // FX pairs - confirmed working on TD free tier
   'CS.D.GBPUSD.MINI.IP': 'GBP/USD',
   'CS.D.EURUSD.MINI.IP': 'EUR/USD',
   'CS.D.USDJPY.MINI.IP': 'USD/JPY',
+  // Commodities - confirmed working
+  'CS.D.USCGC.TODAY.IP': 'XAU/USD',
+  'CC.D.LCO.USS.IP':     'BCO',
+  // Indices - not available on TD free tier, will show — until IG streaming fixed
 };
 
 let _tdPricePollTimer = null;
