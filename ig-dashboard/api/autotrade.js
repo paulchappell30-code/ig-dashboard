@@ -99,6 +99,11 @@ module.exports = async (req,res) => {
 
   // Override config with values from dashboard UI request body
   const body=req.body||{};
+
+  // Kill switch — return immediately without trading
+  if(body.killSwitch === true){
+    return res.status(200).json({action:'paused',message:'Trading paused by user',log:['Trading paused via dashboard']});
+  }
   if(body.calendarEnabled!==undefined) cfg.calendarEnabled=!!body.calendarEnabled;
   if(body.requireAIConfirm!==undefined) cfg.requireAIConfirm=!!body.requireAIConfirm;
   if(body.signalThreshold!==undefined) cfg.signalThreshold=parseInt(body.signalThreshold);
@@ -106,6 +111,7 @@ module.exports = async (req,res) => {
   if(body.dailyLossLimit!==undefined) cfg.dailyLossLimit=parseFloat(body.dailyLossLimit);
   if(body.maxPositions!==undefined) cfg.maxPositions=parseInt(body.maxPositions);
   if(body.defaultSize!==undefined) cfg.defaultSize=parseInt(body.defaultSize);
+  if(body.eodClose!==undefined) cfg.eodClose=!!body.eodClose;
   if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
 
   const igBase=IG_BASES[process.env.IG_ENV||'demo'];
@@ -262,6 +268,58 @@ module.exports = async (req,res) => {
     } catch(e) {
       // Fall back to time-based blocking if calendar API unavailable
       if(await nearHighImpact(L)) return res.status(200).json({action:'calendar_block',log});
+    }
+  }
+
+  // End-of-day position close
+  if(cfg.eodClose){
+    const now = new Date();
+    const utcH = now.getUTCHours();
+    const utcM = now.getUTCMinutes();
+    const isEOD = utcH === cfg.eodCloseTime.h && utcM >= cfg.eodCloseTime.m && utcM < cfg.eodCloseTime.m + 5;
+    const isFridayEOD = now.getUTCDay() === 5 && utcH >= 15 && utcH < 17; // Friday close earlier
+
+    if(isEOD || isFridayEOD){
+      // Close all open positions
+      try {
+        const posRes = await fetch(`${igBase}/positions`, {headers:{...igH,'Version':'1'}});
+        const posData = await posRes.json();
+        const positions = posData.positions || [];
+
+        if(positions.length > 0){
+          L(`EOD close: closing ${positions.length} position(s)`);
+          for(const p of positions){
+            const closeBody = {
+              epic: p.market.epic,
+              direction: p.position.direction === 'BUY' ? 'SELL' : 'BUY',
+              size: p.position.size || p.position.dealSize,
+              orderType: 'MARKET', expiry: 'DFB',
+              guaranteedStop: false, forceOpen: false,
+              currencyCode: 'GBP', dealType: 'SPREADBET'
+            };
+            try {
+              const cr = await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(closeBody)});
+              const cd = await cr.json();
+              L(`EOD closed ${p.market.instrumentName}: ref ${cd.dealReference||'failed'}`);
+              if(cd.dealReference){
+                await saveToDb('trade_closed', {
+                  dealId: p.position.dealId,
+                  closeLevel: p.market.bid,
+                  closeReason: isFridayEOD ? 'friday_eod' : 'eod_close',
+                  profitLoss: p.position.direction === 'BUY'
+                    ? (p.market.bid - p.position.openLevel) * (p.position.size || 1)
+                    : (p.position.openLevel - p.market.offer) * (p.position.size || 1)
+                });
+              }
+            } catch(e){ L(`EOD close error ${p.market.instrumentName}: ${e.message}`); }
+          }
+          await sendNotify('dca', '🔔 EOD: All positions closed',
+            `End of day close executed.
+${positions.map(p=>p.market.instrumentName).join(', ')}
+Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
+          return res.status(200).json({action:'eod_close', closed: positions.length, log});
+        }
+      } catch(e){ L(`EOD check error: ${e.message}`); }
     }
   }
 
