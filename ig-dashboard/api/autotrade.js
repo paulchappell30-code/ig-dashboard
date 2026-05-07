@@ -248,7 +248,7 @@ module.exports = async (req,res) => {
   if(cfg.calendarEnabled){
     try {
       const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-      const calRes = await fetch(`${base}/api/calendar?action=surprise`);
+      const calRes = await fetch(`${base}/api/indicators?action=surprise`);
       if(calRes.ok){
         const calData = await calRes.json();
         calSurprises = calData.surprises || {};
