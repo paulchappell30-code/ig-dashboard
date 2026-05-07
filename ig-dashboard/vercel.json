@@ -3,7 +3,6 @@
   "routes": [
     { "src": "/api/dca", "dest": "/api/dca" },
     { "src": "/api/notify", "dest": "/api/notify" },
-    { "src": "/api/rules", "dest": "/api/rules" },
     { "src": "/api/claude", "dest": "/api/claude" },
     { "src": "/api/close", "dest": "/api/close" },
     { "src": "/api/autotrade", "dest": "/api/autotrade" },
@@ -12,17 +11,9 @@
     { "src": "/api/review", "dest": "/api/review" },
     { "src": "/api/signal", "dest": "/api/signal" },
     { "src": "/api/indicators", "dest": "/api/indicators" },
+    { "src": "/api/calendar", "dest": "/api/calendar" },
     { "src": "/ig/(.+)", "dest": "/api/ig?path=$1" },
     { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
     { "src": "/(.*)", "dest": "/index.html" }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
-    }
   ]
 }
