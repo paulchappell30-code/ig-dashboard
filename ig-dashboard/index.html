@@ -646,6 +646,28 @@ code{
         </div>
       </div>
 
+
+      <!-- Economic Calendar -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">Economic Calendar</div>
+          <button class="btn btn-sm" onclick="loadCalendarData()">↻ Refresh</button>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+          High-impact events create trading opportunities. Scores adjust automatically after releases.
+          Add <code>FINNHUB_API_KEY</code> to Vercel for live data (free at finnhub.io).
+        </div>
+        <div class="two-col">
+          <div>
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);margin-bottom:8px">Upcoming Events</div>
+            <div id="cal-upcoming"><div class="empty loading">Loading...</div></div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);margin-bottom:8px">Recent Surprises</div>
+            <div id="cal-surprises"><div class="empty">No recent high-impact releases</div></div>
+          </div>
+        </div>
+      </div>
       <!-- Correlation info -->
       <div class="alert alert-info">
         <span>ℹ</span>
@@ -3066,6 +3088,59 @@ async function fetchTdPrices() {
     console.log('[TD Prices] Updated', Object.keys(data.prices).length, 'prices');
   } catch(e) { console.warn('[TD Prices] Error:', e.message); }
 }
+
+
+// ─── ECONOMIC CALENDAR ───────────────────────────────────────────────────────
+async function loadCalendarData() {
+  try {
+    const [upcomingRes, surpriseRes] = await Promise.all([
+      fetch('/api/calendar?action=upcoming'),
+      fetch('/api/calendar?action=surprise')
+    ]);
+    const [upcoming, surprise] = await Promise.all([upcomingRes.json(), surpriseRes.json()]);
+
+    // Upcoming events
+    const upcomingEl = document.getElementById('cal-upcoming');
+    if (upcomingEl) {
+      if (!upcoming.configured) {
+        upcomingEl.innerHTML = '<div class="alert alert-info" style="font-size:12px">Add FINNHUB_API_KEY to Vercel for live calendar data</div>';
+      } else if (!upcoming.upcoming?.length) {
+        upcomingEl.innerHTML = '<div class="empty">No high-impact events in next 30 mins</div>';
+      } else {
+        upcomingEl.innerHTML = upcoming.upcoming.slice(0,5).map(e => `
+          <div class="signal-item">
+            <div>
+              <div style="font-weight:500;font-size:13px">${e.event}</div>
+              <div style="font-size:11px;color:var(--text2)">${e.country} · ${new Date(e.time).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} UTC</div>
+            </div>
+            <div style="text-align:right">
+              <span class="badge ${e.minutesUntil <= 10 ? 'badge-sell' : 'badge-neutral'}">${e.minutesUntil}m</span>
+              ${e.forecast ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">Fcst: ${e.forecast}</div>` : ''}
+            </div>
+          </div>`).join('');
+      }
+    }
+
+    // Recent surprises
+    const surprisesEl = document.getElementById('cal-surprises');
+    if (surprisesEl) {
+      const scores = surprise.surprises || {};
+      if (!Object.keys(scores).length) {
+        surprisesEl.innerHTML = '<div class="empty">No active surprise adjustments</div>';
+      } else {
+        surprisesEl.innerHTML = Object.entries(scores).map(([instr, score]) => `
+          <div class="signal-item">
+            <div style="font-weight:500">${instr}</div>
+            <div class="${score > 0 ? 'pos' : 'neg'}" style="font-family:var(--font-mono);font-weight:600">
+              ${score > 0 ? '+' : ''}${score} pts
+            </div>
+          </div>`).join('');
+      }
+    }
+  } catch(e) { console.warn('Calendar load error:', e.message); }
+}
+
+// Load calendar when switching to autotrade tab
 
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
