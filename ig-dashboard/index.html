@@ -2989,6 +2989,75 @@ async function runOptimization() {
   }
 }
 
+
+// ─── TWELVE DATA PRICE FALLBACK ──────────────────────────────────────────────
+// When Lightstreamer isn't delivering ticks, poll Twelve Data for live prices
+const TD_PRICE_MAP = {
+  'IX.D.FTSE.DAILY.IP':  'IX:FTSE',
+  'IX.D.SPTRD.DAILY.IP': 'SPX',
+  'IX.D.DAX.DAILY.IP':   'DAX',
+  'IX.D.DOW.DAILY.IP':   'DJI',
+  'IX.D.CAC.DAILY.IP':   'CAC40',
+  'IX.D.NIKKEI.DAILY.IP':'N225',
+  'IX.D.NASDAQ.CASH.IP': 'IXIC',
+  'CC.D.LCO.USS.IP':     'BCO/USD',
+  'CS.D.USCGC.TODAY.IP': 'XAU/USD',
+  'CS.D.GBPUSD.MINI.IP': 'GBP/USD',
+  'CS.D.EURUSD.MINI.IP': 'EUR/USD',
+  'CS.D.USDJPY.MINI.IP': 'USD/JPY',
+};
+
+let _tdPricePollTimer = null;
+let _tdPriceCache = {};
+let _lastTdPriceFetch = 0;
+
+async function startTdPriceFallback() {
+  if (_tdPricePollTimer) return; // Already running
+  console.log('[TD Prices] Starting Twelve Data price fallback');
+  await fetchTdPrices();
+  _tdPricePollTimer = setInterval(fetchTdPrices, 60000); // Poll every 60s
+}
+
+function stopTdPriceFallback() {
+  if (_tdPricePollTimer) { clearInterval(_tdPricePollTimer); _tdPricePollTimer = null; }
+}
+
+async function fetchTdPrices() {
+  try {
+    // Fetch prices via our indicators endpoint - it already has TD key configured
+    const symbols = Object.values(TD_PRICE_MAP).slice(0, 8).join(',');
+    const res = await fetch(`/api/indicators?action=prices&symbols=${encodeURIComponent(symbols)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.prices) return;
+
+    // Update S.markets with TD prices
+    S.markets.forEach(m => {
+      const tdSymbol = TD_PRICE_MAP[m.epic];
+      if (!tdSymbol || !data.prices[tdSymbol]) return;
+      const price = data.prices[tdSymbol];
+      if (!price || isNaN(parseFloat(price))) return;
+      const prev = parseFloat((m.price||'0').replace(/[^0-9.-]/g,'')) || 0;
+      const current = parseFloat(price);
+      m.flash = current > prev ? 'up' : current < prev ? 'down' : null;
+      m.price = current > 999 ? Math.round(current).toLocaleString('en-GB') : current.toFixed(current > 10 ? 2 : 4);
+      m.tdPrice = true;
+
+      // Update DOM directly
+      const epicId = m.epic.replace(/\./g, '-');
+      const priceEl = document.getElementById('ws-price-' + epicId);
+      const lbPrice = document.getElementById('lb-price-' + epicId);
+      if (priceEl) { 
+        priceEl.textContent = m.price;
+        priceEl.style.color = m.flash === 'up' ? 'var(--green)' : m.flash === 'down' ? 'var(--red)' : '';
+        setTimeout(() => { if(priceEl) priceEl.style.color = ''; }, 1000);
+      }
+      if (lbPrice) lbPrice.textContent = m.price;
+    });
+    console.log('[TD Prices] Updated', Object.keys(data.prices).length, 'prices');
+  } catch(e) { console.warn('[TD Prices] Error:', e.message); }
+}
+
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
   await loadAccount();
@@ -3271,6 +3340,13 @@ function startLightstreamer() {
         if (status.startsWith('CONNECTED')) {
           addLog('system', 'Lightstreamer connected — live prices active.');
           document.getElementById('conn-label').textContent = 'Live prices ●';
+          // Start TD price fallback after 15s if no ticks received
+          setTimeout(() => {
+            if (window._tickCount === 0) {
+              console.log('[LS] No ticks after 15s — starting Twelve Data price fallback');
+              startTdPriceFallback();
+            }
+          }, 15000);
           // Clear any fallback ticker
           if (S.fallbackTimer) { clearInterval(S.fallbackTimer); S.fallbackTimer = null; }
         } else if (status === 'DISCONNECTED:WILL-RETRY') {
