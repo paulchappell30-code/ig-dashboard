@@ -3365,14 +3365,14 @@ function startLightstreamer() {
 
     // Subscribe to prices for each market
     // Live uses :1 (1 second), demo uses :5 (5 second merge interval)
-    const lsSuffix = S.env === 'live' ? ':1' : ':5';
-    const epics = S.markets.map(m => m.epic + lsSuffix);
+    // No suffix needed — plain epic for both live and demo
+    const epics = S.markets.map(m => m.epic);
     const sub = new Subscription('MERGE', epics, ['BID', 'OFFER', 'CHANGE_PCT', 'MARKET_STATE']);
     
     sub.addListener({
       onItemUpdate: function(update) {
         window._tickCount = (window._tickCount||0) + 1;
-        const epic = update.getItemName().replace(/:5$|:1$/, '');
+        const epic = update.getItemName();
         const m = S.markets.find(x => x.epic === epic);
         if (!m) return;
 
