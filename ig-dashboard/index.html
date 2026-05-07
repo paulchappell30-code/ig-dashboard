@@ -3336,13 +3336,8 @@ function startLightstreamer() {
         if (status.startsWith('CONNECTED')) {
           addLog('system', 'Lightstreamer connected — live prices active.');
           document.getElementById('conn-label').textContent = 'Live prices ●';
-          // Start TD price fallback after 20s if no ticks received
-          setTimeout(() => {
-            if ((window._tickCount||0) === 0) {
-              console.log('[LS] No ticks after 20s — starting Twelve Data price fallback');
-              startTdPriceFallback();
-            }
-          }, 20000);
+          // Always start TD price fallback for FX instruments (not streamable on this account)
+          setTimeout(() => startTdPriceFallback(), 5000);
           // Clear any fallback ticker
           if (S.fallbackTimer) { clearInterval(S.fallbackTimer); S.fallbackTimer = null; }
         } else if (status === 'DISCONNECTED:WILL-RETRY') {
