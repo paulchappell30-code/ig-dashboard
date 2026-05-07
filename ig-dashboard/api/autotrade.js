@@ -283,7 +283,7 @@ module.exports = async (req,res) => {
       }
 
       const newsAdj=getNewsAdj(instr,newsSentiment);
-      const sentAdj=await getIGSentiment(epic,igBase,igH,L);
+      let sentAdj=0; try { sentAdj=await getIGSentiment(epic,igBase,igH,L)||0; } catch(e) { sentAdj=0; }
       let sc=0,regime='unknown',tdAdj=0;
 
       if(closes&&closes.length>=5){
@@ -304,8 +304,9 @@ module.exports = async (req,res) => {
         continue;
       }
 
-      const total=sc+newsAdj+sentAdj+tdAdj;
-      L(`${instr}: score ${sc}+news${newsAdj}+sent${sentAdj}+td${tdAdj}=${total} regime:${regime}`);
+      const safeNewsAdj = newsAdj||0; const safeSentAdj = sentAdj||0; const safeTdAdj = tdAdj||0;
+      const total=sc+safeNewsAdj+safeSentAdj+safeTdAdj;
+      L(`${instr}: score ${sc}+news${safeNewsAdj}+sent${safeSentAdj}+td${safeTdAdj}=${total} regime:${regime}`);
 
       if(Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
 
@@ -518,7 +519,9 @@ async function getIGSentiment(epic,igBase,igH,L){
   try{
     const r=await fetch(`${igBase}/clientsentiment/${id}`,{headers:igH});
     if(!r.ok)return 0;const d=await r.json();
-    const lp=d.longPositionPercentage||50;
+    if(!d||!d.clientSentimentList&&!d.longPositionPercentage) return 0;
+    const sentiment = d.clientSentimentList?.[0] || d;
+    const lp=sentiment.longPositionPercentage||d.longPositionPercentage||50;
     if(lp>70){L(`${id}: ${lp}% long — contrarian SELL`);return -2;}
     if(lp<30){L(`${id}: ${lp}% long — contrarian BUY`);return 2;}
     if(lp>60)return -1;if(lp<40)return 1;return 0;
