@@ -3368,14 +3368,16 @@ function startLightstreamer() {
     // Only subscribe to instruments with streamingPricesAvailable = true
     // FX mini contracts don't support streaming on live spread bet accounts
     const NON_STREAMING = ['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP'];
-    const epics = S.markets.map(m => m.epic).filter(e => !NON_STREAMING.includes(e));
-    console.log('[LS] Subscribing to', epics.length, 'streamable instruments:', epics);
+    const epics = S.markets
+      .filter(m => !NON_STREAMING.includes(m.epic))
+      .map(m => 'MARKET:' + m.epic);  // MARKET: prefix required for streaming
+    console.log('[LS] Subscribing to', epics.length, 'instruments with MARKET: prefix');
     const sub = new Subscription('MERGE', epics, ['BID', 'OFFER', 'CHANGE_PCT', 'MARKET_STATE']);
     
     sub.addListener({
       onItemUpdate: function(update) {
         window._tickCount = (window._tickCount||0) + 1;
-        const epic = update.getItemName();
+        const epic = update.getItemName().replace('MARKET:', '');
         const m = S.markets.find(x => x.epic === epic);
         if (!m) return;
 
