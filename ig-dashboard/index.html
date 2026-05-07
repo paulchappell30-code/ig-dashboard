@@ -3365,8 +3365,11 @@ function startLightstreamer() {
 
     // Subscribe to prices for each market
     // Live uses :1 (1 second), demo uses :5 (5 second merge interval)
-    // No suffix needed — plain epic for both live and demo
-    const epics = S.markets.map(m => m.epic);
+    // Only subscribe to instruments with streamingPricesAvailable = true
+    // FX mini contracts don't support streaming on live spread bet accounts
+    const NON_STREAMING = ['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP'];
+    const epics = S.markets.map(m => m.epic).filter(e => !NON_STREAMING.includes(e));
+    console.log('[LS] Subscribing to', epics.length, 'streamable instruments:', epics);
     const sub = new Subscription('MERGE', epics, ['BID', 'OFFER', 'CHANGE_PCT', 'MARKET_STATE']);
     
     sub.addListener({
