@@ -1033,7 +1033,19 @@ const S = {
 };
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
+let _lastLoginAttempt = 0;
+let _loginAttempts = 0;
+
 async function doLogin() {
+  // Rate limit login attempts - max 1 per 30 seconds
+  const now = Date.now();
+  if (now - _lastLoginAttempt < 30000 && _loginAttempts > 0) {
+    const wait = Math.round((30000 - (now - _lastLoginAttempt)) / 1000);
+    showLoginError(`Please wait ${wait}s before trying again`);
+    return;
+  }
+  _lastLoginAttempt = now;
+  _loginAttempts++;
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
   const env  = document.getElementById('login-env').value;
@@ -1077,7 +1089,8 @@ async function doLogin() {
       }
       addLog('system', 'Logged in — Account: ' + S.accountId + ' Balance: £' + (data.accountInfo && data.accountInfo.balance));
       try {
-        showApp();
+        _loginAttempts = 0;
+      showApp();
       } catch(showErr) {
         console.error('showApp error:', showErr.message, showErr.stack);
       }
