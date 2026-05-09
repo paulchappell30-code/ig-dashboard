@@ -50,7 +50,7 @@ body{
 }
 
 /* ═══ LAYOUT ══════════════════════════════════════════════════════════════════ */
-#app{display:none;flex-direction:column;height:100vh;overflow:hidden;min-height:0}
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
 
 /* Header */
 #header{
@@ -132,9 +132,9 @@ body{
 .live-item .chg.dn{color:var(--red)}
 
 /* Content */
-#content{flex:1;overflow-y:auto;padding:20px 20px 60px 20px;min-height:0}
+#content{flex:1;overflow-y:auto;padding:20px 20px 80px 20px;min-height:0;height:0}
 .tab-content{display:none;min-height:0}
-.tab-content.active{display:block;min-height:0}
+.tab-content.active{display:block}
 
 /* ═══ COMPONENTS ═════════════════════════════════════════════════════════════ */
 
@@ -1266,6 +1266,32 @@ async function loadAccount() {
     (document.getElementById('today-pl')||{}).textContent = (pl >= 0 ? '+' : '') + '£' + Number(pl).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
     (document.getElementById('today-pl')||{}).className = 'value ' + (pl >= 0 ? 'pos' : 'neg');
     addLog('system', 'Account loaded: ' + a.accountName + ' — Balance £' + bal + ', P&L £' + pl);
+
+    // Update new UI elements
+    const plPct = bal > 0 ? (pl / bal * 100) : 0;
+    const isPos = pl >= 0;
+
+    // Overview metrics
+    const mbal = document.getElementById('m-balance');
+    const mpnl = document.getElementById('m-pnl');
+    const mpnlpct = document.getElementById('m-pnl-pct');
+    const mavail = document.getElementById('m-available');
+    if (mbal) mbal.textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2});
+    if (mpnl) { mpnl.textContent = (isPos?'+':'') + '£' + Number(pl).toFixed(2); mpnl.className = 'value ' + (isPos?'pos':'neg'); }
+    if (mpnlpct) mpnlpct.textContent = (isPos?'+':'') + plPct.toFixed(2) + '% today';
+    if (mavail) mavail.textContent = 'Available: £' + Number(avail).toLocaleString('en-GB', {minimumFractionDigits:2});
+
+    // Header
+    const hbal = document.getElementById('header-balance');
+    const hpl = document.getElementById('header-pl');
+    if (hbal) hbal.textContent = '£' + Number(bal).toLocaleString('en-GB', {minimumFractionDigits:2,maximumFractionDigits:2});
+    if (hpl) { hpl.textContent = (isPos?'+':'') + '£' + Number(pl).toFixed(2); hpl.className = isPos ? 'pos' : 'neg'; }
+
+    // Auto-trade tab P&L
+    const atpl = document.getElementById('at-daily-pl');
+    const atpct = document.getElementById('at-daily-pct');
+    if (atpl) { atpl.textContent = (isPos?'+':'') + '£' + Number(pl).toFixed(2); atpl.className = 'value ' + (isPos?'pos':'neg'); }
+    if (atpct) { atpct.textContent = (isPos?'+':'') + plPct.toFixed(2) + '%'; atpct.className = 'value ' + (isPos?'pos':'neg'); }
   } catch(e) {
     addLog('system', 'Error loading account: ' + e.message);
   }
@@ -1468,46 +1494,38 @@ function renderLog(filter) {
 }
 
 async function renderPnLChart() {
-  // Try to load real 30-day price history for FTSE (primary instrument)
   try {
-    if (S.connected && S.cst) {
-      let pnlData;
-      try {
-        pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 10);
-      } catch(e) {
-        drawPnLLine([0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42]);
-        return;
-      }
-      const res = { ok: true };
-      const data = pnlData;
-      if (res.ok) {
-        const data = await res.json();
-        const prices = (pnlData.prices || []).map(p => p.closePrice && p.closePrice.bid || 0).filter(p => p > 0);
-        if (prices.length > 1) {
-          // Convert to cumulative % change from first price
-          const base = prices[0];
-          const pts = prices.map(p => ((p - base) / base) * 100);
-          if (!S.priceCache) S.priceCache = {};
-          S.priceCache['PNL_FTSE_30'] = { data: pts, ts: Date.now() };
-          drawPnLLine(pts);
-          return;
-        }
-      }
+    // Use real equity snapshots from DB
+    const res = await fetch('/api/db?action=equity&days=30');
+    const data = await res.json();
+    const snapshots = data.snapshots || [];
+    if (snapshots.length >= 2) {
+      const base = parseFloat(snapshots[0].balance);
+      const values = snapshots.map(s => parseFloat(s.balance) - base);
+      drawPnLLine(values);
+      const note = document.getElementById('pnl-chart-note');
+      const totalPnL = values[values.length-1];
+      if (note) note.textContent = (totalPnL >= 0 ? '+' : '') + '£' + totalPnL.toFixed(2) + ' over 30 days';
+      return;
     }
-  } catch(e) {}
-  // Fallback to dummy data
-  const pts = [0,2,-3,5,8,4,12,9,15,11,18,14,20,17,22,25,21,28,24,30,26,33,29,35,31,36,38,34,40,42];
-  drawPnLLine(pts);
+    // Fall back to FTSE price chart
+    const pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 10);
+    const prices = (pnlData?.prices || []).map(p => p.closePrice?.bid || 0).filter(p => p > 0);
+    if (prices.length > 1) {
+      const base = prices[0];
+      drawPnLLine(prices.map(p => ((p - base) / base) * 100));
+      const note = document.getElementById('pnl-chart-note');
+      if (note) note.textContent = 'FTSE 100 price movement (30d)';
+    } else {
+      drawPnLLine([0]);
+      const note = document.getElementById('pnl-chart-note');
+      if (note) note.textContent = 'Building equity history...';
+    }
+  } catch(e) {
+    drawPnLLine([0]);
+  }
 }
 
-function drawPnLLine(pts) {
-  const w=400, h=80, min=Math.min(...pts), max=Math.max(...pts), range=max-min||1;
-  const coords = pts.map((v,i)=>`${(i/(pts.length-1)*w).toFixed(1)},${(h-((v-min)/range*(h-8)+4)).toFixed(1)}`);
-  document.getElementById('pnl-line').setAttribute('points', coords.join(' '));
-  document.getElementById('pnl-fill').setAttribute('points', `0,${h} ${coords.join(' ')} ${w},${h}`);
-}
-
-// ─── ACTIONS ──────────────────────────────────────────────────────────────────
 
 async function runDCANow(id) {
   const d = S.dca.find(x => x.id === id);
