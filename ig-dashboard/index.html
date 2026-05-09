@@ -1100,6 +1100,10 @@ async function doLogin() {
       S.connected = true;
       S.igUser = user;
       S.igPass = pass;
+      // Clear historical blocked flag on every login (allowance may have reset)
+      sessionStorage.removeItem('ig_historical_blocked');
+      sessionStorage.removeItem('ig_blocked_time');
+      S.historicalBlocked = false;
       // Clear historical blocked flag if it's been more than 24 hours
       const blockedTime = sessionStorage.getItem('ig_blocked_time');
       if (blockedTime && Date.now() - parseInt(blockedTime) > 24*60*60*1000) {
