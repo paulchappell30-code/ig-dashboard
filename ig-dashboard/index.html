@@ -1,38 +1,3 @@
-<
-
-async function renderPnLChart() {
-  try {
-    // Use real equity snapshots from DB
-    const res = await fetch('/api/db?action=equity&days=30');
-    const data = await res.json();
-    const snapshots = data.snapshots || [];
-    if (snapshots.length >= 2) {
-      const base = parseFloat(snapshots[0].balance);
-      const values = snapshots.map(s => parseFloat(s.balance) - base);
-      drawPnLLine(values);
-      const note = document.getElementById('pnl-chart-note');
-      const totalPnL = values[values.length-1];
-      if (note) note.textContent = (totalPnL >= 0 ? '+' : '') + '£' + totalPnL.toFixed(2) + ' over 30 days';
-      return;
-    }
-    // Fall back to FTSE price chart
-    const pnlData = await fetchPricesWithCache('IX.D.FTSE.DAILY.IP', 'DAY', 10);
-    const prices = (pnlData?.prices || []).map(p => p.closePrice?.bid || 0).filter(p => p > 0);
-    if (prices.length > 1) {
-      const base = prices[0];
-      drawPnLLine(prices.map(p => ((p - base) / base) * 100));
-      const note = document.getElementById('pnl-chart-note');
-      if (note) note.textContent = 'FTSE 100 price movement (30d)';
-    } else {
-      drawPnLLine([0]);
-      const note = document.getElementById('pnl-chart-note');
-      if (note) note.textContent = 'Building equity history...';
-    }
-  } catch(e) {
-    drawPnLLine([0]);
-  }
-}
-
 !DOCTYPE html>
 <html lang="en">
 <head>
