@@ -177,7 +177,7 @@ module.exports = async (req,res) => {
             let sc = 0;
             if (rsi < 25) sc += 4; else if (rsi < 30) sc += 3; else if (rsi < 40) sc += 2;
             else if (rsi > 75) sc -= 4; else if (rsi > 70) sc -= 3; else if (rsi > 60) sc -= 2;
-            if (!isNaN(macd) && !isNaN(macdSig)) { if (macd > macdSig) sc += 2; else sc -= 2; }
+            if (macd !== null && macdSig !== null && !isNaN(macd) && !isNaN(macdSig) && isFinite(macd) && isFinite(macdSig)) { if (macd > macdSig) sc += 2; else sc -= 2; }
             // Multi-timeframe alignment bonus/penalty
             if (rsiDaily !== null) {
               const hourlyBull = rsi < 50; const dailyBull = rsiDaily < 50;
