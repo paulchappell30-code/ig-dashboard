@@ -1953,7 +1953,7 @@ async function loadChartData() {
 }
 
 function drawChart(candles) {
-  const canvas = document.getElementById('price-chart');
+  const canvas = document.getElementById('chart-canvas') || document.getElementById('chart-canvas') || document.getElementById('price-chart');
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.parentElement.getBoundingClientRect();
