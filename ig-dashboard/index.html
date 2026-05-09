@@ -132,7 +132,7 @@ body{
 .live-item .chg.dn{color:var(--red)}
 
 /* Content */
-#content{flex:1;overflow-y:auto;padding:20px;min-height:0}
+#content{flex:1;overflow-y:auto;padding:20px 20px 60px 20px;min-height:0}
 .tab-content{display:none;min-height:0}
 .tab-content.active{display:block;min-height:0}
 
@@ -163,7 +163,7 @@ body{
 .metric .value.gold{color:var(--gold)}
 
 /* Two column layout */
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:start}
 .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
 
 /* Tables */
@@ -417,6 +417,7 @@ code{
       </div>
       <div id="header-balance" style="font-family:var(--font-mono)">—</div>
       <div id="header-pl" class="neu" style="font-family:var(--font-mono)">—</div>
+      <button class="btn btn-sm" onclick="runHealthCheck()">🔍 Health Check</button>
       <button class="btn btn-sm" onclick="doLogout()" id="logout-btn">Sign Out</button>
     </div>
   </div>
@@ -802,7 +803,7 @@ code{
         <!-- Technical Signals -->
         <div class="card">
           <div class="card-title" style="margin-bottom:12px">Technical Signals</div>
-          <div id="tech-signals"><div class="empty loading">Load chart data first</div></div>
+          <div id="tech-signals" style="overflow:visible"><div class="empty loading">Load chart data first</div></div>
         </div>
         <!-- AI Score -->
         <div class="card">
@@ -987,6 +988,20 @@ code{
     </div>
 
   </div><!-- /content -->
+
+<!-- Health Check Modal -->
+<div id="health-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:520px;max-width:95vw;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700">System Health Check</div>
+      <button class="btn btn-sm" onclick="document.getElementById('health-modal').style.display='none'">✕ Close</button>
+    </div>
+    <div id="health-results">
+      <div class="empty loading">Running checks...</div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:var(--text3);text-align:center" id="health-time"></div>
+  </div>
+</div>
 </div><!-- /app -->
 
 <script src="lightstreamer.min.js"></script>
@@ -3160,6 +3175,104 @@ async function loadCalendarData() {
 }
 
 // Load calendar when switching to autotrade tab
+
+
+// ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+async function runHealthCheck() {
+  const modal = document.getElementById('health-modal');
+  const results = document.getElementById('health-results');
+  const timeEl = document.getElementById('health-time');
+  modal.style.display = 'flex';
+  results.innerHTML = '<div class="empty loading">Running checks...</div>';
+
+  const checks = [];
+  const add = (label, status, detail) => {
+    const icon = status === 'ok' ? '✅' : status === 'warn' ? '⚠️' : '❌';
+    const color = status === 'ok' ? 'var(--green)' : status === 'warn' ? 'var(--gold)' : 'var(--red)';
+    checks.push({ label, icon, color, detail });
+    results.innerHTML = checks.map(c => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span>${c.icon}</span>
+          <span style="font-weight:500">${c.label}</span>
+        </div>
+        <span style="font-size:12px;color:${c.color};font-family:var(--font-mono)">${c.detail}</span>
+      </div>`).join('');
+  };
+
+  // 1. IG Authentication
+  add('IG Authentication', S.connected ? 'ok' : 'fail', S.connected ? 'Connected' : 'Not connected');
+
+  // 2. Account balance
+  const bal = S.accountData?.balance?.balance;
+  add('Account Balance', bal ? 'ok' : 'warn', bal ? '£' + parseFloat(bal).toFixed(2) : 'No data');
+
+  // 3. Lightstreamer
+  const ftseEl = document.getElementById('ws-price-IX-D-FTSE-DAILY-IP');
+  const ftsePrice = ftseEl?.textContent;
+  add('Lightstreamer Prices', ftsePrice && ftsePrice !== '—' ? 'ok' : 'warn',
+    ftsePrice && ftsePrice !== '—' ? 'FTSE ' + ftsePrice : 'No ticks received');
+
+  // 4. Twelve Data FX prices
+  const gbpEl = document.getElementById('ws-price-CS-D-GBPUSD-MINI-IP');
+  const gbpPrice = gbpEl?.textContent;
+  add('Twelve Data FX', gbpPrice && gbpPrice !== '—' ? 'ok' : 'warn',
+    gbpPrice && gbpPrice !== '—' ? 'GBP/USD ' + gbpPrice : 'Not updating');
+
+  // 5. IG Historical Data
+  try {
+    const r = await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=1&pageSize=0', {headers:{'Version':'3'}});
+    add('IG Historical Data', r.status === 200 ? 'ok' : 'fail',
+      r.status === 200 ? 'Allowance available' : '403 — Allowance blocked');
+  } catch(e) { add('IG Historical Data', 'fail', e.message); }
+
+  // 6. Autotrade Engine
+  try {
+    const r = await fetch('/api/autotrade');
+    const d = await r.json();
+    add('Autotrade Engine', d.version ? 'ok' : 'fail',
+      d.version ? 'v' + d.version + ' | enabled: ' + d.cfg?.enabled : 'Error');
+  } catch(e) { add('Autotrade Engine', 'fail', e.message); }
+
+  // 7. Twelve Data Indicators
+  try {
+    const r = await fetch('/api/indicators?instrument=GBP%2FUSD&interval=1h');
+    const d = await r.json();
+    add('TD Indicators', d.rsi ? 'ok' : 'fail',
+      d.rsi ? 'RSI: ' + d.rsi.toFixed(1) + ' MACD: ' + (d.macd||0).toFixed(4) : d.error || 'No data');
+  } catch(e) { add('TD Indicators', 'fail', e.message); }
+
+  // 8. Database
+  try {
+    const r = await fetch('/api/db?action=stats');
+    const d = await r.json();
+    add('Database', d.error ? 'fail' : 'ok',
+      d.error ? d.error : d.totalTrades + ' trades | ' + (d.winRate||0) + '% WR');
+  } catch(e) { add('Database', 'fail', e.message); }
+
+  // 9. Economic Calendar
+  try {
+    const r = await fetch('/api/indicators?action=surprise');
+    const d = await r.json();
+    add('Economic Calendar', d.configured === false ? 'warn' : 'ok',
+      d.configured === false ? 'No Finnhub key' : d.eventsProcessed + ' events today');
+  } catch(e) { add('Economic Calendar', 'warn', 'Unavailable'); }
+
+  // 10. Price Collector (check DB has recent candles)
+  try {
+    const r = await fetch('/api/db?action=equity&days=1');
+    const d = await r.json();
+    const snapshots = d.snapshots?.length || 0;
+    add('Price Collector', snapshots > 0 ? 'ok' : 'warn',
+      snapshots > 0 ? snapshots + ' equity snapshots today' : 'No snapshots today');
+  } catch(e) { add('Price Collector', 'warn', 'Check cron job'); }
+
+  // 11. Cron job (check last engine run)
+  const cronOk = checks.find(c => c.label === 'Autotrade Engine')?.detail?.includes('enabled: true');
+  add('Cron Job', 'warn', 'Check cron-job.org manually');
+
+  timeEl.textContent = 'Health check completed at ' + new Date().toLocaleString('en-GB', {timeZone:'Europe/London'});
+}
 
 async function refreshAll() {
   addLog('system', 'Manual refresh triggered.');
