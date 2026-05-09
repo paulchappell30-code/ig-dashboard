@@ -2149,7 +2149,7 @@ async function loadSentiment() {
     };
     const sentimentId = sentimentMap[chartState.epic] || 'FTSE';
     const res = await igFetch('clientsentiment/' + sentimentId);
-    if (!res.ok) { renderSentimentFallback(); return; }
+    if (!res.ok) { const sg = document.getElementById('sentiment-grid'); if(sg) sg.innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment data unavailable</div>'; return; }
     const data = await res.json();
     const longPct  = data.longPositionPercentage  || 50;
     const shortPct = data.shortPositionPercentage || 50;
@@ -2175,7 +2175,7 @@ async function loadSentiment() {
         IG client sentiment is a contrarian indicator — when the majority of retail traders are long, institutional traders often position short.
       </div>`;
   } catch(e) {
-    renderSentimentFallback();
+    const _sg = document.getElementById('sentiment-grid'); if(_sg) _sg.innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment data unavailable</div>';
   }
 }
 
