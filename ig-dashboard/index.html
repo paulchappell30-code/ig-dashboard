@@ -3700,6 +3700,33 @@ setTimeout(() => {
     document.getElementById('pnl-line')?.setAttribute('points','4,40 300,40 596,40');
   }
 }
+  async function loadCalendarData() {
+  try {
+    const [upcomingRes, surpriseRes] = await Promise.all([
+      fetch('/api/indicators?action=upcoming'),
+      fetch('/api/indicators?action=surprise')
+    ]);
+    const [upcoming, surprise] = await Promise.all([upcomingRes.json(), surpriseRes.json()]);
+    const upcomingEl = document.getElementById('cal-upcoming');
+    if (upcomingEl) {
+      if (!upcoming.upcoming?.length) {
+        upcomingEl.innerHTML = '<div class="empty">No high-impact events in next 30 mins</div>';
+      } else {
+        upcomingEl.innerHTML = upcoming.upcoming.slice(0,5).map(e => `<div class="signal-item"><div><div style="font-weight:500;font-size:13px">${e.event}</div><div style="font-size:11px;color:var(--text2)">${e.country} · ${new Date(e.time).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} UTC · ${e.minutesUntil}m away</div></div><div style="text-align:right">${e.forecast!==null?`<div style="font-size:11px;color:var(--text2)">Fcst: ${e.forecast}</div>`:''}</div></div>`).join('');
+      }
+    }
+    const surprisesEl = document.getElementById('cal-surprises');
+    if (surprisesEl) {
+      const scores = surprise.surprises || {};
+      if (!Object.keys(scores).length) {
+        surprisesEl.innerHTML = '<div class="empty">No active surprise adjustments</div>';
+      } else {
+        surprisesEl.innerHTML = Object.entries(scores).map(([instr,score]) => `<div class="signal-item"><div style="font-weight:500">${instr}</div><div class="${score>0?'pos':'neg'}" style="font-family:var(--font-mono);font-weight:600">${score>0?'+':''}${score} pts</div></div>`).join('');
+      }
+    }
+  } catch(e) { console.warn('Calendar error:', e.message); }
+}
+loadCalendarData();
 </script>
 </body>
 </html>
