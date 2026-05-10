@@ -432,6 +432,7 @@ code{
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
+    <div class="nav-tab" onclick="switchTab('research',this)">🔬 Research</div>
   </div>
 
   <!-- Live price bar -->
@@ -986,6 +987,20 @@ code{
         <div id="activity-log" style="max-height:600px;overflow-y:auto"></div>
       </div>
     </div>
+    <!-- RESEARCH -->
+<div class="tab-content" id="tab-research">
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:600;margin-bottom:4px">AI Pattern Discovery</div>
+        <div style="font-size:12px;color:var(--text2)">Claude Sonnet analyses your trade history to find patterns and suggest strategy improvements. Requires 30+ closed trades.</div>
+      </div>
+      <button class="btn btn-primary" onclick="runResearch()">▶ Run Analysis</button>
+    </div>
+  </div>
+  <div id="research-status" style="margin-bottom:16px"></div>
+  <div id="research-results"></div>
+</div>
 
   </div><!-- /content -->
 
@@ -3727,6 +3742,76 @@ setTimeout(() => {
   } catch(e) { console.warn('Calendar error:', e.message); }
 }
 loadCalendarData();
+  async function runResearch() {
+  const statusEl = document.getElementById('research-status');
+  const resultsEl = document.getElementById('research-results');
+  if (statusEl) statusEl.innerHTML = '<div class="alert alert-info loading">Running AI analysis — this may take 30 seconds...</div>';
+  if (resultsEl) resultsEl.innerHTML = '';
+  try {
+    const res = await fetch('/api/research', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const data = await res.json();
+    if (data.action === 'insufficient_data') {
+      if (statusEl) statusEl.innerHTML = `<div class="alert alert-warn">⏳ Need ${data.tradesRequired} trades — currently have ${data.tradesAvailable}. Estimated ready: ${data.estimatedReadyDate}</div>`;
+      return;
+    }
+    if (statusEl) statusEl.innerHTML = `<div class="alert alert-success">✅ Analysis complete — ${data.findings?.patterns?.length||0} patterns found across ${data.tradesAnalysed} trades</div>`;
+    const f = data.findings || {};
+    if (resultsEl) resultsEl.innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Summary</div>
+        <div style="font-size:14px;line-height:1.7">${f.summary||'No summary'}</div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text2)">Confidence: ${f.confidence||'?'} | ${f.dataQuality||''}</div>
+      </div>
+      ${(f.patterns||[]).map(p=>`
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span class="badge ${p.reliable?'badge-buy':'badge-neutral'}">${p.reliable?'Reliable':'Tentative'}</span>
+            <span style="font-weight:600">${p.title}</span>
+            <span style="font-size:11px;color:var(--text2)">${p.sampleSize} trades</span>
+          </div>
+          <div style="font-size:13px;color:var(--text2)">${p.finding}</div>
+          ${p.winRateAffected?`<div style="font-size:12px;color:var(--green);margin-top:4px">${p.winRateAffected}</div>`:''}
+        </div>`).join('')}
+      ${(f.suggestions||[]).length?`
+        <div class="card">
+          <div class="card-title">Suggested Changes — Review & Approve</div>
+          ${f.suggestions.map((s,i)=>`
+            <div style="padding:12px 0;border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-weight:600">${s.title}</span>
+                <span class="badge ${s.riskLevel==='low'?'badge-buy':s.riskLevel==='high'?'badge-sell':'badge-neutral'}">${s.riskLevel} risk</span>
+              </div>
+              <div style="font-size:13px;color:var(--text2);margin-bottom:6px">${s.rationale}</div>
+              <div style="font-size:12px;font-family:var(--font-mono);color:var(--text1);margin-bottom:8px">
+                ${s.change}: ${s.currentValue} → <span style="color:var(--green)">${s.suggestedValue}</span>
+                ${s.expectedImprovement?` (+${s.expectedImprovement}% expected)`:''}
+              </div>
+              <button class="btn btn-sm ${s.approved?'btn-primary':''}" onclick="toggleApproval(this,${i})">
+                ${s.approved?'✅ Approved':'Approve'}
+              </button>
+            </div>`).join('')}
+          <button class="btn btn-primary" style="margin-top:12px" onclick="applyApproved(${JSON.stringify(f.suggestions).replace(/"/g,'&quot;')})">Apply Approved Changes</button>
+        </div>`:''}`; 
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<div class="alert alert-warn">Error: ${e.message}</div>`;
+  }
+}
+
+function toggleApproval(btn, idx) {
+  const approved = !btn.classList.contains('btn-primary');
+  btn.classList.toggle('btn-primary', approved);
+  btn.textContent = approved ? '✅ Approved' : 'Approve';
+}
+
+async function applyApproved(suggestions) {
+  const approvedBtns = document.querySelectorAll('#tab-research .btn-primary');
+  const approved = suggestions.map((s,i) => ({...s, approved: approvedBtns[i]?.classList.contains('btn-primary')}));
+  try {
+    const res = await fetch('/api/research?action=apply', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({suggestions:approved})});
+    const data = await res.json();
+    alert('Applied: ' + (data.applied||[]).join(', '));
+  } catch(e) { alert('Error: ' + e.message); }
+}
 </script>
 </body>
 </html>
