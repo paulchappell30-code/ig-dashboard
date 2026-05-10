@@ -3674,6 +3674,32 @@ setTimeout(() => {
   const su = document.getElementById('sig-url');
   if (su) su.textContent = window.location.origin + '/api/signal';
 }, 1000);
+  async function renderPnLChart() {
+  try {
+    const res = await fetch('/api/db?action=equity&days=30');
+    const data = await res.json();
+    const snapshots = data.snapshots || [];
+    if (snapshots.length >= 2) {
+      const base = parseFloat(snapshots[0].balance);
+      const values = snapshots.map(s => parseFloat(s.balance) - base);
+      const w=600,h=80,min=Math.min(...values),max=Math.max(...values),range=max-min||1;
+      const coords=values.map((v,i)=>((i/(values.length-1))*(w-8)+4).toFixed(1)+','+(h-4-((v-min)/range*(h-8))).toFixed(1));
+      document.getElementById('pnl-line')?.setAttribute('points',coords.join(' '));
+      document.getElementById('pnl-fill')?.setAttribute('points','4,'+h+' '+coords.join(' ')+' '+(w-4)+','+h);
+      const note=document.getElementById('pnl-chart-note');
+      const totalPnL=values[values.length-1];
+      if(note) note.textContent=(totalPnL>=0?'+':'')+'£'+totalPnL.toFixed(2)+' over 30 days';
+      return;
+    }
+    const pts=[0,0,0];
+    const w=600,h=80;
+    document.getElementById('pnl-line')?.setAttribute('points','4,40 300,40 596,40');
+    const note=document.getElementById('pnl-chart-note');
+    if(note) note.textContent='Building equity history — '+snapshots.length+' snapshots so far';
+  } catch(e) {
+    document.getElementById('pnl-line')?.setAttribute('points','4,40 300,40 596,40');
+  }
+}
 </script>
 </body>
 </html>
