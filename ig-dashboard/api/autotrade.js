@@ -391,7 +391,27 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
       if(Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
 
-      const dir=total>0?'BUY':'SELL';
+      // Mean reversion override for ranging regime
+      const rsiForMR=calcRSI(closes);
+      let meanReversion=false;
+      let dir=total>0?'BUY':'SELL';
+      if(regime==='ranging'){
+        if(rsiForMR>=68){
+          // Overbought in ranging — mean reversion SELL
+          dir='SELL';
+          meanReversion=true;
+          L(`${instr}: mean reversion SELL (RSI:${rsiForMR.toFixed(1)} overbought in ranging)`);
+        } else if(rsiForMR<=32){
+          // Oversold in ranging — mean reversion BUY
+          dir='BUY';
+          meanReversion=true;
+          L(`${instr}: mean reversion BUY (RSI:${rsiForMR.toFixed(1)} oversold in ranging)`);
+        } else if(Math.abs(total)<3){
+          // Ranging + weak signal + neutral RSI = skip
+          L(`${instr}: ranging regime + neutral RSI (${rsiForMR.toFixed(1)}) + weak signal — skip`);
+          continue;
+        }
+      }
       const atr=calcATR(closes);
       const sz=cfg.useKellyCriterion?kellySize(winRate,balance,atr,closes[closes.length-1],cfg):cfg.defaultSize;
       const rsi=calcRSI(closes);const sma20=calcSMA(closes,20);const sma50=calcSMA(closes,50);
@@ -408,7 +428,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         sentAdj!==0?`Sentiment:${sentAdj>0?'+':''}${sentAdj}`:'',
       ].filter(Boolean);
 
-      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,
+      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
         reasons,rsi,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
         atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
       if(grp)occupied.add(grp);
@@ -700,14 +720,20 @@ async function managePositions(positions,igBase,igH,cfg,balance,L){
 // ── AI CONFIRMATION ───────────────────────────────────────────────────────────
 async function aiConfirm(sig,cfg,plPct,openCount,winRate,L){
   L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
-  const prompt=`Trading risk manager. Approve this trade?
-INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}
+  const regimeContext = sig.meanReversion
+  ? `MEAN REVERSION trade: RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥68)':'oversold (≤32)'} in ranging market — fading the extreme. Evaluate if RSI extreme is genuine and if there is support/resistance to trade back to.`
+  : sig.regime==='ranging'
+  ? `RANGING regime: Only approve if RSI is clearly extended (>65 or <35) OR score is very strong (≥4). Neutral momentum trades in ranging markets have poor expectancy.`
+  : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
+
+const prompt=`Trading risk manager. Approve this spread bet?
+INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}${sig.meanReversion?' [MEAN REVERSION]':''}
 SCORE:${sig.score}(raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj})
 RSI:${sig.rsi.toFixed(1)} SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(2)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
 WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
-Is this aligned with the ${sig.regime} regime? Does news/sentiment support it?
+CONTEXT: ${regimeContext}
 Respond ONLY: {"approved":true,"confidence":75,"reasoning":"2 sentences","risk":"main risk"}`;
   const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY||'','anthropic-version':'2023-06-01'},
