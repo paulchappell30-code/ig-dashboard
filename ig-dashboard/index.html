@@ -1874,7 +1874,18 @@ const PRICE_CACHE_TTL = {
   WEEK:   24 * 60 * 60 * 1000  // 24 hours for weekly
 };
 
-async function fetchPricesWithCache(epic, resolution, count) {
+async function fetchPricesWithCache(epic, resolution, count) {// Try DB first — avoids IG historical data allowance limit
+  try {
+    const dbRes = await fetch(`/api/prices?epic=${encodeURIComponent(epic)}&resolution=${resolution}&limit=${count}`);
+    const dbData = await dbRes.json();
+    if (dbData.candles && dbData.candles.length >= 5) {
+      return { prices: dbData.candles.map(c => ({
+        snapshotTime: (c.candle_time||'').replace('T',' ').replace('.000Z',''),
+        openPrice:{bid:parseFloat(c.open_price)}, highPrice:{bid:parseFloat(c.high_price)},
+        lowPrice:{bid:parseFloat(c.low_price)}, closePrice:{bid:parseFloat(c.close_price)}
+      }))};
+    }
+  } catch(e) { console.warn('[DB]',e.message); }
   // Check sessionStorage so blocked flag persists across re-logins
   if (S.historicalBlocked || sessionStorage.getItem('ig_historical_blocked') === 'true') {
     S.historicalBlocked = true;
