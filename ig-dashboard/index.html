@@ -1830,12 +1830,15 @@ async function selectChartInstrument(name, epic, btn) {
   document.querySelectorAll('[id^="chart-btn-"]').forEach(b => {
     b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
   });
-  btn.style.background = 'var(--blue)';
-  btn.style.color = '#fff';
-  btn.style.borderColor = 'var(--blue)';
+  if (btn) {
+    btn.style.background = 'var(--blue)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--blue)';
+  }
   chartState.name = name;
   chartState.epic = epic;
-  const _ct = document.getElementById('chart-title') || document.getElementById('chart-price'); if(_ct) _ct.textContent = name;
+  const _ct = document.getElementById('chart-title') || document.getElementById('chart-price');
+  if (_ct) _ct.textContent = name;
   await loadChartData();
 }
 
