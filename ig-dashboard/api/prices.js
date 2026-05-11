@@ -118,7 +118,7 @@ module.exports = async (req, res) => {
   for (const [name, epic] of Object.entries(INSTRUMENTS)) {
     try {
       // Fetch last 10 daily candles (conservative to preserve allowance)
-      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=10&pageSize=0`, {
+      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=30&pageSize=0`, {
         headers: { ...igHeaders, 'Version': '3' }
       });
 
