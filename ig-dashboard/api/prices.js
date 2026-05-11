@@ -145,9 +145,20 @@ module.exports = async (req, res) => {
           const closePrice = candle.closePrice?.bid || candle.closePrice?.mid || 0;
           if (!closePrice) continue;
 
-          // Parse IG date format: "2026/05/05 00:00:00"
+          // Parse IG date formats: "2026/05/05 00:00:00" or "05-05-2026T00:00:00"
           const rawTime = candle.snapshotTime;
-          const parsedTime = rawTime ? rawTime.replace(/(\d{2})[\/-](\d{2})[\/-](\d{4})/, '$3-$2-$1').replace(' ', 'T') : null;
+          let parsedTime = null;
+          if (rawTime) {
+            // Format 1: YYYY/MM/DD HH:MM:SS
+            if (/^\d{4}\/\d{2}\/\d{2}/.test(rawTime)) {
+              parsedTime = rawTime.replace('/', '-').replace('/', '-').replace(' ', 'T');
+            }
+            // Format 2: DD-MM-YYYY or DD/MM/YYYY
+            else if (/^\d{2}[\/-]\d{2}[\/-]\d{4}/.test(rawTime)) {
+              const m = rawTime.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
+              if (m) parsedTime = m[3] + '-' + m[2] + '-' + m[1] + 'T00:00:00';
+            }
+          }
           if (!parsedTime) continue;
 
           await sql`
