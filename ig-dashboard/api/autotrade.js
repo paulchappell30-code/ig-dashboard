@@ -429,7 +429,12 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     }
     if(!approved){L(`${sig.instr}: AI rejected (${confidence}%)`);continue;}
 
-    const sz=Math.max(1,Math.min(sig.suggestedSize,cfg.maxSizePerTrade));
+    // Size using 1% risk / stop distance (min £0.01/pt)
+    const stopPts = Math.max(5, (sig.atr||0) * 1.5);
+    const riskAmt = balance * 0.01;
+    const kellySz = parseFloat((riskAmt / stopPts).toFixed(2));
+    const sz = Math.max(0.01, Math.min(kellySz, cfg.maxSizePerTrade));
+    L(`${sig.instr}: size £${sz}/pt (risk £${riskAmt.toFixed(2)} / ${stopPts.toFixed(0)}pt stop)`);
 
     // Margin check — verify account has sufficient funds before placing
     try {
