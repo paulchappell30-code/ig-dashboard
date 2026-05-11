@@ -560,8 +560,9 @@ code{
               <input type="number" id="at-max-pos" value="3" min="1" max="10">
             </div>
             <div class="form-row">
-              <label>Trade Size (units)</label>
-              <input type="number" id="at-size" value="1" min="1" max="10">
+              <label>Max Size (£/point)</label>
+<input type="number" id="at-size" value="5" min="0.01" max="10" step="0.01">
+<div style="font-size:11px;color:var(--text2);margin-top:3px">Actual size calculated from 1% risk / ATR stop. This is the cap.</div>
             </div>
           </div>
 
