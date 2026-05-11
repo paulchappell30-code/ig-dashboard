@@ -147,7 +147,7 @@ module.exports = async (req, res) => {
 
           // Parse IG date format: "2026/05/05 00:00:00"
           const rawTime = candle.snapshotTime;
-          const parsedTime = rawTime ? rawTime.replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$2-$1').replace(' ', 'T') : null;
+          const parsedTime = rawTime ? rawTime.replace(/(\d{2})[\/-](\d{2})[\/-](\d{4})/, '$3-$2-$1').replace(' ', 'T') : null;
           if (!parsedTime) continue;
 
           await sql`
