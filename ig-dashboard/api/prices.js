@@ -117,8 +117,20 @@ module.exports = async (req, res) => {
 
   for (const [name, epic] of Object.entries(INSTRUMENTS)) {
     try {
+      // Skip if we already have today's candle — avoids burning IG allowance
+      const today = new Date().toISOString().split('T')[0];
+      const existsRes = await sql`
+        SELECT 1 FROM price_history
+        WHERE epic = ${epic} AND resolution = 'DAY'
+        AND DATE(candle_time) = ${today}
+        LIMIT 1
+      `;
+      if (existsRes.rows.length > 0) {
+        log.push(name + ': today candle already stored — skip');
+        continue;
+      }
       // Fetch last 10 daily candles (conservative to preserve allowance)
-      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=30&pageSize=0`, {
+      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=10&pageSize=0`, {
         headers: { ...igHeaders, 'Version': '3' }
       });
 
