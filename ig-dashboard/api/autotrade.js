@@ -187,7 +187,7 @@ module.exports = async (req,res) => {
             newTdSignals[instr] = { score: sc, rsi, macd, macdCrossover: macd > macdSig ? 'bullish' : 'bearish' };
             L(`TD ${instr}: RSI=${rsi?.toFixed(1)} MACD=${macd?.toFixed(4)} score=${sc}`);
             tdLoaded++;
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 8000)); // 8s delay = stay under 8 calls/min
           } catch(e) { L(`TD ${instr}: ${e.message.replace(TD_KEY,'***')}`); }
         }
         if (!globalThis._tdCache) globalThis._tdCache = {};
