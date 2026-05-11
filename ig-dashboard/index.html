@@ -1034,26 +1034,14 @@ const S = {
   xst: null,
   apiKey: null,
   positions: [],
-  dca: [
-    { id:1, instr:'FTSE 100', amt:'£250', freq:'Monthly', next:'24 Mar 2026', status:'active' },
-    { id:2, instr:'S&P 500', amt:'£200', freq:'Monthly', next:'24 Mar 2026', status:'active' },
-    { id:3, instr:'Dow Jones', amt:'£100', freq:'Weekly', next:'18 Mar 2026', status:'active' },
-    { id:4, instr:'DAX 40', amt:'£150', freq:'Monthly', next:'24 Mar 2026', status:'paused' },
-  ],
+  dca: [],
   dcaPerf: [
     { instr:'FTSE 100', invested:'£3,000', current:'£3,420', ret:'+14.0%' },
     { instr:'S&P 500', invested:'£2,400', current:'£2,860', ret:'+19.2%' },
     { instr:'Dow Jones', invested:'£1,200', current:'£1,340', ret:'+11.7%' },
     { instr:'DAX 40', invested:'£1,800', current:'£1,950', ret:'+8.3%' },
   ],
-  rules: [
-    { id:1, name:'Gold RSI Oversold', desc:'Gold RSI < 30 → Buy £500 market', active:true, fired:3 },
-    { id:2, name:'FTSE Stop Loss', desc:'FTSE 100 drops >2% → Sell £2,000', active:true, fired:1 },
-    { id:3, name:'S&P SMA Cross', desc:'S&P 500 SMA50 crosses above SMA200 → Buy £1,000', active:true, fired:0 },
-    { id:4, name:'DAX Momentum', desc:'DAX price change >1.5% → Buy £500 limit', active:true, fired:2 },
-    { id:5, name:'Oil Bollinger', desc:'Crude Oil below lower Bollinger Band → Buy £300', active:false, fired:0 },
-    { id:6, name:'Apple MACD', desc:'Apple MACD crossover → Buy £200 market', active:false, fired:1 },
-  ],
+  rules: [],
   alloc: [
     { name:'Indices', pct:55, color:'#0072CE' },
     { name:'Commodities', pct:25, color:'#EF9F27' },
@@ -3509,6 +3497,7 @@ function switchTab(id, el) {
   el.classList.add('active');
   // Auto-load chart data when switching to charts tab (only if no cached data)
   if (id === 'journal') { loadJournal(); }
+  if (id === 'autotrade') { loadCalendarData(); checkAutoTradeStatus(); }
   if (id === 'log') { renderLog(); }
   if (id === 'charts' && S.connected) {
     const cacheKey = chartState.epic + '_' + chartState.resolution + '_' + chartState.count;
