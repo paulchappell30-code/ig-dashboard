@@ -223,7 +223,7 @@ async function runWeeklyPriceAnalysis(base, anthropicKey) {
       { name: 'DAX 40',      epic: 'IX.D.DAX.DAILY.IP' },
       { name: 'Brent Oil',   epic: 'CC.D.LCO.USS.IP' },
       { name: 'Gold',        epic: 'CS.D.USCGC.TODAY.IP' },
-      { name: 'Silver',      epic: 'CS.D.USCSC.TODAY.IP' },
+      { name: 'Silver',      epic: 'CS.D.USCSI.TODAY.IP' },
       { name: 'GBP/USD',     epic: 'CS.D.GBPUSD.MINI.IP' },
       { name: 'EUR/USD',     epic: 'CS.D.EURUSD.MINI.IP' },
       { name: 'Copper',      epic: 'CS.D.COPPER.TODAY.IP' },
