@@ -20,6 +20,10 @@ const INSTRUMENTS = {
   'Silver':    'CS.D.USCSC.TODAY.IP',
   'Copper':     'CS.D.COPPER.TODAY.IP',
   'EUR/GBP':   'CS.D.EURGBP.MINI.IP',
+  'CAC 40':    'IX.D.CAC.DAILY.IP',
+  'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
+  'Nasdaq':    'IX.D.NASDAQ.CASH.IP',
+  'Gold':      'CS.D.USCGC.TODAY.IP',
 };
 
 module.exports = async (req, res) => {
