@@ -17,6 +17,9 @@ const INSTRUMENTS = {
   'GBP/USD':   'CS.D.GBPUSD.MINI.IP',
   'EUR/USD':   'CS.D.EURUSD.MINI.IP',
   'USD/JPY':   'CS.D.USDJPY.MINI.IP',
+  'Silver':    'CS.D.USCSC.TODAY.IP',
+  'Copper':     'CS.D.COPPER.TODAY.IP',
+  'EUR/GBP':   'CS.D.EURGBP.MINI.IP',
 };
 
 module.exports = async (req, res) => {
