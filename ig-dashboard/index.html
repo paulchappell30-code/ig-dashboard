@@ -1069,7 +1069,7 @@ function startLightstreamer(){
       onServerError:function(code,msg){addLog('system','LS error: '+msg);}
     });
     lsClient.connect();
-    const NON_STREAM=['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP','CS.D.EURGBP.MINI.IP'];
+    const NON_STREAM=['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP','CS.D.EURGBP.MINI.IP','CS.D.USCSC.TODAY.IP'];
     const epics=S.markets.filter(m=>!NON_STREAM.includes(m.epic)).map(m=>'MARKET:'+m.epic);
     console.log('[LS] Subscribing to',epics.length,'instruments');
     // Subscribe individually so a bad epic doesn't kill the whole batch
