@@ -1072,8 +1072,11 @@ function startLightstreamer(){
     const NON_STREAM=['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP','CS.D.EURGBP.MINI.IP'];
     const epics=S.markets.filter(m=>!NON_STREAM.includes(m.epic)).map(m=>'MARKET:'+m.epic);
     console.log('[LS] Subscribing to',epics.length,'instruments');
-    const sub=new Subscription('MERGE',epics,['BID','OFFER','CHANGE_PCT','MARKET_STATE']);
-    sub.addListener({onItemUpdate:function(update){
+    window._lsSub=new Subscription('MERGE',epics,['BID','OFFER','CHANGE','CHANGE_PCT','UPDATE_TIME','MARKET_STATE']);
+    window._lsSub.addListener({
+      onSubscription:function(){console.log('[LS] Subscription confirmed — ticks incoming');addLog('system','Lightstreamer subscription active');},
+      onSubscriptionError:function(code,msg){console.error('[LS] Subscription ERROR:',code,msg);addLog('system','LS subscription error: '+msg);},
+      onItemUpdate:function(update){
       window._tickCount=(window._tickCount||0)+1;
       const epic=update.getItemName().replace('MARKET:','');
       const m=S.markets.find(x=>x.epic===epic);if(!m)return;
@@ -1091,8 +1094,8 @@ function startLightstreamer(){
         if(document.getElementById('tab-overview')?.classList.contains('active'))renderPositions();
       }
     }});
-    lsClient.subscribe(sub);
-    addLog('system','Lightstreamer subscription started for '+S.markets.length+' instruments.');
+    lsClient.subscribe(window._lsSub);
+    addLog('system','Lightstreamer subscribing to '+epics.length+' instruments...');
   }catch(e){console.error('[LS]',e.message);addLog('system','Lightstreamer unavailable.');}
 }
 
