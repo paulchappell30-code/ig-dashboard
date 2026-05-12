@@ -747,9 +747,9 @@ async function managePositions(positions,igBase,igH,cfg,balance,L){
 async function aiConfirm(sig,cfg,plPct,openCount,winRate,L){
   L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
   const regimeContext = sig.meanReversion
-  ? `MEAN REVERSION trade: RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥68)':'oversold (≤32)'} in ranging market — fading the extreme. Evaluate if RSI extreme is genuine and if there is support/resistance to trade back to.`
+  ? `MEAN REVERSION trade: RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥68)':'oversold (≤32)'} in ranging market — fading the RSI extreme. RSI ≥68 or ≤32 in a ranging regime IS the primary signal. APPROVE if score ≥3 and momentum does not strongly contradict. The RSI extreme alone justifies the trade — do not require additional confirmation beyond score threshold.`
   : sig.regime==='ranging'
-  ? `RANGING regime: Only approve if (1) RSI is clearly extended (≥68 or ≤32) AND score ≥4, OR (2) score ≥6 with strong directional momentum. Neutral RSI trades in ranging markets have poor expectancy — reject these.`
+  ? `RANGING regime (non-mean-reversion): Only approve if score ≥6 AND RSI is extended (≥65 or ≤35) AND momentum confirms direction. Calendar surprise scores alone do not justify a trade without RSI confirmation. Reject neutral RSI trades.`
   : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
 
 const prompt=`Trading risk manager. Approve this spread bet?
