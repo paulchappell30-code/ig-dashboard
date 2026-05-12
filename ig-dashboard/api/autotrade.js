@@ -18,7 +18,7 @@ const EPIC_MAP = {
   'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
   'Nasdaq':'IX.D.NASDAQ.CASH.IP',
   'Gold':'CS.D.USCGC.TODAY.IP',
-  'Silver':'CS.D.USCSC.TODAY.IP',
+  'Silver':'CS.D.USCSI.TODAY.IP',
   'Copper':'CS.D.COPPER.TODAY.IP',
   'EUR/GBP':'CS.D.EURGBP.MINI.IP',
 };
@@ -30,7 +30,7 @@ const CORRELATION_GROUPS = {
   'IX.D.NIKKEI.DAILY.IP':'indices',
   'IX.D.NASDAQ.CASH.IP':'indices',
   'CC.D.LCO.USS.IP':'commodities',
-  'CS.D.USCSC.TODAY.IP':'commodities',
+  'CS.D.USCSI.TODAY.IP':'commodities',
   'CS.D.COPPER.TODAY.IP':'commodities',
   'CS.D.EURGBP.MINI.IP':'fx',
   'CS.D.USCGC.TODAY.IP':'commodities',
@@ -637,7 +637,7 @@ async function getIGSentiment(epic,igBase,igH,L,base,instrName){
     'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX',
     'IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.MINI.IP':'GBPUSD',
     'CS.D.EURUSD.MINI.IP':'EURUSD','CS.D.USDJPY.MINI.IP':'USDJPY',
-    'CS.D.USCGC.TODAY.IP':'GOLD','CS.D.USCSC.TODAY.IP':'SILVER',
+    'CS.D.USCGC.TODAY.IP':'GOLD','CS.D.USCSI.TODAY.IP':'SILVER',
     'CS.D.COPPER.TODAY.IP':'COPPER','CS.D.EURGBP.MINI.IP':'EURGBP',
   };
   const id=ids[epic];if(!id)return 0;
