@@ -150,7 +150,8 @@ module.exports = async (req,res) => {
       // Check DB cache first — persists across serverless invocations
       let tdCacheHit = false;
       try {
-        const tdCacheRow = await sql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
+        const {sql:tdSql} = require('@vercel/postgres');
+        const tdCacheRow = await tdSql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
         if (tdCacheRow.rows.length > 0) {
           const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
           if (age < TD_CACHE_TTL) {
@@ -208,8 +209,9 @@ module.exports = async (req,res) => {
         }
         // Save to DB cache — persists across serverless invocations
         try {
-          await sql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_cache', ${JSON.stringify(newTdSignals)}, NOW())`;
-          await sql`DELETE FROM engine_events WHERE event_type = 'td_cache' AND created_at < NOW() - INTERVAL '2 hours'`;
+          const {sql:tdSaveSql} = require('@vercel/postgres');
+          await tdSaveSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_cache', ${JSON.stringify(newTdSignals)}, NOW())`;
+          await tdSaveSql`DELETE FROM engine_events WHERE event_type = 'td_cache' AND created_at < NOW() - INTERVAL '2 hours'`;
         } catch(e) { /* non-fatal */ }
         tdSignals = newTdSignals;
         if(tdLoaded===0 && tdSignals && Object.keys(tdSignals).length>0){
@@ -249,8 +251,9 @@ module.exports = async (req,res) => {
     L(`PROFIT LOCK ACTIVE (${plPct.toFixed(2)}%) — continuing with reduced risk (0.5%)`);
     // Only send email once per day
     try {
+      const {sql:plSql} = require('@vercel/postgres');
       const todayStr = new Date().toISOString().split('T')[0];
-      const alreadyNotified = await sql`
+      const alreadyNotified = await plSql`
         SELECT 1 FROM engine_events
         WHERE event_type = 'profit_lock_notified'
         AND created_at::date = ${todayStr}::date
@@ -258,7 +261,7 @@ module.exports = async (req,res) => {
       `;
       if (alreadyNotified.rows.length === 0) {
         await sendNotify('dca','✅ Daily Profit Locked',`P&L: +${plPct.toFixed(2)}%\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
-        await sql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('profit_lock_notified', ${plPct.toFixed(2)}, NOW())`;
+        await plSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('profit_lock_notified', ${plPct.toFixed(2)}, NOW())`;
         L('Profit lock email sent');
       } else {
         L('Profit lock email already sent today — skipping');
