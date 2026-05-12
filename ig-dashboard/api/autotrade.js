@@ -243,10 +243,27 @@ module.exports = async (req,res) => {
     await sendNotify('error','🛑 Daily Loss Limit Hit',`P&L: ${plPct.toFixed(2)}%\nClosed: ${closed} positions\nBalance: £${balance}`);
     return res.status(200).json({action:'loss_limit_hit',closed,log});
   }
+  let profitLockActive = false;
   if(plPct>=cfg.dailyProfitLock){
-    L(`PROFIT LOCK HIT (${plPct.toFixed(2)}%)`);
-    await sendNotify('dca','✅ Daily Profit Locked',`P&L: +${plPct.toFixed(2)}%\nTarget: +${cfg.dailyProfitLock}%`);
-    return res.status(200).json({action:'profit_lock_hit',log});
+    profitLockActive = true;
+    L(`PROFIT LOCK ACTIVE (${plPct.toFixed(2)}%) — continuing with reduced risk (0.5%)`);
+    // Only send email once per day
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const alreadyNotified = await sql`
+        SELECT 1 FROM engine_events
+        WHERE event_type = 'profit_lock_notified'
+        AND created_at::date = ${todayStr}::date
+        LIMIT 1
+      `;
+      if (alreadyNotified.rows.length === 0) {
+        await sendNotify('dca','✅ Daily Profit Locked',`P&L: +${plPct.toFixed(2)}%\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
+        await sql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('profit_lock_notified', ${plPct.toFixed(2)}, NOW())`;
+        L('Profit lock email sent');
+      } else {
+        L('Profit lock email already sent today — skipping');
+      }
+    } catch(e) { L('Profit lock notify error: '+e.message); }
   }
 
   // Positions + portfolio heat
@@ -529,7 +546,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
     // This ensures size × stopDist always = 1% of account regardless of instrument
     const tradeStopDist = sig.atr > 0 ? Math.max(10, Math.round(sig.atr * 1.5)) : 20;
-    const tradeRiskAmt = balance * 0.01;
+    const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01); // Half risk when profit locked
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
     const actualRisk = (finalSz * tradeStopDist).toFixed(2);
