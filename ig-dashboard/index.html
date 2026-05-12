@@ -1124,6 +1124,33 @@ async function fetchTdPrices(){
     S.markets.forEach(m=>{const sym=TD_PRICE_MAP[m.epic];if(!sym||!data.prices[sym])return;const price=parseFloat(data.prices[sym]);if(isNaN(price))return;m.price=price>999?Math.round(price).toLocaleString('en-GB'):price.toFixed(price>10?2:4);const eid=m.epic.replace(/\./g,'-');const pe=document.getElementById('ws-price-'+eid);const lp=document.getElementById('lb-price-'+eid);if(pe)pe.textContent=m.price;if(lp)lp.textContent=m.price;});
     console.log('[TD Prices] Updated',Object.keys(data.prices).length,'prices');
   }catch(e){console.warn('[TD Prices]',e.message);}
+  // Silver not on TD free tier — fetch from IG market snapshot (no historical allowance used)
+  try{
+    if(S.connected&&S.cst){
+      const sr=await igFetch('markets/CS.D.USCSC.TODAY.IP');
+      if(sr.ok){
+        const sd=await sr.json();
+        const bid=sd.snapshot?.bid;
+        if(bid){
+          const m=S.markets.find(x=>x.epic==='CS.D.USCSC.TODAY.IP');
+          if(m){
+            const pct=sd.snapshot?.percentageChange||0;
+            m.price=bid>999?Math.round(bid).toLocaleString('en-GB'):bid.toFixed(2);
+            m.change=(pct>=0?'+':'')+Number(pct).toFixed(2)+'%';
+            m.pos=pct>=0;
+            const eid='CS-D-USCSC-TODAY-IP';
+            const pe=document.getElementById('ws-price-'+eid);const ce=document.getElementById('ws-chg-'+eid);
+            const lp=document.getElementById('lb-price-'+eid);const lc=document.getElementById('lb-chg-'+eid);
+            if(pe)pe.textContent=m.price;
+            if(ce){ce.textContent=m.change;ce.className='w-chg '+(m.pos?'up':'dn');}
+            if(lp)lp.textContent=m.price;
+            if(lc){lc.textContent=m.change;lc.className='chg '+(m.pos?'up':'dn');}
+            console.log('[Silver] IG snapshot:',m.price);
+          }
+        }
+      }
+    }
+  }catch(e){console.warn('[Silver]',e.message);}
 }
 
 // ─── INIT ──────────────────────────────────────────────────────────────────────
