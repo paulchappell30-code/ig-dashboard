@@ -739,12 +739,13 @@ async function managePositions(positions,igBase,igH,cfg,balance,L){
       const atr = candles.length>=5 ? calcATR(candles) : 50;
 
       // Partial close: if profit >= 1x ATR, close 50% and let rest run
-      if(upl > 0 && sz > 1) {
+      // Works with any size including fractional £/point spread bets
+      if(upl > 0 && sz >= 0.01) {
         const atrProfit = atr * sz;
         if(upl >= atrProfit && !p.position.partialClosed) {
-          const halfSize = Math.floor(sz / 2);
-          if(halfSize >= 1) {
-            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close ${halfSize} units`);
+          const halfSize = parseFloat((sz / 2).toFixed(2));
+          if(halfSize >= 0.01) {
+            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close £${halfSize}/pt`);
             try {
               const closeBody = {epic,direction:dir==='BUY'?'SELL':'BUY',size:halfSize,
                 orderType:'MARKET',expiry:'DFB',guaranteedStop:false,forceOpen:false,
