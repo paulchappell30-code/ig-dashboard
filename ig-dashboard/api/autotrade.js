@@ -437,15 +437,24 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
         reasons,rsi,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
         atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
-      if(grp)occupied.add(grp);
+      // Note: group only marked occupied on open position, not on signal
     }catch(e){L(`${instr}: ${e.message}`);}
   }
 
   if(!signals.length){L('No signals');return res.status(200).json({action:'no_signals',log});}
   signals.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
-  L(`${signals.length} signal(s)`);
 
-  for(const sig of signals.slice(0,2)){
+  // Keep only the best signal per correlation group to prevent correlated trades
+  const seenGroups=new Set();
+  const filteredSignals=signals.filter(sig=>{
+    const grp=CORRELATION_GROUPS[sig.epic];
+    if(!grp){return true;} // no group — always include
+    if(seenGroups.has(grp))return false;
+    seenGroups.add(grp);return true;
+  });
+  L(`${signals.length} signal(s) — ${filteredSignals.length} after group filter`);
+
+  for(const sig of filteredSignals.slice(0,3)){
     let approved=!cfg.requireAIConfirm,confidence=100,reasoning='AI not required';
     if(cfg.requireAIConfirm){
       try{
