@@ -15,6 +15,131 @@ module.exports = async (req, res) => {
   return await sendWeeklyReview(req, res);
 };
 
+
+// ─── POSITION SIZING ANALYSIS ────────────────────────────────────────────────
+async function analysePositionSizing(trades, anthropicKey) {
+  if (!trades || trades.length < 3) return null;
+
+  // Only analyse closed trades with complete data
+  const closed = trades.filter(t =>
+    t.status === 'closed' &&
+    t.profit_loss != null &&
+    t.size != null &&
+    t.open_level != null &&
+    t.close_level != null
+  );
+  if (closed.length < 3) return null;
+
+  // Calculate stop distance from actual trade data
+  // stop_distance = |close_level - open_level| for stopped-out trades
+  // or infer from size and max_loss if available
+  const tradeStats = closed.map(t => {
+    const pnl = parseFloat(t.profit_loss);
+    const size = parseFloat(t.size);
+    const openLevel = parseFloat(t.open_level);
+    const closeLevel = parseFloat(t.close_level);
+    const priceDist = Math.abs(closeLevel - openLevel);
+    const pnlPerPoint = size > 0 ? Math.abs(pnl / priceDist) : size;
+    const winner = pnl > 0;
+    const rMultiple = size > 0 && priceDist > 0 ? pnl / (size * priceDist) : 0;
+
+    return {
+      instrument: t.instrument,
+      size,
+      pnl,
+      priceDist: priceDist.toFixed(1),
+      winner,
+      rMultiple: rMultiple.toFixed(2),
+      regime: t.regime || 'unknown',
+      aiConfidence: t.ai_confidence,
+    };
+  });
+
+  // Group by size buckets
+  const sizes = tradeStats.map(t => t.size);
+  const avgSize = sizes.reduce((a,b) => a+b, 0) / sizes.length;
+  const largerTrades = tradeStats.filter(t => t.size > avgSize);
+  const smallerTrades = tradeStats.filter(t => t.size <= avgSize);
+
+  const winRate = arr => arr.length ? (arr.filter(t => t.winner).length / arr.length * 100).toFixed(0) : 0;
+  const avgPnl = arr => arr.length ? (arr.reduce((s,t) => s + t.pnl, 0) / arr.length).toFixed(2) : 0;
+  const avgR = arr => arr.length ? (arr.reduce((s,t) => s + parseFloat(t.rMultiple), 0) / arr.length).toFixed(2) : 0;
+
+  const summary = {
+    totalTrades: closed.length,
+    avgSize: avgSize.toFixed(3),
+    largerTrades: {
+      count: largerTrades.length,
+      winRate: winRate(largerTrades),
+      avgPnl: avgPnl(largerTrades),
+      avgR: avgR(largerTrades),
+    },
+    smallerTrades: {
+      count: smallerTrades.length,
+      winRate: winRate(smallerTrades),
+      avgPnl: avgPnl(smallerTrades),
+      avgR: avgR(smallerTrades),
+    },
+    byRegime: {},
+    tradeDetails: tradeStats.slice(0, 20),
+  };
+
+  // Group by regime
+  const regimes = [...new Set(tradeStats.map(t => t.regime))];
+  for (const regime of regimes) {
+    const rt = tradeStats.filter(t => t.regime === regime);
+    summary.byRegime[regime] = {
+      count: rt.length,
+      winRate: winRate(rt),
+      avgPnl: avgPnl(rt),
+      avgSize: (rt.reduce((s,t) => s+t.size, 0)/rt.length).toFixed(3),
+    };
+  }
+
+  if (!anthropicKey || closed.length < 3) return { summary, analysis: null };
+
+  // Claude analysis
+  const prompt = `You are a quantitative trading analyst reviewing position sizing and stop distance data.
+
+TRADE SUMMARY (${closed.length} closed trades):
+Average size: £${summary.avgSize}/point
+
+LARGER TRADES (above average size):
+Count: ${summary.largerTrades.count} | Win rate: ${summary.largerTrades.winRate}% | Avg P&L: £${summary.largerTrades.avgPnl} | Avg R-multiple: ${summary.largerTrades.avgR}
+
+SMALLER TRADES (below average size):
+Count: ${summary.smallerTrades.count} | Win rate: ${summary.smallerTrades.winRate}% | Avg P&L: £${summary.smallerTrades.avgPnl} | Avg R-multiple: ${summary.smallerTrades.avgR}
+
+BY REGIME:
+${Object.entries(summary.byRegime).map(([r,d]) => `${r}: ${d.count} trades | ${d.winRate}% WR | avg size £${d.avgSize}/pt | avg P&L £${d.avgPnl}`).join('\n')}
+
+INDIVIDUAL TRADES:
+${tradeStats.map(t => `${t.instrument}: £${t.size}/pt | ${t.priceDist}pt range | P&L £${t.pnl} | R=${t.rMultiple} | ${t.winner?'WIN':'LOSS'} | ${t.regime}`).join('\n')}
+
+Analyse:
+1. Is there a clear pattern between trade size and outcome (win rate, R-multiple)?
+2. Do larger stops with smaller sizes perform better or worse than tighter stops with larger sizes?
+3. Which regime (ranging/uptrend/downtrend) benefits most from the current ATR-based sizing?
+4. What is the optimal size/stop relationship based on this data?
+5. One specific recommendation: should the system increase or decrease the ATR multiplier for stops (currently 1.5x)?
+
+Be specific and data-driven. Note if sample size is too small for conclusions.`;
+
+  try {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 600, messages: [{ role: 'user', content: prompt }] })
+    });
+    const aiData = await aiRes.json();
+    summary.analysis = aiData.content?.[0]?.text || '';
+  } catch(e) {
+    summary.analysis = 'Analysis unavailable: ' + e.message;
+  }
+
+  return summary;
+}
+
 async function sendWeeklyReview(req, res) {
   try {
     const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
@@ -86,11 +211,22 @@ ${calSummary||'Need more trades'}
 BEST HOURS (UTC):
 ${todRows.slice(0,6).map(r=>`  ${r.open_hour}:00 — ${r.total_trades} trades, ${r.win_rate}% WR, avg £${parseFloat(r.avg_pnl).toFixed(2)}`).join('\n')||'Need more data'}
 
-${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}${priceSection}
+${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}${sizingSection}${priceSection}
 
 Generated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`;
 
     // Run weekly price analysis
+    // Position sizing analysis
+    const sizingAnalysis = await analysePositionSizing(trades, process.env.ANTHROPIC_API_KEY);
+    const sizingSection = sizingAnalysis ? `
+POSITION SIZING ANALYSIS (${sizingAnalysis.summary.totalTrades} trades):
+Average size: £${sizingAnalysis.summary.avgSize}/point
+
+Larger trades: ${sizingAnalysis.summary.largerTrades.count} trades | ${sizingAnalysis.summary.largerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.largerTrades.avgPnl}
+Smaller trades: ${sizingAnalysis.summary.smallerTrades.count} trades | ${sizingAnalysis.summary.smallerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.smallerTrades.avgPnl}
+
+${sizingAnalysis.summary.analysis ? 'SIZING INTELLIGENCE:\n' + sizingAnalysis.summary.analysis : ''}` : '';
+
     const priceAnalysis = await runWeeklyPriceAnalysis(base, process.env.ANTHROPIC_API_KEY);
     const priceSection = priceAnalysis ? `
 WEEKLY MARKET OBSERVATIONS:
