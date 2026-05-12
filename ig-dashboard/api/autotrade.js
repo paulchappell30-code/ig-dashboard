@@ -2,7 +2,7 @@
 // Features: Price history DB, regime detection, news sentiment, time filter,
 // active position management, Kelly sizing, portfolio heat, sentiment divergence
 const fetch = require('node-fetch');
-const TD_CACHE_TTL = 30 * 60 * 1000; // 30 min Twelve Data cache TTL
+const TD_CACHE_TTL = 60 * 60 * 1000; // 60 min Twelve Data cache TTL — DB-backed
 
 const IG_BASES = {
   live: 'https://api.ig.com/gateway/deal',
@@ -147,10 +147,20 @@ module.exports = async (req,res) => {
   if (process.env.TWELVE_DATA_KEY) {
     try {
       // Use cache if fresh (saves ~144 credits/day vs fetching every 5 mins)
-      if (globalThis._tdCache && globalThis._tdCache.data && Date.now() - globalThis._tdCache.ts < TD_CACHE_TTL) {
-        tdSignals = globalThis._tdCache.data;
-        L(`Twelve Data: using cached data (${Math.round((Date.now()-globalThis._tdCache.ts)/60000)}m old)`);
-      } else {
+      // Check DB cache first — persists across serverless invocations
+      let tdCacheHit = false;
+      try {
+        const tdCacheRow = await sql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
+        if (tdCacheRow.rows.length > 0) {
+          const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
+          if (age < TD_CACHE_TTL) {
+            tdSignals = JSON.parse(tdCacheRow.rows[0].data);
+            tdCacheHit = true;
+            L(`Twelve Data: using cached data (${Math.round(age/60000)}m old)`);
+          }
+        }
+      } catch(e) { /* fall through to fetch */ }
+      if (!tdCacheHit) {
         const TD_KEY = process.env.TWELVE_DATA_KEY;
         const TD_BASE = 'https://api.twelvedata.com';
         // Only 2 FX instruments — 6 API calls total, well within rate limit
@@ -196,13 +206,14 @@ module.exports = async (req,res) => {
             await new Promise(r => setTimeout(r, 8000)); // 8s delay = stay under 8 calls/min
           } catch(e) { L(`TD ${instr}: ${e.message.replace(TD_KEY,'***')}`); }
         }
-        if (!globalThis._tdCache) globalThis._tdCache = {};
-        globalThis._tdCache.data = newTdSignals;
-        globalThis._tdCache.ts = Date.now();
+        // Save to DB cache — persists across serverless invocations
+        try {
+          await sql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_cache', ${JSON.stringify(newTdSignals)}, NOW())`;
+          await sql`DELETE FROM engine_events WHERE event_type = 'td_cache' AND created_at < NOW() - INTERVAL '2 hours'`;
+        } catch(e) { /* non-fatal */ }
         tdSignals = newTdSignals;
-        if(tdLoaded===0 && globalThis._tdCache?.data && Object.keys(globalThis._tdCache.data).length>0){
-          L('Twelve Data: fetch failed — using stale cache');
-          tdSignals=globalThis._tdCache.data;
+        if(tdLoaded===0 && tdSignals && Object.keys(tdSignals).length>0){
+          L('Twelve Data: fetch failed — using stale DB cache');
         } else {
           L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
         }
@@ -472,7 +483,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       try{
         const air=await aiConfirm(sig,cfg,plPct,openPos.length,winRate,L);
         approved=air.approved;confidence=air.confidence;reasoning=air.reasoning;
-      }catch(e){L('AI error: '+e.message);approved=true;}
+      }catch(e){L('AI error — trade skipped: '+e.message);approved=false;confidence=0;reasoning='AI call failed';}
     }
     if(!approved){L(`${sig.instr}: AI rejected (${confidence}%)`);continue;}
 
