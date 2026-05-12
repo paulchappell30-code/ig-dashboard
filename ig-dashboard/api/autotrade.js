@@ -749,7 +749,7 @@ async function aiConfirm(sig,cfg,plPct,openCount,winRate,L){
   const regimeContext = sig.meanReversion
   ? `MEAN REVERSION trade: RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥68)':'oversold (≤32)'} in ranging market — fading the extreme. Evaluate if RSI extreme is genuine and if there is support/resistance to trade back to.`
   : sig.regime==='ranging'
-  ? `RANGING regime: Only approve if RSI is clearly extended (>65 or <35) OR score is very strong (≥4). Neutral momentum trades in ranging markets have poor expectancy.`
+  ? `RANGING regime: Only approve if (1) RSI is clearly extended (≥68 or ≤32) AND score ≥4, OR (2) score ≥6 with strong directional momentum. Neutral RSI trades in ranging markets have poor expectancy — reject these.`
   : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
 
 const prompt=`Trading risk manager. Approve this spread bet?
