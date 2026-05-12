@@ -46,7 +46,31 @@ module.exports = async (req, res) => {
         return res.status(200).json(stats);
       }
 
-      if (action === 'calibration') {
+      if (action === 'sentiment_history') {
+      const instrument = req.query.instrument || '';
+      const days = parseInt(req.query.days) || 30;
+      const result = await sql`
+        SELECT instrument, long_pct, short_pct, recorded_at
+        FROM sentiment_history
+        WHERE instrument = ${instrument}
+        AND recorded_at > NOW() - INTERVAL '${days} days'
+        ORDER BY recorded_at ASC
+      `;
+      // Detect significant shifts (>10% change in long_pct over 7 days)
+      const rows = result.rows;
+      let shift = null;
+      if (rows.length >= 2) {
+        const first = parseFloat(rows[0].long_pct);
+        const last = parseFloat(rows[rows.length-1].long_pct);
+        const change = last - first;
+        if (Math.abs(change) >= 10) {
+          shift = { direction: change > 0 ? 'increasingly_long' : 'increasingly_short', change: change.toFixed(1) };
+        }
+      }
+      return res.status(200).json({ history: rows, shift, instrument });
+    }
+
+    if (action === 'calibration') {
         const cal = await getCalibration();
         return res.status(200).json(cal);
       }
@@ -64,6 +88,15 @@ module.exports = async (req, res) => {
 
     if (req.method === 'POST') {
       const { type, data } = req.body || {};
+
+      if (type === 'sentiment') {
+        const { instrument, epic, longPct, shortPct } = data || {};
+        if (instrument && longPct !== undefined) {
+          await sql`INSERT INTO sentiment_history (instrument, epic, long_pct, short_pct)
+            VALUES (${instrument}, ${epic||''}, ${parseFloat(longPct)}, ${parseFloat(shortPct||100-longPct)})`;
+        }
+        return res.status(200).json({ success: true });
+      }
 
       if (type === 'trade_opened') {
         const openHour = new Date().getUTCHours();
@@ -267,6 +300,17 @@ async function initTables() {
     GROUP BY DATE(closed_at AT TIME ZONE 'Europe/London')
     ORDER BY trade_date DESC
   `;
+
+  // Sentiment history table
+  await sql`CREATE TABLE IF NOT EXISTS sentiment_history (
+    id SERIAL PRIMARY KEY,
+    instrument VARCHAR(50),
+    epic VARCHAR(100),
+    long_pct DECIMAL(5,2),
+    short_pct DECIMAL(5,2),
+    recorded_at TIMESTAMPTZ DEFAULT NOW()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sentiment_instr ON sentiment_history(instrument, recorded_at DESC)`;
 
   console.log('[DB] v4 tables initialised');
 }
