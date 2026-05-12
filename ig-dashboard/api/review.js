@@ -86,9 +86,22 @@ ${calSummary||'Need more trades'}
 BEST HOURS (UTC):
 ${todRows.slice(0,6).map(r=>`  ${r.open_hour}:00 — ${r.total_trades} trades, ${r.win_rate}% WR, avg £${parseFloat(r.avg_pnl).toFixed(2)}`).join('\n')||'Need more data'}
 
-${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}
+${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}${priceSection}
 
 Generated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`;
+
+    // Run weekly price analysis
+    const priceAnalysis = await runWeeklyPriceAnalysis(base, process.env.ANTHROPIC_API_KEY);
+    const priceSection = priceAnalysis ? `
+WEEKLY MARKET OBSERVATIONS:
+${priceAnalysis.marketData.map(m=>`  ${m.name}: RSI ${m.rsi} | ${m.regime} | Week ${m.weekChg} | Month ${m.monthChg}`).join('\n')}
+
+${priceAnalysis.oversold.length ? 'OVERSOLD: '+priceAnalysis.oversold.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
+${priceAnalysis.overbought.length ? 'OVERBOUGHT: '+priceAnalysis.overbought.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
+
+MARKET INTELLIGENCE:
+${priceAnalysis.analysis}
+${priceAnalysis.sentimentShifts?.length ? '\nSENTIMENT SHIFTS:\n' + priceAnalysis.sentimentShifts.join('\n') : ''}` : '';
 
     const notifyRes = await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({type:'daily_summary',subject:`📊 Weekly Report — ${weekPnL>=0?'+':''}£${weekPnL.toFixed(2)} | ${weekWinRate}% WR`,body:emailBody})});
@@ -198,4 +211,137 @@ function quickScore(closes) {
   const mom=n>=5?((closes[n-1]-closes[n-5])/closes[n-5])*100:0;
   if(mom>1)s+=1;else if(mom<-1)s-=1;
   return s;
+}
+
+// ─── WEEKLY PRICE ANALYSIS ────────────────────────────────────────────────────
+async function runWeeklyPriceAnalysis(base, anthropicKey) {
+  try {
+    // Fetch last 30 candles for all instruments from DB
+    const instruments = [
+      { name: 'FTSE 100',    epic: 'IX.D.FTSE.DAILY.IP' },
+      { name: 'S&P 500',     epic: 'IX.D.SPTRD.DAILY.IP' },
+      { name: 'DAX 40',      epic: 'IX.D.DAX.DAILY.IP' },
+      { name: 'Brent Oil',   epic: 'CC.D.LCO.USS.IP' },
+      { name: 'Gold',        epic: 'CS.D.USCGC.TODAY.IP' },
+      { name: 'Silver',      epic: 'CS.D.USCSC.TODAY.IP' },
+      { name: 'GBP/USD',     epic: 'CS.D.GBPUSD.MINI.IP' },
+      { name: 'EUR/USD',     epic: 'CS.D.EURUSD.MINI.IP' },
+      { name: 'Copper',      epic: 'CS.D.COPPER.TODAY.IP' },
+      { name: 'EUR/GBP',     epic: 'CS.D.EURGBP.MINI.IP' },
+    ];
+
+    const marketData = [];
+
+    for (const instr of instruments) {
+      try {
+        const r = await fetch(`${base}/api/prices?epic=${encodeURIComponent(instr.epic)}&resolution=DAY&limit=30`);
+        const d = await r.json();
+        const candles = d.candles || [];
+        if (candles.length < 5) continue;
+
+        const closes = candles.map(c => parseFloat(c.close_price));
+        const n = closes.length;
+        const last = closes[n-1];
+        const weekAgo = closes[Math.max(0, n-6)];
+        const monthAgo = closes[0];
+
+        // RSI
+        let gains=0, losses=0;
+        const period = Math.min(14, n-1);
+        for (let i=n-period; i<n; i++) {
+          const d = closes[i]-closes[i-1];
+          if(d>0) gains+=d; else losses+=Math.abs(d);
+        }
+        const ag=gains/period, al=losses/period;
+        const rsi = al===0 ? 100 : 100-(100/(1+ag/al));
+
+        // Regime
+        const mid = Math.floor(n/2);
+        const h1 = closes.slice(0,mid).reduce((a,b)=>a+b,0)/mid;
+        const h2 = closes.slice(mid).reduce((a,b)=>a+b,0)/(n-mid);
+        const slope = ((h2-h1)/h1)*100;
+        const regime = Math.abs(slope)>3 ? (slope>0?'uptrend':'downtrend') : 'ranging';
+
+        // Week and month change
+        const weekChg = ((last-weekAgo)/weekAgo*100).toFixed(1);
+        const monthChg = ((last-monthAgo)/monthAgo*100).toFixed(1);
+
+        // Consecutive days up/down
+        let streak = 0;
+        for (let i=n-1; i>0; i--) {
+          if (closes[i]>closes[i-1] && streak>=0) streak++;
+          else if (closes[i]<closes[i-1] && streak<=0) streak--;
+          else break;
+        }
+
+        marketData.push({
+          name: instr.name,
+          rsi: rsi.toFixed(1),
+          regime,
+          weekChg: (weekChg>=0?'+':'')+weekChg+'%',
+          monthChg: (monthChg>=0?'+':'')+monthChg+'%',
+          streak: streak>0?`${streak} days up`:streak<0?`${Math.abs(streak)} days down`:'flat',
+          lastPrice: last.toFixed(2),
+          candles: n,
+        });
+      } catch(e) { /* skip instrument */ }
+    }
+
+    if (!marketData.length || !anthropicKey) return null;
+
+    // Build prompt for Claude
+    const dataStr = marketData.map(m =>
+      `${m.name}: RSI ${m.rsi} | ${m.regime} | Week ${m.weekChg} | Month ${m.monthChg} | ${m.streak} | ${m.candles} candles`
+    ).join('\n');
+
+    // Find notable conditions
+    const oversold = marketData.filter(m => parseFloat(m.rsi) <= 32);
+    const overbought = marketData.filter(m => parseFloat(m.rsi) >= 68);
+    const trending = marketData.filter(m => m.regime !== 'ranging');
+
+    const prompt = `You are a quantitative market analyst. Review this week's price data across multiple instruments and identify the most interesting patterns, divergences, and potential opportunities for next week.
+
+MARKET DATA (as of week ending):
+${dataStr}
+
+NOTABLE CONDITIONS:
+- Oversold (RSI ≤32): ${oversold.map(m=>m.name+' RSI:'+m.rsi).join(', ') || 'None'}
+- Overbought (RSI ≥68): ${overbought.map(m=>m.name+' RSI:'+m.rsi).join(', ') || 'None'}
+- Trending: ${trending.map(m=>m.name+' ('+m.regime+')').join(', ') || 'All ranging'}
+
+Analyse:
+1. Which instruments show the most interesting setups for next week and why?
+2. Any unusual divergences (e.g. oil up but gold down, indices diverging)?
+3. Which RSI extremes look like genuine mean reversion opportunities vs momentum continuation?
+4. Any correlations breaking down that could signal a larger move?
+5. One specific instrument and direction to watch closely this week with the key level.
+
+Keep it concise — this is a weekly briefing, not a full report. Focus on actionable observations.`;
+
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-api-key':anthropicKey, 'anthropic-version':'2023-06-01' },
+      body: JSON.stringify({ model:'claude-sonnet-4-5', max_tokens:800, messages:[{role:'user',content:prompt}] })
+    });
+    const aiData = await aiRes.json();
+    const analysis = aiData.content?.[0]?.text || '';
+
+    // Check for significant sentiment shifts vs last week
+    const sentimentShifts = [];
+    try {
+      const instruments = marketData.map(m => m.name);
+      for (const instr of instruments.slice(0,6)) {
+        const sr = await fetch(`${base}/api/db?action=sentiment_history&instrument=${encodeURIComponent(instr)}&days=14`);
+        const sd = await sr.json();
+        if (sd.shift) {
+          sentimentShifts.push(`${instr}: sentiment ${sd.shift.direction.replace('_',' ')} by ${sd.shift.change}% over 14 days`);
+        }
+      }
+    } catch(e) {}
+
+    return { marketData, analysis, oversold, overbought, trending, sentimentShifts };
+  } catch(e) {
+    console.error('[Weekly Price Analysis]', e.message);
+    return null;
+  }
 }
