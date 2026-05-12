@@ -1072,11 +1072,15 @@ function startLightstreamer(){
     const NON_STREAM=['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP','CS.D.EURGBP.MINI.IP'];
     const epics=S.markets.filter(m=>!NON_STREAM.includes(m.epic)).map(m=>'MARKET:'+m.epic);
     console.log('[LS] Subscribing to',epics.length,'instruments');
-    window._lsSub=new Subscription('MERGE',epics,['BID','OFFER','CHANGE','CHANGE_PCT','UPDATE_TIME','MARKET_STATE']);
-    window._lsSub.addListener({
-      onSubscription:function(){console.log('[LS] Subscription confirmed — ticks incoming');addLog('system','Lightstreamer subscription active');},
-      onSubscriptionError:function(code,msg){console.error('[LS] Subscription ERROR:',code,msg);addLog('system','LS subscription error: '+msg);},
-      onItemUpdate:function(update){
+    // Subscribe individually so a bad epic doesn't kill the whole batch
+    window._lsSubs = [];
+    let _confirmedCount = 0;
+    epics.forEach(function(epicItem) {
+      const s = new Subscription('MERGE', [epicItem], ['BID','OFFER','CHANGE','CHANGE_PCT','UPDATE_TIME','MARKET_STATE']);
+      s.addListener({
+        onSubscription: function() { _confirmedCount++; if(_confirmedCount===1){addLog('system','Lightstreamer streaming active ('+_confirmedCount+' confirmed)');} },
+        onSubscriptionError: function(code, msg) { console.warn('[LS] Skip:', epicItem, msg); },
+        onItemUpdate: function(update) {
       window._tickCount=(window._tickCount||0)+1;
       const epic=update.getItemName().replace('MARKET:','');
       const m=S.markets.find(x=>x.epic===epic);if(!m)return;
@@ -1093,9 +1097,11 @@ function startLightstreamer(){
         if(lp)lp.textContent=m.price;if(lc){lc.textContent=m.change;lc.className='chg '+(m.pos?'up':'dn');}
         if(document.getElementById('tab-overview')?.classList.contains('active'))renderPositions();
       }
-    }});
-    lsClient.subscribe(window._lsSub);
-    addLog('system','Lightstreamer subscribing to '+epics.length+' instruments...');
+      }});
+      lsClient.subscribe(s);
+      window._lsSubs.push(s);
+    });
+    addLog('system','Lightstreamer subscribing to '+epics.length+' instruments individually...');
   }catch(e){console.error('[LS]',e.message);addLog('system','Lightstreamer unavailable.');}
 }
 
