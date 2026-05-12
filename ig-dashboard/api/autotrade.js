@@ -526,20 +526,29 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       }
     }catch(e){L('Margin check error: '+e.message);}
 
-    const finalSz = Math.max(0.01, Math.min(sig.suggestedSize, cfg.maxSizePerTrade));
+    // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
+    // This ensures size × stopDist always = 1% of account regardless of instrument
+    const tradeStopDist = sig.atr > 0 ? Math.max(10, Math.round(sig.atr * 1.5)) : 20;
+    const tradeRiskAmt = balance * 0.01;
+    const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
+    const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
+    const actualRisk = (finalSz * tradeStopDist).toFixed(2);
+    L(`${sig.instr}: size £${finalSz}/pt × ${tradeStopDist}pt stop = £${actualRisk} risk (${((parseFloat(actualRisk)/balance)*100).toFixed(1)}% of account)`);
     L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
 
     try{
       const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
-      // ATR-based stop loss (1.5x ATR)
-      const stopDist=sig.atr>0?Math.max(10,Math.round(sig.atr*1.5)):null;
-      if(stopDist){ob.stopDistance=stopDist;L(`Stop loss: ${stopDist}pts (1.5x ATR)`);}
-      if(cfg.trailingStopPct>0&&sig.atr>0){
-        const sd=Math.max(10,sig.atr*2);
-        ob.trailingStop=true;ob.trailingStopDistance=Math.round(sd);ob.trailingStopIncrement=Math.max(1,Math.round(sd/4));
-        L(`Trailing stop: ${Math.round(sd)}pts`);
-      }
+      // ATR-based stop loss
+      ob.stopDistance=tradeStopDist;
+      L(`Stop loss: ${tradeStopDist}pts (1.5x ATR) — max loss £${actualRisk}`);
+      // Trailing stop
+      const trailDist=Math.max(10,Math.round(tradeStopDist*1.5));
+      const trailIncrement=Math.max(1,Math.round(trailDist/5));
+      ob.trailingStop=true;
+      ob.trailingStopDistance=trailDist;
+      ob.trailingStopIncrement=trailIncrement;
+      L(`Trailing stop: ${trailDist}pts distance, ${trailIncrement}pt increment`);
       let ref;
       const or=await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(ob)});
       const od=await or.json();
