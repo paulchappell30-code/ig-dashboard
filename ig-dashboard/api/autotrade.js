@@ -395,10 +395,14 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const total=sc+safeNewsAdj+safeSentAdj+safeTdAdj+calAdj;
       L(`${instr}: score ${sc}+news${safeNewsAdj}+sent${safeSentAdj}+td${safeTdAdj}+cal${calAdj}=${total} regime:${regime}`);
 
-      if(Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
+      // Mean reversion check BEFORE score threshold — RSI extreme overrides low score
+      const rsiPreCheck = calcRSI(closes);
+      const isMeanReversionCandidate = regime === 'ranging' && (rsiPreCheck >= 68 || rsiPreCheck <= 32);
+      if(!isMeanReversionCandidate && Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
+      if(isMeanReversionCandidate && Math.abs(total)<0){L(`${instr}: mean reversion candidate RSI ${rsiPreCheck.toFixed(1)} — bypassing score filter`);}
 
       // Mean reversion override for ranging regime
-      const rsiForMR=calcRSI(closes);
+      const rsiForMR=rsiPreCheck; // already calculated above
       let meanReversion=false;
       let dir=total>0?'BUY':'SELL';
       if(regime==='ranging'){
