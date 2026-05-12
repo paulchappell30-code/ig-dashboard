@@ -18,6 +18,9 @@ const EPIC_MAP = {
   'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
   'Nasdaq':'IX.D.NASDAQ.CASH.IP',
   'Gold':'CS.D.USCGC.TODAY.IP',
+  'Silver':'CS.D.USCSC.TODAY.IP',
+  'Copper':'CS.D.COPPER.TODAY.IP',
+  'EUR/GBP':'CS.D.EURGBP.MINI.IP',
 };
 
 const CORRELATION_GROUPS = {
@@ -27,6 +30,9 @@ const CORRELATION_GROUPS = {
   'IX.D.NIKKEI.DAILY.IP':'indices',
   'IX.D.NASDAQ.CASH.IP':'indices',
   'CC.D.LCO.USS.IP':'commodities',
+  'CS.D.USCSC.TODAY.IP':'commodities',
+  'CS.D.COPPER.TODAY.IP':'commodities',
+  'CS.D.EURGBP.MINI.IP':'fx',
   'CS.D.USCGC.TODAY.IP':'commodities',
   'CS.D.GBPUSD.MINI.IP':'fx','CS.D.EURUSD.MINI.IP':'fx','CS.D.USDJPY.MINI.IP':'fx',
 };
@@ -617,10 +623,14 @@ function kellySize(winRate,balance,atr,price,cfg){
 }
 
 // ── IG SENTIMENT (contrarian) ─────────────────────────────────────────────────
-async function getIGSentiment(epic,igBase,igH,L){
-  const ids={'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX',
+async function getIGSentiment(epic,igBase,igH,L,base,instrName){
+  const ids={
+    'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX',
     'IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.MINI.IP':'GBPUSD',
-    'CS.D.EURUSD.MINI.IP':'EURUSD','CS.D.USDJPY.MINI.IP':'USDJPY'};
+    'CS.D.EURUSD.MINI.IP':'EURUSD','CS.D.USDJPY.MINI.IP':'USDJPY',
+    'CS.D.USCGC.TODAY.IP':'GOLD','CS.D.USCSC.TODAY.IP':'SILVER',
+    'CS.D.COPPER.TODAY.IP':'COPPER','CS.D.EURGBP.MINI.IP':'EURGBP',
+  };
   const id=ids[epic];if(!id)return 0;
   try{
     const r=await fetch(`${igBase}/clientsentiment/${id}`,{headers:igH});
@@ -628,6 +638,13 @@ async function getIGSentiment(epic,igBase,igH,L){
     if(!d||!d.clientSentimentList&&!d.longPositionPercentage) return 0;
     const sentiment = d.clientSentimentList?.[0] || d;
     const lp=sentiment.longPositionPercentage||d.longPositionPercentage||50;
+    const sp=sentiment.shortPositionPercentage||d.shortPositionPercentage||(100-lp);
+    // Save sentiment history to DB
+    if(base && instrName){
+      fetch(`${base}/api/db`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({type:'sentiment',data:{instrument:instrName,epic,longPct:lp,shortPct:sp}})
+      }).catch(()=>{});
+    }
     if(lp>70){L(`${id}: ${lp}% long — contrarian SELL`);return -2;}
     if(lp<30){L(`${id}: ${lp}% long — contrarian BUY`);return 2;}
     if(lp>60)return -1;if(lp<40)return 1;return 0;
