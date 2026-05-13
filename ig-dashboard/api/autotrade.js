@@ -145,104 +145,27 @@ module.exports = async (req,res) => {
   // Twelve Data — fetch indicators with 30-min cache to stay within 800 daily credits
   let tdSignals = {};
   if (process.env.TWELVE_DATA_KEY) {
-    try {
-      // Use cache if fresh (saves ~144 credits/day vs fetching every 5 mins)
-      // Check DB cache first — persists across serverless invocations
+      // Read TD signals from DB cache (populated by alert cron)
+      // Autotrade never fetches TD directly — avoids per-minute rate limit conflicts
       let tdCacheHit = false;
       try {
         const {sql:tdSql} = require('@vercel/postgres');
         const tdCacheRow = await tdSql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
         if (tdCacheRow.rows.length > 0) {
           const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
-          // Use cache if less than 60 mins old — covers alert cron (2 min) + autotrade (5 min)
           if (age < TD_CACHE_TTL) {
             tdSignals = JSON.parse(tdCacheRow.rows[0].data);
             tdCacheHit = true;
             L(`Twelve Data: using cached data (${Math.round(age/60000)}m old)`);
-          }
-          // If cache is 5-60 mins old and we have it, still skip fresh fetch
-          // Only fetch if cache is completely missing or >60 mins old
-        }
-      } catch(e) { /* fall through to fetch */ }
-      if (!tdCacheHit) {
-        // Check if another invocation is currently fetching (within last 30 seconds)
-        try {
-          const {sql:lockSql} = require('@vercel/postgres');
-          const lockRow = await lockSql`SELECT 1 FROM engine_events WHERE event_type = 'td_fetching' AND created_at > NOW() - INTERVAL '30 seconds' LIMIT 1`;
-          if (lockRow.rows.length > 0) {
-            L('TD fetch skipped — another process is currently fetching');
-            tdCacheHit = true; // Skip fetch, use empty signals
           } else {
-            // Set fetch lock
-            await lockSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_fetching', 'lock', NOW())`;
+            L(`Twelve Data: cache expired (${Math.round(age/60000)}m old) — alert cron will refresh`);
           }
-        } catch(e) { /* non-fatal, proceed with fetch */ }
-        const TD_KEY = process.env.TWELVE_DATA_KEY;
-        const TD_BASE = 'https://api.twelvedata.com';
-        // Only 2 FX instruments — 6 API calls total, well within rate limit
-        const TD_INSTRUMENTS = [
-          { instr: 'GBP/USD', symbol: 'GBP/USD' },
-          { instr: 'EUR/USD', symbol: 'EUR/USD' },
-        ];
-        const TD_INTERVALS = ['1h', '1day']; // Fetch both timeframes
-        let tdLoaded = 0;
-        const newTdSignals = {};
-        for (const { instr, symbol } of TD_INSTRUMENTS) {
-          try {
-            await new Promise(r => setTimeout(r, 2000)); // 2s gap — avoids per-minute TD rate limit
-            // Fetch with retry on connection reset
-            const tdGet = async (url) => {
-              for(let i=0;i<2;i++){
-                try{ return await fetch(url); }
-                catch(e){ if(i===0) await new Promise(r=>setTimeout(r,1500)); else throw e; }
-              }
-            };
-            const [rsiRes, macdRes] = await Promise.all([
-              tdGet(`${TD_BASE}/rsi?symbol=${encodeURIComponent(symbol)}&interval=1h&time_period=14&apikey=${TD_KEY}`),
-              tdGet(`${TD_BASE}/macd?symbol=${encodeURIComponent(symbol)}&interval=1h&fast_period=12&slow_period=26&signal_period=9&apikey=${TD_KEY}`),
-            ]);
-            const [rsiD, macdD] = await Promise.all([rsiRes.json(), macdRes.json()]);
-            const rsiDaily = null; // Daily RSI removed to stay within 8 calls/min free tier
-            if (rsiD.status === 'error') { L(`TD ${instr}: ${rsiD.message}`); continue; }
-            const rsi = parseFloat(rsiD.values?.[0]?.rsi);
-            const macd = parseFloat(macdD.values?.[0]?.macd);
-            const macdSig = parseFloat(macdD.values?.[0]?.macd_signal);
-            let sc = 0;
-            if (rsi < 25) sc += 4; else if (rsi < 30) sc += 3; else if (rsi < 40) sc += 2;
-            else if (rsi > 75) sc -= 4; else if (rsi > 70) sc -= 3; else if (rsi > 60) sc -= 2;
-            if (macd !== null && macdSig !== null && !isNaN(macd) && !isNaN(macdSig) && isFinite(macd) && isFinite(macdSig)) { if (macd > macdSig) sc += 2; else sc -= 2; }
-            // Multi-timeframe alignment bonus/penalty
-            if (rsiDaily !== null) {
-              const hourlyBull = rsi < 50; const dailyBull = rsiDaily < 50;
-              if (hourlyBull === dailyBull) sc += 1; // Aligned — boost
-              else sc -= 1; // Conflicting — reduce
-            }
-            newTdSignals[instr] = { score: sc, rsi, macd, macdCrossover: macd > macdSig ? 'bullish' : 'bearish' };
-            L(`TD ${instr}: RSI=${rsi?.toFixed(1)} MACD=${macd?.toFixed(4)} score=${sc}`);
-            tdLoaded++;
-            await new Promise(r => setTimeout(r, 8000)); // 8s delay = stay under 8 calls/min
-          } catch(e) { L(`TD ${instr}: ${e.message.replace(TD_KEY,'***')}`); }
-        }
-        // Save to DB cache — persists across serverless invocations
-        try {
-          const {sql:tdSaveSql} = require('@vercel/postgres');
-          await tdSaveSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_cache', ${JSON.stringify(newTdSignals)}, NOW())`;
-          await tdSaveSql`DELETE FROM engine_events WHERE event_type = 'td_cache' AND created_at < NOW() - INTERVAL '2 hours'`;
-        } catch(e) { /* non-fatal */ }
-        tdSignals = newTdSignals;
-        if(tdLoaded===0 && tdSignals && Object.keys(tdSignals).length>0){
-          L('Twelve Data: fetch failed — using stale DB cache');
         } else {
-          L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
-        // Release fetch lock
-        try {
-          const {sql:unlockSql} = require('@vercel/postgres');
-          await unlockSql`DELETE FROM engine_events WHERE event_type = 'td_fetching'`;
-        } catch(e) {}
+          L('Twelve Data: no cache yet — alert cron will populate');
         }
-      }
-    } catch(e) { L('Twelve Data failed: ' + e.message); }
-  }
+      } catch(e) { L('Twelve Data cache read error: ' + e.message); }
+      if (!tdCacheHit) { L('Twelve Data: no cached data this run'); }
+  } // end if TWELVE_DATA_KEY
 
   // Account
   let balance,dailyPL,available;
