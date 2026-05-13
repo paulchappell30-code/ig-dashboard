@@ -40,29 +40,27 @@ module.exports = async (req, res) => {
   if (!TD_KEY) return res.status(200).json({ action: 'no_td_key', log });
 
   try {
-    // Fetch RSI for all alert instruments in one TD call (saves credits)
-    const symbols = ALERT_INSTRUMENTS.map(i => i.symbol).join(',');
-    const tdUrl = `https://api.twelvedata.com/rsi?symbol=${encodeURIComponent(symbols)}&interval=1h&time_period=14&apikey=${TD_KEY}&outputsize=1`;
-    const tdRes = await fetch(tdUrl, { timeout: 8000 });
-    if (!tdRes.ok) {
-      L(`TD fetch failed: ${tdRes.status}`);
-      return res.status(200).json({ action: 'td_error', log });
-    }
-    const tdData = await tdRes.json();
-
-    // TD returns single object if one symbol, array-keyed object if multiple
+    // Use the indicators endpoint which already has caching and rate limiting
+    // Fetch one at a time with delay to avoid per-minute rate limit
     const alerts = [];
+    const tdCache = {};
+
     for (const instr of ALERT_INSTRUMENTS) {
       try {
-        // Handle both single and multi-symbol TD response formats
-        const instrData = tdData[instr.symbol] || tdData;
-        if (instrData.status === 'error') {
-          L(`${instr.instr}: TD error — ${instrData.message}`);
-          continue;
-        }
-        const rsiVal = parseFloat(instrData.values?.[0]?.rsi || instrData.value);
-        if (isNaN(rsiVal)) { L(`${instr.instr}: no RSI data`); continue; }
+        await new Promise(r => setTimeout(r, 1500)); // 1.5s delay between calls
+        const indRes = await fetch(
+          `${BASE}/api/indicators?instrument=${encodeURIComponent(instr.instr)}&interval=1h`,
+          { timeout: 10000 }
+        );
+        if (!indRes.ok) { L(`${instr.instr}: indicators fetch failed`); continue; }
+        const indData = await indRes.json();
+        if (indData.error) { L(`${instr.instr}: ${indData.error}`); continue; }
 
+        const rsiVal = parseFloat(indData.rsi);
+        if (isNaN(rsiVal)) { L(`${instr.instr}: no RSI`); continue; }
+
+        // Store for cache — autotrade will use this
+        tdCache[instr.instr] = { rsi: rsiVal, macd: indData.macd, signal: indData.signal };
         L(`${instr.instr}: RSI ${rsiVal.toFixed(1)}`);
 
         if (rsiVal <= RSI_OVERSOLD || rsiVal >= RSI_OVERBOUGHT) {
@@ -70,7 +68,7 @@ module.exports = async (req, res) => {
           alerts.push({ instr: instr.instr, rsi: rsiVal, direction });
           L(`⚡ ${instr.instr} RSI ${rsiVal.toFixed(1)} — ${direction} alert`);
         }
-      } catch(e) { L(`${instr.instr}: parse error — ${e.message}`); }
+      } catch(e) { L(`${instr.instr}: error — ${e.message}`); }
     }
 
     if (!alerts.length) {
