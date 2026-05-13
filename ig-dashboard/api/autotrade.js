@@ -428,12 +428,15 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
       // Mean reversion check BEFORE score threshold — RSI extreme overrides low score
       const rsiPreCheck = calcRSI(closes);
-      const isMeanReversionCandidate = regime === 'ranging' && (rsiPreCheck >= 68 || rsiPreCheck <= 32);
+      // Also check TD hourly RSI for mean reversion — catches intraday extremes
+      const tdRsiForMR = tdSignals[instr]?.rsi || null;
+      const effectiveRSI = (tdRsiForMR && (tdRsiForMR <= 32 || tdRsiForMR >= 68)) ? tdRsiForMR : rsiPreCheck;
+      const isMeanReversionCandidate = regime === 'ranging' && (effectiveRSI >= 68 || effectiveRSI <= 32);
       if(!isMeanReversionCandidate && Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
-      if(isMeanReversionCandidate){L(`${instr}: mean reversion candidate RSI ${rsiPreCheck.toFixed(1)} — bypassing score filter`);}
+      if(isMeanReversionCandidate){L(`${instr}: mean reversion candidate RSI ${effectiveRSI.toFixed(1)}${tdRsiForMR===effectiveRSI?' (TD hourly)':' (daily)'} — bypassing score filter`);}
 
       // Mean reversion override for ranging regime
-      const rsiForMR=rsiPreCheck; // already calculated above
+      const rsiForMR=effectiveRSI; // uses TD hourly if more extreme
       let meanReversion=false;
       let dir=total>0?'BUY':'SELL';
       if(regime==='ranging'){
