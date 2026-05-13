@@ -1,18 +1,62 @@
 {
   "version": 2,
   "routes": [
-    { "src": "/api/notify", "dest": "/api/notify" },
-    { "src": "/api/claude", "dest": "/api/claude" },
-    { "src": "/api/close", "dest": "/api/close" },
-    { "src": "/api/autotrade", "dest": "/api/autotrade" },
-    { "src": "/api/db", "dest": "/api/db" },
-    { "src": "/api/prices", "dest": "/api/prices" },
-    { "src": "/api/review", "dest": "/api/review" },
-    { "src": "/api/signal", "dest": "/api/signal" },
-    { "src": "/api/indicators", "dest": "/api/indicators" },
-    { "src": "/ig/(.+)", "dest": "/api/ig?path=$1" },
-    { "src": "/lightstreamer.min.js", "dest": "/lightstreamer.min.js" },
-    { "src": "/api/research", "dest": "/api/research" },
-    { "src": "/(.*)", "dest": "/index.html" }
-  ]
+    {
+      "src": "/api/notify",
+      "dest": "/api/notify"
+    },
+    {
+      "src": "/api/claude",
+      "dest": "/api/claude"
+    },
+    {
+      "src": "/api/close",
+      "dest": "/api/close"
+    },
+    {
+      "src": "/api/autotrade",
+      "dest": "/api/autotrade"
+    },
+    {
+      "src": "/api/db",
+      "dest": "/api/db"
+    },
+    {
+      "src": "/api/prices",
+      "dest": "/api/prices"
+    },
+    {
+      "src": "/api/review",
+      "dest": "/api/review"
+    },
+    {
+      "src": "/api/signal",
+      "dest": "/api/signal"
+    },
+    {
+      "src": "/api/indicators",
+      "dest": "/api/indicators"
+    },
+    {
+      "src": "/ig/(.+)",
+      "dest": "/api/ig?path=$1"
+    },
+    {
+      "src": "/lightstreamer.min.js",
+      "dest": "/lightstreamer.min.js"
+    },
+    {
+      "src": "/api/alert",
+      "dest": "/api/alert"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/alert.js": {
+      "maxDuration": 30
+    }
+  }
 }
