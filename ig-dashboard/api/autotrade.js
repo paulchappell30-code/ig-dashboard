@@ -154,14 +154,29 @@ module.exports = async (req,res) => {
         const tdCacheRow = await tdSql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
         if (tdCacheRow.rows.length > 0) {
           const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
+          // Use cache if less than 60 mins old — covers alert cron (2 min) + autotrade (5 min)
           if (age < TD_CACHE_TTL) {
             tdSignals = JSON.parse(tdCacheRow.rows[0].data);
             tdCacheHit = true;
             L(`Twelve Data: using cached data (${Math.round(age/60000)}m old)`);
           }
+          // If cache is 5-60 mins old and we have it, still skip fresh fetch
+          // Only fetch if cache is completely missing or >60 mins old
         }
       } catch(e) { /* fall through to fetch */ }
       if (!tdCacheHit) {
+        // Check if another invocation is currently fetching (within last 30 seconds)
+        try {
+          const {sql:lockSql} = require('@vercel/postgres');
+          const lockRow = await lockSql`SELECT 1 FROM engine_events WHERE event_type = 'td_fetching' AND created_at > NOW() - INTERVAL '30 seconds' LIMIT 1`;
+          if (lockRow.rows.length > 0) {
+            L('TD fetch skipped — another process is currently fetching');
+            tdCacheHit = true; // Skip fetch, use empty signals
+          } else {
+            // Set fetch lock
+            await lockSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('td_fetching', 'lock', NOW())`;
+          }
+        } catch(e) { /* non-fatal, proceed with fetch */ }
         const TD_KEY = process.env.TWELVE_DATA_KEY;
         const TD_BASE = 'https://api.twelvedata.com';
         // Only 2 FX instruments — 6 API calls total, well within rate limit
@@ -219,6 +234,11 @@ module.exports = async (req,res) => {
           L('Twelve Data: fetch failed — using stale DB cache');
         } else {
           L(`Twelve Data: ${tdLoaded} instruments fetched and cached for 30 mins`);
+        // Release fetch lock
+        try {
+          const {sql:unlockSql} = require('@vercel/postgres');
+          await unlockSql`DELETE FROM engine_events WHERE event_type = 'td_fetching'`;
+        } catch(e) {}
         }
       }
     } catch(e) { L('Twelve Data failed: ' + e.message); }
