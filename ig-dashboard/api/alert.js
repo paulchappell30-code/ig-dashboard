@@ -66,7 +66,15 @@ module.exports = async (req, res) => {
       );
       if (!rsiRes.ok) { L(`${instr.instr}: RSI fetch ${rsiRes.status}`); continue; }
       const rsiData = await rsiRes.json();
-      if (rsiData.status === 'error') { L(`${instr.instr}: ${rsiData.message}`); continue; }
+      if (rsiData.status === 'error') {
+        L(`${instr.instr}: ${rsiData.message}`);
+        // If daily limit hit, stop trying other instruments
+        if (rsiData.message && rsiData.message.includes('run out of API credits for the day')) {
+          L('Daily TD limit hit — stopping all fetches until midnight UTC');
+          break;
+        }
+        continue;
+      }
       const rsi = parseFloat(rsiData.values?.[0]?.rsi);
       if (isNaN(rsi)) { L(`${instr.instr}: no RSI value`); continue; }
 
