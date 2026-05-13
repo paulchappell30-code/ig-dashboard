@@ -154,7 +154,7 @@ module.exports = async (req,res) => {
         if (tdCacheRow.rows.length > 0) {
           const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
           if (age < TD_CACHE_TTL) {
-            tdSignals = JSON.parse(tdCacheRow.rows[0].data);
+            tdSignals = JSON.parse(JSON.stringify(tdCacheRow.rows[0].details));
             tdCacheHit = true;
             L(`Twelve Data: using cached data (${Math.round(age/60000)}m old)`);
           } else {
@@ -205,7 +205,7 @@ module.exports = async (req,res) => {
       `;
       if (alreadyNotified.rows.length === 0) {
         await sendNotify('dca','✅ Daily Profit Locked',`P&L: +${plPct.toFixed(2)}%\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
-        await plSql`INSERT INTO engine_events (event_type, data, created_at) VALUES ('profit_lock_notified', ${plPct.toFixed(2)}, NOW())`;
+        await plSql`INSERT INTO engine_events (event_type, details, created_at) VALUES ('profit_lock_notified', ${JSON.stringify({pct:plPct.toFixed(2)})}, NOW())`;
         L('Profit lock email sent');
       } else {
         L('Profit lock email already sent today — skipping');
