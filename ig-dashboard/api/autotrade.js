@@ -150,7 +150,7 @@ module.exports = async (req,res) => {
       let tdCacheHit = false;
       try {
         const {sql:tdSql} = require('@vercel/postgres');
-        const tdCacheRow = await tdSql`SELECT data, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
+        const tdCacheRow = await tdSql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
         if (tdCacheRow.rows.length > 0) {
           const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
           if (age < TD_CACHE_TTL) {
