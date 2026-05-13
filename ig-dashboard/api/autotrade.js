@@ -430,7 +430,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const rsiPreCheck = calcRSI(closes);
       const isMeanReversionCandidate = regime === 'ranging' && (rsiPreCheck >= 68 || rsiPreCheck <= 32);
       if(!isMeanReversionCandidate && Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
-      if(isMeanReversionCandidate && Math.abs(total)<0){L(`${instr}: mean reversion candidate RSI ${rsiPreCheck.toFixed(1)} — bypassing score filter`);}
+      if(isMeanReversionCandidate){L(`${instr}: mean reversion candidate RSI ${rsiPreCheck.toFixed(1)} — bypassing score filter`);}
 
       // Mean reversion override for ranging regime
       const rsiForMR=rsiPreCheck; // already calculated above
