@@ -174,6 +174,7 @@ module.exports = async (req,res) => {
         const newTdSignals = {};
         for (const { instr, symbol } of TD_INSTRUMENTS) {
           try {
+            await new Promise(r => setTimeout(r, 2000)); // 2s gap — avoids per-minute TD rate limit
             // Fetch with retry on connection reset
             const tdGet = async (url) => {
               for(let i=0;i<2;i++){
