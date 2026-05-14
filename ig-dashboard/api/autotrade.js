@@ -350,19 +350,48 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         regime=detectRegime(closes);
         sc=calcScore(closes,regime);
         if(tdSignals[instr]){
-          tdAdj=Math.round(tdSignals[instr].score/2);
-          L(`${instr}: TD adj ${tdAdj} (RSI:${tdSignals[instr].rsi?.toFixed(0)})`);
+          const tdRsi = tdSignals[instr].rsi;
+          const tdMacd = tdSignals[instr].macd;
+          // Derive TD score from RSI (no pre-computed score in alert cache)
+          let tdScore = 0;
+          if(tdRsi !== null && !isNaN(tdRsi)){
+            if(tdRsi <= 30) tdScore = 2;
+            else if(tdRsi <= 35) tdScore = 1;
+            else if(tdRsi >= 70) tdScore = -2;
+            else if(tdRsi >= 65) tdScore = -1;
+          }
+          if(tdMacd !== null && !isNaN(tdMacd)){
+            if(tdMacd > 0) tdScore += 1;
+            else if(tdMacd < 0) tdScore -= 1;
+          }
+          tdAdj = tdScore;
+          if(tdRsi !== null && !isNaN(tdRsi)) L(`${instr}: TD adj ${tdAdj} (RSI:${Math.round(tdRsi)})`);
         }
       } else if(tdSignals[instr]){
         // No candles — use Twelve Data as primary signal
-        sc=tdSignals[instr].score;
-        src='TwelveData';
-        L(`${instr}: no candles — TD primary signal (RSI:${tdSignals[instr].rsi?.toFixed(0)} score:${sc})`);
+        // Derive score from TD RSI when no candles available
+        const tdRsiPrimary = tdSignals[instr].rsi;
+        const tdMacdPrimary = tdSignals[instr].macd;
+        sc = 0;
+        if(tdRsiPrimary !== null && !isNaN(tdRsiPrimary)){
+          if(tdRsiPrimary <= 30) sc = 2;
+          else if(tdRsiPrimary <= 35) sc = 1;
+          else if(tdRsiPrimary >= 70) sc = -2;
+          else if(tdRsiPrimary >= 65) sc = -1;
+        }
+        if(tdMacdPrimary !== null && !isNaN(tdMacdPrimary)){
+          sc += tdMacdPrimary > 0 ? 1 : -1;
+        }
+        regime = 'ranging'; // default when no candle data
+        closes = []; // empty array to prevent crashes
+        src = 'TwelveData';
+        L(`${instr}: no candles — TD primary signal (RSI:${tdRsiPrimary?.toFixed(0)} score:${sc})`);
       } else {
         L(`${instr}: no data from any source — skip`);
         continue;
       }
 
+      if(isNaN(sc)){L(`${instr}: invalid score — skip`);continue;}
       const safeNewsAdj = newsAdj||0; const safeSentAdj = sentAdj||0; const safeTdAdj = tdAdj||0;
       // Apply economic surprise score if available
       const calAdj = calSurprises[instr] || 0;
