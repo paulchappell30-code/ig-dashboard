@@ -337,8 +337,12 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       let closes=await getDbPrices(epic,60,L);
       let src='DB';
       if(!closes||closes.length<5){
-        const candles=await getIGPrices(epic,MAX_CANDLES_IG,igBase,igH);
-        if(candles&&candles.length>=5){closes=candles.map(c=>c.close);src='IG';}
+        // Only hit IG historical if not blocked — avoids burning allowance
+        if(!process.env.IG_HISTORICAL_BLOCKED){
+          const candles=await getIGPrices(epic,MAX_CANDLES_IG,igBase,igH);
+          if(candles&&candles.length>=5){closes=candles.map(c=>c.close);src='IG';}
+          else if(candles===null){L(`${instr}: IG historical blocked — skipping`);}
+        }
       }
 
       const newsAdj=getNewsAdj(instr,newsSentiment);
@@ -596,6 +600,7 @@ async function getIGPrices(epic,count,igBase,igH){
   const c=priceCache[key];
   if(c&&Date.now()-c.ts<CACHE_TTL)return c.data;
   const r=await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=${count}&pageSize=0`,{headers:{...igH,'Version':'3'}});
+  if(r.status===403){console.log('[IG Historical] 403 blocked');return null;}
   if(!r.ok)return null;
   const d=await r.json();
   const candles=(d.prices||[]).map(p=>({open:p.openPrice?.bid||0,high:p.highPrice?.bid||0,low:p.lowPrice?.bid||0,close:p.closePrice?.bid||p.closePrice?.mid||0})).filter(c=>c.close>0);
