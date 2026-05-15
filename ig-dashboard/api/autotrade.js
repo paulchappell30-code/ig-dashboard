@@ -548,22 +548,28 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
     // This ensures size × stopDist always = 1% of account regardless of instrument
     // ATR from DB candles is already in contract price units (no scaling needed)
-    const tradeStopDist = sig.atr > 0 ? Math.max(10, Math.round(sig.atr * 1.5)) : 20;
-    const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01); // Half risk when profit locked
+    // Tiered stop: hourly RSI MR uses tight 0.5x ATR, daily uses 1.5x ATR
+    const priceScale = CONTRACT_PRICE_SCALE[sig.epic] || 1;
+    const scaledATR = (sig.atr || 0) * priceScale;
+    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5 : 1.5;
+    const stopType = sig.meanReversion && sig.tdRsi ? 'hourly MR (0.5x ATR)' : sig.meanReversion ? 'daily MR (1.5x ATR)' : 'standard (1.5x ATR)';
+    const minStop = Math.max(10, priceScale * 5);
+    const tradeStopDist = scaledATR > 0 ? Math.max(minStop, Math.round(scaledATR * atrMult)) : minStop;
+    const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01);
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
     const actualRisk = (finalSz * tradeStopDist).toFixed(2);
+    L(`${sig.instr}: size £${finalSz}/pt (risk £${tradeRiskAmt.toFixed(2)} / ${tradeStopDist}pt stop — ${stopType})`);
+
     L(`${sig.instr}: size £${finalSz}/pt × ${tradeStopDist}pt stop = £${actualRisk} risk (${((parseFloat(actualRisk)/balance)*100).toFixed(1)}% of account)`);
     L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
 
     try{
       const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
-      // ATR-based stop loss
       ob.stopDistance=tradeStopDist;
-      L(`Stop loss: ${tradeStopDist}pts (1.5x ATR) — max loss £${actualRisk}`);
-      // Trailing stop
-      const trailDist=Math.max(10,Math.round(tradeStopDist*1.5));
+      L(`Stop loss: ${tradeStopDist}pts (${stopType}) — max loss £${actualRisk}`);
+      const trailDist=Math.max(minStop,Math.round(tradeStopDist*1.5));
       const trailIncrement=Math.max(1,Math.round(trailDist/5));
       ob.trailingStop=true;
       ob.trailingStopDistance=trailDist;
@@ -574,29 +580,27 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const od=await or.json();
       if(od.dealReference){ref=od.dealReference;}
       else{
-        L('Retry without trailing stop: '+(od.errorCode||'?'));
+        // Retry without trailing stop
         delete ob.trailingStop;delete ob.trailingStopDistance;delete ob.trailingStopIncrement;
-        const r2=await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(ob)});
-        const d2=await r2.json();
-        if(!d2.dealReference){L('Retry failed: '+(d2.errorCode||'?'));continue;}
-        ref=d2.dealReference;
+        const or2=await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(ob)});
+        const od2=await or2.json();
+        if(od2.dealReference){ref=od2.dealReference;L(`Retry without trailing stop: ${od.errorCode||od.error||JSON.stringify(od).slice(0,100)}`);}
+        else{L(`Retry failed: ${od2.errorCode||od2.error||JSON.stringify(od2).slice(0,100)}`);continue;}
       }
-      await new Promise(r=>setTimeout(r,1500));
       const cr=await fetch(`${igBase}/confirms/${ref}`,{headers:{...igH,'Version':'1'}});
-      const confirm=await cr.json();
-      if(confirm.dealStatus==='ACCEPTED'){
-        L(`✅ ACCEPTED ref:${ref} level:${confirm.level}`);
-        await saveToDb('trade_opened',{dealId:confirm.dealId,dealReference:ref,
-          instrument:sig.instr,epic:sig.epic,direction:sig.direction,size:finalSz,
-          openLevel:confirm.level,signalScore:sig.score,aiConfidence:confidence,
-          signalReasons:sig.reasons,regime:sig.regime,dataSource:sig.src});
-        await sendNotify('dca',`✅ v3 Auto-Trade: ${sig.direction} ${sig.instr}`,
-          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: ${finalSz} units (Kelly)\nPrice: ${confirm.level}\nRef: ${ref}\n\nScore: ${sig.score} (raw${sig.rawScore}+news${sig.newsAdj}+sent${sig.sentAdj})\nRegime: ${sig.regime}\nAI: ${confidence}%\n${reasoning}\n\nSignals:\n${sig.reasons.join('\n')}\n\nP&L: ${plPct.toFixed(2)}% | Balance: £${balance}\nTime: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
-        return res.status(200).json({action:'trade_placed',version:3,instrument:sig.instr,
-          direction:sig.direction,size:finalSz,ref,level:confirm.level,aiConfidence:confidence,regime:sig.regime,log});
+      const cd=await cr.json();
+      if(cd.dealStatus==='ACCEPTED'){
+        L(`✅ ACCEPTED ref:${ref} level:${cd.level}`);
+        await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
+          direction:sig.direction,size:finalSz,openLevel:cd.level,signalScore:sig.score,
+          aiConfidence:confidence,aiReasoning:reasoning,signalReasons:sig.reasons.join(', '),
+          regime:sig.regime,atr:sig.atr,stopDistance:tradeStopDist});
+        await sendNotify('trade',`🎯 Trade Placed: ${sig.instr} ${sig.direction}`,
+          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: £${finalSz}/pt\nLevel: ${cd.level}\nStop: ${tradeStopDist}pts\nMax Loss: £${actualRisk}\nAI: ${confidence}% — ${reasoning}\nRegime: ${sig.regime}\nScore: ${sig.score}`);
+        return res.status(200).json({action:'trade_placed',instrument:sig.instr,direction:sig.direction,level:cd.level,size:finalSz,log});
       }else{
-        L(`Rejected: ${confirm.reason||confirm.dealStatus}`);
-        await sendNotify('error',`❌ Order Rejected: ${sig.instr}`,`Reason: ${confirm.reason||confirm.dealStatus}`);
+        L(`Rejected: ${cd.reason||cd.dealStatus}`);
+        await sendNotify('error',`❌ Order Rejected: ${sig.instr}`,`Reason: ${cd.reason||cd.dealStatus}`);
       }
     }catch(e){L('Trade error: '+e.message);}
   }
@@ -623,263 +627,55 @@ async function getIGPrices(epic,count,igBase,igH){
   if(r.status===403){console.log('[IG Historical] 403 blocked');return null;}
   if(!r.ok)return null;
   const d=await r.json();
-  const candles=(d.prices||[]).map(p=>({open:p.openPrice?.bid||0,high:p.highPrice?.bid||0,low:p.lowPrice?.bid||0,close:p.closePrice?.bid||p.closePrice?.mid||0})).filter(c=>c.close>0);
-  priceCache[key]={data:candles,ts:Date.now()};
-  return candles;
+  const candles=(d.prices||[]).filter(p=>p.closePrice?.bid>0).map(p=>({
+    close:p.closePrice.bid,high:p.highPrice?.bid||p.closePrice.bid,
+    low:p.lowPrice?.bid||p.closePrice.bid,open:p.openPrice?.bid||p.closePrice.bid
+  }));
+  if(candles.length>0)priceCache[key]={data:candles,ts:Date.now()};
+  return candles.length>=5?candles:null;
 }
 
-// ── REGIME DETECTION ──────────────────────────────────────────────────────────
+// ── INDICATORS ────────────────────────────────────────────────────────────────
+function calcRSI(closes,period=14){
+  const n=closes.length;if(n<period+1)return 50;
+  let g=0,l=0;
+  for(let i=n-period;i<n;i++){const d=closes[i]-closes[i-1];if(d>0)g+=d;else l+=Math.abs(d);}
+  const ag=g/period,al=l/period;
+  return al===0?100:100-(100/(1+ag/al));
+}
+
+function calcEMA(closes,period){
+  if(closes.length<period)return closes[closes.length-1];
+  const k=2/(period+1);
+  let ema=closes.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for(let i=period;i<closes.length;i++)ema=closes[i]*k+ema*(1-k);
+  return ema;
+}
+
+function calcScore(closes,regime){
+  const n=closes.length;if(n<5)return 0;let s=0;
+  const rsi=calcRSI(closes);
+  if(rsi<35)s+=2;else if(rsi<45)s+=1;else if(rsi>65)s-=2;else if(rsi>55)s-=1;
+  const sma5=closes.slice(-Math.min(5,n)).reduce((a,b)=>a+b,0)/Math.min(5,n);
+  const sma10=closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
+  if(sma5>sma10)s+=1;else s-=1;
+  const mom=n>=5?((closes[n-1]-closes[n-5])/closes[n-5])*100:0;
+  if(mom>1)s+=1;else if(mom<-1)s-=1;
+  return s;
+}
+
 function detectRegime(closes){
-  const n=closes.length;if(n<10)return 'unknown';
-  const recent=closes.slice(-5);
-  const recentRange=Math.max(...recent)-Math.min(...recent);
-  const totalRange=Math.max(...closes)-Math.min(...closes);
-  const trendStr=recentRange/(totalRange||1);
+  const n=closes.length;if(n<10)return'ranging';
   const mid=Math.floor(n/2);
   const h1=closes.slice(0,mid).reduce((a,b)=>a+b,0)/mid;
   const h2=closes.slice(mid).reduce((a,b)=>a+b,0)/(n-mid);
   const slope=((h2-h1)/h1)*100;
-  if(Math.abs(slope)>3&&trendStr>0.3)return slope>0?'uptrend':'downtrend';
-  return 'ranging';
+  const recent=closes.slice(-5);
+  const rr=Math.max(...recent)-Math.min(...recent);
+  const tr=Math.max(...closes)-Math.min(...closes);
+  if(Math.abs(slope)>3&&rr/(tr||1)>0.3)return slope>0?'uptrend':'downtrend';
+  return'ranging';
 }
-
-// ── SIGNAL SCORING ────────────────────────────────────────────────────────────
-function calcScore(closes,regime){
-  const n=closes.length;if(n<5)return 0;
-  let s=0;
-  const rsi=calcRSI(closes);
-  const sma20=calcSMA(closes,Math.min(20,n));const sma50=calcSMA(closes,Math.min(50,n));
-  const macd=calcEMA(closes,Math.min(12,n))-calcEMA(closes,Math.min(26,n));
-  const mom=n>=10?((closes[n-1]-closes[n-10])/closes[n-10])*100:0;
-  const bb=calcBB(closes);
-  if(regime==='ranging'){
-    if(rsi<25)s+=4;else if(rsi<35)s+=3;else if(rsi>75)s-=4;else if(rsi>65)s-=3;
-    if(closes[n-1]<bb.lower)s+=3;else if(closes[n-1]>bb.upper)s-=3;
-    if(mom>1)s+=1;else if(mom<-1)s-=1;
-    if(sma20>sma50)s+=1;else s-=1;if(macd>0)s+=1;else s-=1;
-  }else if(regime==='uptrend'){
-    if(sma20>sma50)s+=3;else s-=3;
-    if(mom>2)s+=3;else if(mom>1)s+=2;else if(mom<-1)s-=2;
-    if(macd>0)s+=2;else s-=1;
-    if(rsi<45)s+=2;else if(rsi>75)s-=2;
-  }else if(regime==='downtrend'){
-    if(sma20<sma50)s-=3;else s+=3;
-    if(mom<-2)s-=3;else if(mom<-1)s-=2;else if(mom>1)s+=2;
-    if(macd<0)s-=2;else s+=1;
-    if(rsi>55)s-=2;
-  }else{
-    if(rsi<30)s+=2;else if(rsi<40)s+=1;else if(rsi>70)s-=2;else if(rsi>60)s-=1;
-    if(sma20>sma50)s+=1;else s-=1;if(macd>0)s+=1;else s-=1;
-    if(mom>1)s+=1;else if(mom<-1)s-=1;
-    if(closes[n-1]<bb.lower)s+=1;else if(closes[n-1]>bb.upper)s-=1;
-  }
-  return s;
-}
-
-// ── KELLY SIZING ──────────────────────────────────────────────────────────────
-function kellySize(winRate,balance,atr,price,cfg){
-  const b=1;const kelly=Math.max(0,(b*winRate-(1-winRate))/b)/2;
-  const risk=balance*Math.min(kelly,0.1);
-  const stop=atr>0?atr*2:50;
-  return Math.max(1,Math.min(Math.floor(risk/stop),cfg.maxSizePerTrade));
-}
-
-// ── IG SENTIMENT (contrarian) ─────────────────────────────────────────────────
-async function getIGSentiment(epic,igBase,igH,L,base,instrName){
-  const ids={
-    'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX',
-    'IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.TODAY.IP':'GBPUSD',
-    'CS.D.EURUSD.TODAY.IP':'EURUSD','CS.D.USDJPY.TODAY.IP':'USDJPY',
-    'CS.D.USCGC.TODAY.IP':'GOLD','CS.D.USCSI.TODAY.IP':'SILVER',
-    'CS.D.COPPER.TODAY.IP':'COPPER','CS.D.EURGBP.TODAY.IP':'EURGBP',
-  };
-  const id=ids[epic];if(!id)return 0;
-  try{
-    const r=await fetch(`${igBase}/clientsentiment/${id}`,{headers:igH});
-    if(!r.ok)return 0;const d=await r.json();
-    if(!d||!d.clientSentimentList&&!d.longPositionPercentage) return 0;
-    const sentiment = d.clientSentimentList?.[0] || d;
-    const lp=sentiment.longPositionPercentage||d.longPositionPercentage||50;
-    const sp=sentiment.shortPositionPercentage||d.shortPositionPercentage||(100-lp);
-    // Save sentiment history to DB
-    if(base && instrName){
-      fetch(`${base}/api/db`,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({type:'sentiment',data:{instrument:instrName,epic,longPct:lp,shortPct:sp}})
-      }).catch(()=>{});
-    }
-    if(lp>70){L(`${id}: ${lp}% long — contrarian SELL`);return -2;}
-    if(lp<30){L(`${id}: ${lp}% long — contrarian BUY`);return 2;}
-    if(lp>60)return -1;if(lp<40)return 1;return 0;
-  }catch(e){return 0;}
-}
-
-// ── NEWS SENTIMENT ────────────────────────────────────────────────────────────
-async function fetchNews(L){
-  try{
-    const r=await fetch(`https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=20&apiKey=${process.env.NEWS_API_KEY}`);
-    if(!r.ok)return {};
-    const d=await r.json();
-    const headlines=(d.articles||[]).map(a=>a.title).join('\n');
-    if(!headlines)return {};
-    const ar=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY||'','anthropic-version':'2023-06-01'},
-      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:200,
-        messages:[{role:'user',content:`Analyse these financial headlines and rate market sentiment. Use ONLY integers: -2, -1, 0, 1, or 2. No + signs.\n\nHeadlines:\n${headlines}\n\nRespond with ONLY this exact JSON (no other text, no + signs before numbers):\n{"FTSE":0,"SP500":0,"DAX":0,"DOW":0,"OIL":0,"GBPUSD":0,"EURUSD":0,"USDJPY":0,"summary":"one sentence summary"}`}]})});
-    const ad=await ar.json();
-    const t=ad.content&&ad.content[0]&&ad.content[0].text||'{}';
-    // Clean up common JSON issues (+ signs before numbers, trailing commas)
-    const cleaned=t.replace(/```json|```/g,'').trim()
-      .replace(/:\s*\+?(\d)/g,': $1')  // Remove + before numbers
-      .replace(/,\s*}/g,'}')             // Remove trailing commas
-      .replace(/,\s*]/g,']');
-    const sentiment=JSON.parse(cleaned);
-    L('News: '+sentiment.summary);return sentiment;
-  }catch(e){L('News error: '+e.message);return {};}
-}
-
-function getNewsAdj(instr,s){
-  const m={'FTSE 100':s.FTSE,'S&P 500':s.SP500,'DAX 40':s.DAX,'Dow Jones':s.DOW,
-    'Brent Oil':s.OIL,'GBP/USD':s.GBPUSD,'EUR/USD':s.EURUSD,'USD/JPY':s.USDJPY};
-  return m[instr]||0;
-}
-
-// ── POSITION MANAGEMENT ───────────────────────────────────────────────────────
-async function managePositions(positions,igBase,igH,cfg,balance,L){
-  for(const p of positions){
-    try{
-      const epic=p.market.epic;const dir=p.position.direction;
-      const open=p.position.openLevel;const bid=p.market.bid;
-      const sz=p.position.size||p.position.dealSize||1;
-      const upl=dir==='BUY'?(bid-open)*sz:(open-bid)*sz;
-      const uplPct=open>0?Math.abs(bid-open)/open*100:0;
-      L(`Managing ${p.market.instrumentName}: UPL £${upl.toFixed(2)} (${uplPct.toFixed(2)}%)`);
-
-      // Get ATR for this instrument
-      const closes=await getDbPrices(epic,20,L);
-      const candles = closes ? closes.map(c=>({close:c,high:c*1.001,low:c*0.999})) : [];
-      const atr = candles.length>=5 ? calcATR(candles) : 50;
-
-      // Partial close: if profit >= 1x ATR, close 50% and let rest run
-      // Works with any size including fractional £/point spread bets
-      if(upl > 0 && sz >= 0.01) {
-        const atrProfit = atr * sz;
-        if(upl >= atrProfit && !p.position.partialClosed) {
-          const halfSize = parseFloat((sz / 2).toFixed(2));
-          if(halfSize >= 0.01) {
-            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close £${halfSize}/pt`);
-            try {
-              const closeBody = {epic,direction:dir==='BUY'?'SELL':'BUY',size:halfSize,
-                orderType:'MARKET',expiry:'DFB',guaranteedStop:false,forceOpen:false,
-                currencyCode:'GBP',dealType:'SPREADBET'};
-              const cr = await fetch(`${igBase}/positions/otc`,{method:'POST',
-                headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
-              const cd = await cr.json();
-              if(cd.dealReference) {
-                L(`Partial close order placed: ref ${cd.dealReference}`);
-                await saveToDb('engine_event',{eventType:'partial_close',instrument:p.market.instrumentName,
-                  details:{dealId:p.position.dealId,halfSize,upl,atr}});
-              }
-            } catch(e) { L(`Partial close error: ${e.message}`); }
-          }
-        }
-      }
-
-      // Signal reversal check
-      if(closes&&closes.length>=5){
-        const regime=detectRegime(closes);const sc=calcScore(closes,regime);
-        if((dir==='BUY'&&sc<=-3)||(dir==='SELL'&&sc>=3)){
-          L(`${p.market.instrumentName}: signal reversed (${sc}) — consider closing`);
-          await saveToDb('engine_event',{eventType:'close_recommendation',instrument:p.market.instrumentName,
-            details:{upl,sc,regime,dealId:p.position.dealId}});
-        }
-      }
-    }catch(e){ L(`Position management error: ${e.message}`); }
-  }
-}
-
-// ── AI CONFIRMATION ───────────────────────────────────────────────────────────
-async function aiConfirm(sig,cfg,plPct,openCount,winRate,L){
-  L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
-  const regimeContext = sig.meanReversion
-  ? `MEAN REVERSION trade in ranging market.
-PRIMARY SIGNAL: ${sig.tdRsi ? `TD Hourly RSI ${sig.tdRsi.toFixed(1)}` : `Daily RSI ${sig.rsi.toFixed(1)}`} is ${sig.direction==='SELL'?'overbought':'oversold'} — this IS the entry trigger.
-Daily RSI: ${sig.rsi.toFixed(1)} (context only — hourly RSI extreme is the signal).
-APPROVAL RULE: APPROVE if (1) the triggering RSI is ≤33 (oversold BUY) or ≥67 (overbought SELL), AND (2) score ≥2, AND (3) momentum does not STRONGLY contradict (i.e. momentum < +2% for SELL or > -2% for BUY).
-The RSI extreme justifies the trade. Daily RSI being neutral is acceptable — the hourly extreme is the mean reversion trigger on a shorter timeframe.`
-  : sig.regime==='ranging'
-  ? `RANGING regime (non-mean-reversion): Only approve if score ≥6 AND RSI is extended (≥65 or ≤35) AND momentum confirms direction. Calendar surprise scores alone do not justify a trade without RSI confirmation. Reject neutral RSI trades.`
-  : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
-
-const prompt=`Trading risk manager. Approve this spread bet?
-INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}${sig.meanReversion?' [MEAN REVERSION]':''}
-${sig.tdRsi?`TRIGGER: TD Hourly RSI ${sig.tdRsi.toFixed(1)} — THIS IS THE ENTRY SIGNAL (not the daily RSI)
-Daily RSI: ${sig.rsi.toFixed(1)} (context only)`:`RSI (daily): ${sig.rsi.toFixed(1)}`}
-SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj} td:${sig.tdAdj||0})
-TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
-ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
-WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
-Reasons: ${sig.reasons.join(', ')}
-CONTEXT: ${regimeContext}
-Respond ONLY: {"approved":true,"confidence":75,"reasoning":"2 sentences","risk":"main risk"}`;
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':process.env.ANTHROPIC_API_KEY||'','anthropic-version':'2023-06-01'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:250,messages:[{role:'user',content:prompt}]})});
-  const d=await r.json();
-  const t=d.content&&d.content[0]&&d.content[0].text||'{}';
-  const result=JSON.parse(t.replace(/```json|```/g,'').trim());
-  const approved=result.approved===true&&(result.confidence||0)>=cfg.aiConfidenceMin;
-  L(`AI:${approved?'✅':'❌'}(${result.confidence}%) ${result.reasoning}`);
-  return{approved,confidence:result.confidence||0,reasoning:result.reasoning||''};
-}
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-async function closeAll(igBase,igH){
-  let n=0;
-  try{const r=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-    const d=await r.json();
-    for(const p of(d.positions||[])){
-      try{await fetch(`${igBase}/positions/otc/${p.position.dealId}`,{method:'DELETE',headers:{...igH,'Version':'1'}});n++;await new Promise(r=>setTimeout(r,500));}catch(e){}
-    }}catch(e){}
-  return n;
-}
-
-function isMarketOpen(group){
-  if(group==='fx') return true; // FX trades 24hrs
-  const h=TRADING_HOURS[group]||{open:7,close:16};
-  const u=new Date().getUTCHours();return u>=h.open&&u<h.close;
-}
-
-function isPreferredWindow(){
-  const u=new Date().getUTCHours();
-  return PREFERRED_WINDOWS.some(w=>u>=w.open&&u<w.close);
-}
-
-async function nearHighImpact(L){
-  const h=new Date().getUTCHours(),m=new Date().getUTCMinutes();
-  const times=[{h:7,m:0},{h:8,m:30},{h:9,m:0},{h:12,m:30},{h:14,m:0},{h:18,m:0}];
-  for(const t of times){if(Math.abs((h*60+m)-(t.h*60+t.m))<=30){L(`Calendar: near ${t.h}:${String(t.m).padStart(2,'0')} UTC`);return true;}}
-  return false;
-}
-
-async function saveToDb(type,data){
-  try{const base=process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
-    await fetch(`${base}/api/db`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,data})});
-  }catch(e){}}
-
-async function sendNotify(type,subject,body){
-  try{const base=process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
-    await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,subject,body})});
-  }catch(e){}}
-
-function calcRSI(c,p=14){
-  const period=Math.min(p,c.length-1);if(period<2)return 50;
-  let g=0,l=0;for(let i=c.length-period;i<c.length;i++){const d=c[i]-c[i-1];if(d>0)g+=d;else l+=Math.abs(d);}
-  const ag=g/period,al=l/period;if(al===0)return 100;return 100-(100/(1+ag/al));}
-
-function calcSMA(c,p){const n=Math.min(p,c.length);return c.slice(-n).reduce((a,b)=>a+b,0)/n;}
-
-function calcEMA(c,p){const n=Math.min(p,c.length);if(n<2)return c[c.length-1];const k=2/(n+1);
-  let e=c.slice(0,n).reduce((a,b)=>a+b,0)/n;for(let i=n;i<c.length;i++)e=c[i]*k+e*(1-k);return e;}
 
 function calcBB(c,p=20){const n=Math.min(p,c.length);const sma=c.slice(-n).reduce((a,b)=>a+b,0)/n;
   const std=Math.sqrt(c.slice(-n).reduce((s,v)=>s+Math.pow(v-sma,2),0)/n);
