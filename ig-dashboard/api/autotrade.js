@@ -69,7 +69,7 @@ const DEFAULT_CONFIG = {
   requireAIConfirm:true,aiConfidenceMin:60,enabled:true,
   trailingStopPct:1.5,signalThreshold:2,useNewsFilter:true,
   usePreferredWindow:false,useKellyCriterion:true,winRateLookback:20,
-  eodClose:true,eodCloseTime:{h:16,m:15},
+  eodClose:true,eodCloseTime:{h:21,m:0},
 };
 
 const priceCache = {};
