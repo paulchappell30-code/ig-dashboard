@@ -360,10 +360,10 @@ async function runWeeklyPriceAnalysis(base, anthropicKey) {
       { name: 'Brent Oil',   epic: 'CC.D.LCO.USS.IP' },
       { name: 'Gold',        epic: 'CS.D.USCGC.TODAY.IP' },
       { name: 'Silver',      epic: 'CS.D.USCSI.TODAY.IP' },
-      { name: 'GBP/USD',     epic: 'CS.D.GBPUSD.MINI.IP' },
-      { name: 'EUR/USD',     epic: 'CS.D.EURUSD.MINI.IP' },
+      { name: 'GBP/USD',     epic: 'CS.D.GBPUSD.TODAY.IP' },
+      { name: 'EUR/USD',     epic: 'CS.D.EURUSD.TODAY.IP' },
       { name: 'Copper',      epic: 'CS.D.COPPER.TODAY.IP' },
-      { name: 'EUR/GBP',     epic: 'CS.D.EURGBP.MINI.IP' },
+      { name: 'EUR/GBP',     epic: 'CS.D.EURGBP.TODAY.IP' },
     ];
 
     const marketData = [];
