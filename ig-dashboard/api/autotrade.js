@@ -12,15 +12,15 @@ const IG_BASES = {
 const EPIC_MAP = {
   'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP',
   'DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
-  'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.MINI.IP',
-  'EUR/USD':'CS.D.EURUSD.MINI.IP','USD/JPY':'CS.D.USDJPY.MINI.IP',
+  'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
+  'EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP',
   'CAC 40':'IX.D.CAC.DAILY.IP',
   'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
   'Nasdaq':'IX.D.NASDAQ.CASH.IP',
   'Gold':'CS.D.USCGC.TODAY.IP',
   'Silver':'CS.D.USCSI.TODAY.IP',
   'Copper':'CS.D.COPPER.TODAY.IP',
-  'EUR/GBP':'CS.D.EURGBP.MINI.IP',
+  'EUR/GBP':'CS.D.EURGBP.TODAY.IP',
 };
 
 const CORRELATION_GROUPS = {
@@ -32,9 +32,9 @@ const CORRELATION_GROUPS = {
   'CC.D.LCO.USS.IP':'commodities',
   'CS.D.USCSI.TODAY.IP':'commodities',
   'CS.D.COPPER.TODAY.IP':'commodities',
-  'CS.D.EURGBP.MINI.IP':'fx',
+  'CS.D.EURGBP.TODAY.IP':'fx',
   'CS.D.USCGC.TODAY.IP':'commodities',
-  'CS.D.GBPUSD.MINI.IP':'fx','CS.D.EURUSD.MINI.IP':'fx','CS.D.USDJPY.MINI.IP':'fx',
+  'CS.D.GBPUSD.TODAY.IP':'fx','CS.D.EURUSD.TODAY.IP':'fx','CS.D.USDJPY.TODAY.IP':'fx',
 };
 
 const TRADING_HOURS = {
@@ -668,10 +668,10 @@ function kellySize(winRate,balance,atr,price,cfg){
 async function getIGSentiment(epic,igBase,igH,L,base,instrName){
   const ids={
     'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX',
-    'IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.MINI.IP':'GBPUSD',
-    'CS.D.EURUSD.MINI.IP':'EURUSD','CS.D.USDJPY.MINI.IP':'USDJPY',
+    'IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.TODAY.IP':'GBPUSD',
+    'CS.D.EURUSD.TODAY.IP':'EURUSD','CS.D.USDJPY.TODAY.IP':'USDJPY',
     'CS.D.USCGC.TODAY.IP':'GOLD','CS.D.USCSI.TODAY.IP':'SILVER',
-    'CS.D.COPPER.TODAY.IP':'COPPER','CS.D.EURGBP.MINI.IP':'EURGBP',
+    'CS.D.COPPER.TODAY.IP':'COPPER','CS.D.EURGBP.TODAY.IP':'EURGBP',
   };
   const id=ids[epic];if(!id)return 0;
   try{
