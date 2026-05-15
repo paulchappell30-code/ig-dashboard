@@ -26,7 +26,7 @@ const CONTRACT_PRICE_SCALE = {
   'CS.D.EURGBP.TODAY.IP': 10000,
 };
 
-EPIC_MAP = {
+const EPIC_MAP = {
   'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP',
   'DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
   'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
@@ -206,6 +206,94 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
   const icon = result.approved ? '✅' : '❌';
   L(`AI:${icon}(${result.confidence}%) ${result.reasoning}`);
   return { approved: result.approved, confidence: result.confidence, reasoning: result.reasoning };
+}
+
+
+async function fetchNews(L) {
+  try {
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const r = await fetch(`${base}/api/indicators?action=news`, { timeout: 5000 });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.summary || null;
+  } catch(e) { L('News fetch failed: ' + e.message); return null; }
+}
+
+async function managePositions(openPos, igBase, igH, cfg, balance, L) {
+  for (const p of openPos) {
+    try {
+      const epic = p.market.epic;
+      const dir = p.position.direction;
+      const sz = p.position.dealSize || p.position.size || 1;
+      const openLevel = p.position.openLevel;
+      const current = p.market.bid || openLevel;
+      const upl = dir === 'BUY' ? (current - openLevel) * sz : (openLevel - current) * sz;
+
+      // Partial close: if profit >= 1x ATR close 50%
+      const dbEpic = DB_EPIC_MAP[epic] || epic;
+      const closes = await getDbPrices(dbEpic, 20, L) || [];
+      const atr = closes.length >= 5 ? calcATR(closes) : 50;
+      const atrProfit = atr * sz;
+
+      if (upl > 0 && sz >= 0.01) {
+        if (upl >= atrProfit && !p.position.partialClosed) {
+          const halfSize = parseFloat((sz / 2).toFixed(2));
+          if (halfSize >= 0.01) {
+            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close £${halfSize}/pt`);
+            try {
+              const closeBody = { epic, direction: dir === 'BUY' ? 'SELL' : 'BUY',
+                size: halfSize, orderType: 'MARKET', expiry: 'DFB',
+                guaranteedStop: false, forceOpen: false, currencyCode: 'GBP', dealType: 'SPREADBET' };
+              const cr = await fetch(`${igBase}/positions/otc`, {
+                method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(closeBody)
+              });
+              const cd = await cr.json();
+              if (cd.dealReference) L(`Partial close confirmed: ${cd.dealReference}`);
+            } catch(e) { L('Partial close error: ' + e.message); }
+          }
+        }
+      }
+    } catch(e) { L('Position manage error: ' + e.message); }
+  }
+}
+
+function kellySize(winRate, balance, atr, price, cfg) {
+  const w = Math.max(0.3, Math.min(0.8, winRate));
+  const r = 1.5; // reward:risk ratio
+  const kelly = Math.max(0, w - (1 - w) / r);
+  const quarterKelly = kelly * 0.25;
+  const riskAmt = balance * Math.min(0.02, quarterKelly);
+  const stopPts = Math.max(10, atr * 1.5);
+  return Math.max(0.01, Math.min(parseFloat((riskAmt / stopPts).toFixed(2)), cfg.maxSizePerTrade));
+}
+
+function calcSMA(closes, period) {
+  const n = Math.min(period, closes.length);
+  return closes.slice(-n).reduce((a, b) => a + b, 0) / n;
+}
+
+function isMarketOpen(group) {
+  if (group === 'fx') return true;
+  const h = TRADING_HOURS[group] || { open: 7, close: 21 };
+  const u = new Date().getUTCHours();
+  return u >= h.open && u < h.close;
+}
+
+function isPreferredWindow() {
+  const u = new Date().getUTCHours();
+  return PREFERRED_WINDOWS.some(w => u >= w.open && u < w.close);
+}
+
+async function nearHighImpact(L) {
+  const h = new Date().getUTCHours(), m = new Date().getUTCMinutes();
+  const times = [{h:7,m:0},{h:8,m:30},{h:9,m:0},{h:12,m:30},{h:14,m:0},{h:18,m:0}];
+  for (const t of times) {
+    if (Math.abs((h*60+m) - (t.h*60+t.m)) <= 30) {
+      L(`Calendar: near ${t.h}:${String(t.m).padStart(2,'0')} UTC`);
+      return true;
+    }
+  }
+  return false;
 }
 
 module.exports = async (req,res) => {
