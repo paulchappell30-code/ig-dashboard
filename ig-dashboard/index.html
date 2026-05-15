@@ -309,10 +309,10 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
             <button class="btn btn-sm" id="chart-btn-GOLD" onclick="selectChartInstrument('Gold','CS.D.USCGC.TODAY.IP',this)">Gold</button>
             <button class="btn btn-sm" id="chart-btn-SILVER" onclick="selectChartInstrument('Silver','CS.D.USCSI.TODAY.IP',this)">Silver</button>
             <button class="btn btn-sm" id="chart-btn-COPPER" onclick="selectChartInstrument('Copper','CS.D.COPPER.TODAY.IP',this)">Copper</button>
-            <button class="btn btn-sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.MINI.IP',this)">GBP/USD</button>
-            <button class="btn btn-sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.MINI.IP',this)">EUR/USD</button>
-            <button class="btn btn-sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.MINI.IP',this)">USD/JPY</button>
-            <button class="btn btn-sm" id="chart-btn-EURGBP" onclick="selectChartInstrument('EUR/GBP','CS.D.EURGBP.MINI.IP',this)">EUR/GBP</button>
+            <button class="btn btn-sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.TODAY.IP',this)">GBP/USD</button>
+            <button class="btn btn-sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.TODAY.IP',this)">EUR/USD</button>
+            <button class="btn btn-sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.TODAY.IP',this)">USD/JPY</button>
+            <button class="btn btn-sm" id="chart-btn-EURGBP" onclick="selectChartInstrument('EUR/GBP','CS.D.EURGBP.TODAY.IP',this)">EUR/GBP</button>
             <button class="btn btn-sm" id="chart-btn-CAC" onclick="selectChartInstrument('CAC 40','IX.D.CAC.DAILY.IP',this)">CAC 40</button>
             <button class="btn btn-sm" id="chart-btn-NIKKEI" onclick="selectChartInstrument('Nikkei 225','IX.D.NIKKEI.DAILY.IP',this)">Nikkei</button>
             <button class="btn btn-sm" id="chart-btn-NASDAQ" onclick="selectChartInstrument('Nasdaq','IX.D.NASDAQ.CASH.IP',this)">Nasdaq</button>
@@ -350,7 +350,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
       <div class="card" style="margin-bottom:16px">
         <div class="card-title" style="margin-bottom:14px">Backtest Configuration</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
-          <div class="form-row"><label>Instrument</label><select id="bt-instrument"><option value="IX.D.FTSE.DAILY.IP">FTSE 100</option><option value="IX.D.SPTRD.DAILY.IP">S&P 500</option><option value="IX.D.DAX.DAILY.IP">DAX 40</option><option value="CC.D.LCO.USS.IP">Brent Oil</option><option value="CS.D.GBPUSD.MINI.IP">GBP/USD</option><option value="CS.D.USCGC.TODAY.IP">Gold</option><option value="CS.D.USCSI.TODAY.IP">Silver</option><option value="CS.D.COPPER.TODAY.IP">Copper</option><option value="CS.D.EURGBP.MINI.IP">EUR/GBP</option></select></div>
+          <div class="form-row"><label>Instrument</label><select id="bt-instrument"><option value="IX.D.FTSE.DAILY.IP">FTSE 100</option><option value="IX.D.SPTRD.DAILY.IP">S&P 500</option><option value="IX.D.DAX.DAILY.IP">DAX 40</option><option value="CC.D.LCO.USS.IP">Brent Oil</option><option value="CS.D.GBPUSD.TODAY.IP">GBP/USD</option><option value="CS.D.USCGC.TODAY.IP">Gold</option><option value="CS.D.USCSI.TODAY.IP">Silver</option><option value="CS.D.COPPER.TODAY.IP">Copper</option><option value="CS.D.EURGBP.TODAY.IP">EUR/GBP</option></select></div>
           <div class="form-row"><label>Days</label><input type="number" id="bt-days" value="30" min="10" max="365"></div>
           <div class="form-row"><label>Signal Threshold</label><input type="number" id="bt-threshold" value="2" min="1" max="7"></div>
         </div>
@@ -468,10 +468,10 @@ const S = {
     {name:'Gold',      epic:'CS.D.USCGC.TODAY.IP',   price:'—',change:'—',pos:true,icon:'🥇'},
     {name:'Silver',    epic:'CS.D.USCSI.TODAY.IP',   price:'—',change:'—',pos:true,icon:'🥈'},
     {name:'Copper',    epic:'CS.D.COPPER.TODAY.IP',  price:'—',change:'—',pos:true,icon:'🟤'},
-    {name:'GBP/USD',   epic:'CS.D.GBPUSD.MINI.IP',  price:'—',change:'—',pos:true,icon:'💷'},
-    {name:'EUR/USD',   epic:'CS.D.EURUSD.MINI.IP',  price:'—',change:'—',pos:true,icon:'💶'},
-    {name:'USD/JPY',   epic:'CS.D.USDJPY.MINI.IP',  price:'—',change:'—',pos:true,icon:'💴'},
-    {name:'EUR/GBP',   epic:'CS.D.EURGBP.MINI.IP',  price:'—',change:'—',pos:true,icon:'💱'},
+    {name:'GBP/USD',   epic:'CS.D.GBPUSD.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💷'},
+    {name:'EUR/USD',   epic:'CS.D.EURUSD.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💶'},
+    {name:'USD/JPY',   epic:'CS.D.USDJPY.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💴'},
+    {name:'EUR/GBP',   epic:'CS.D.EURGBP.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💱'},
     {name:'CAC 40',    epic:'IX.D.CAC.DAILY.IP',     price:'—',change:'—',pos:true,icon:'🇫🇷'},
     {name:'Nikkei 225',epic:'IX.D.NIKKEI.DAILY.IP',  price:'—',change:'—',pos:true,icon:'🇯🇵'},
     {name:'Nasdaq',    epic:'IX.D.NASDAQ.CASH.IP',   price:'—',change:'—',pos:true,icon:'💻'},
@@ -780,7 +780,7 @@ function calcEMA(closes,period){
 
 async function loadSentiment(){
   try{
-    const map={'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX','IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.MINI.IP':'GBPUSD','CS.D.EURUSD.MINI.IP':'EURUSD','CS.D.USDJPY.MINI.IP':'USDJPY','CS.D.USCGC.TODAY.IP':'GOLD'};
+    const map={'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX','IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.TODAY.IP':'GBPUSD','CS.D.EURUSD.TODAY.IP':'EURUSD','CS.D.USDJPY.TODAY.IP':'USDJPY','CS.D.USCGC.TODAY.IP':'GOLD'};
     const id=map[chartState.epic];if(!id){document.getElementById('sentiment-grid').innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment not available for this instrument</div>';return;}
     const res=await igFetch('clientsentiment/'+id);const sg=document.getElementById('sentiment-grid');
     if(!res.ok){if(sg)sg.innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment unavailable</div>';return;}
@@ -974,7 +974,7 @@ function clearAI(){const h=document.getElementById('ai-history');if(h)h.innerHTM
 async function placeManualOrder(){
   const instr=document.getElementById('ord-instr').value;const dir=document.getElementById('ord-dir').value;
   const size=parseFloat(document.getElementById('ord-size').value)||0.01;const orderType=document.getElementById('ord-type').value;const price=document.getElementById('ord-price').value;
-  const epicMap={'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP','Brent Oil':'CC.D.LCO.USS.IP','Gold':'CS.D.USCGC.TODAY.IP','Silver':'CS.D.USCSI.TODAY.IP','Copper':'CS.D.COPPER.TODAY.IP','GBP/USD':'CS.D.GBPUSD.MINI.IP','EUR/USD':'CS.D.EURUSD.MINI.IP','USD/JPY':'CS.D.USDJPY.MINI.IP','EUR/GBP':'CS.D.EURGBP.MINI.IP','CAC 40':'IX.D.CAC.DAILY.IP','Nikkei 225':'IX.D.NIKKEI.DAILY.IP','Nasdaq':'IX.D.NASDAQ.CASH.IP'};
+  const epicMap={'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP','Brent Oil':'CC.D.LCO.USS.IP','Gold':'CS.D.USCGC.TODAY.IP','Silver':'CS.D.USCSI.TODAY.IP','Copper':'CS.D.COPPER.TODAY.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP','EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP','EUR/GBP':'CS.D.EURGBP.TODAY.IP','CAC 40':'IX.D.CAC.DAILY.IP','Nikkei 225':'IX.D.NIKKEI.DAILY.IP','Nasdaq':'IX.D.NASDAQ.CASH.IP'};
   if(!S.connected){addLog('order','Not connected');return;}
   try{
     const ob={epic:epicMap[instr],direction:dir.toUpperCase(),size,orderType:orderType.toUpperCase(),expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
@@ -1069,7 +1069,7 @@ function startLightstreamer(){
       onServerError:function(code,msg){addLog('system','LS error: '+msg);}
     });
     lsClient.connect();
-    const NON_STREAM=['CS.D.GBPUSD.MINI.IP','CS.D.EURUSD.MINI.IP','CS.D.USDJPY.MINI.IP','CS.D.EURGBP.MINI.IP','CS.D.USCSI.TODAY.IP'];
+    const NON_STREAM=['CS.D.GBPUSD.TODAY.IP','CS.D.EURUSD.TODAY.IP','CS.D.USDJPY.TODAY.IP','CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
     const epics=S.markets.filter(m=>!NON_STREAM.includes(m.epic)).map(m=>'MARKET:'+m.epic);
     console.log('[LS] Subscribing to',epics.length,'instruments');
     // Subscribe individually so a bad epic doesn't kill the whole batch
@@ -1107,8 +1107,8 @@ function startLightstreamer(){
 
 // ─── TWELVE DATA PRICE FALLBACK ───────────────────────────────────────────────
 const TD_PRICE_MAP={
-  'CS.D.GBPUSD.MINI.IP':'GBP/USD','CS.D.EURUSD.MINI.IP':'EUR/USD','CS.D.USDJPY.MINI.IP':'USD/JPY',
-  'CS.D.EURGBP.MINI.IP':'EUR/GBP','CS.D.USCGC.TODAY.IP':'XAU/USD','CC.D.LCO.USS.IP':'BCO',
+  'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD','CS.D.USDJPY.TODAY.IP':'USD/JPY',
+  'CS.D.EURGBP.TODAY.IP':'EUR/GBP','CS.D.USCGC.TODAY.IP':'XAU/USD','CC.D.LCO.USS.IP':'BCO',
   'CS.D.USCSI.TODAY.IP':'XAG/USD','CS.D.COPPER.TODAY.IP':'COPPER',
 };
 let _tdTimer=null;
