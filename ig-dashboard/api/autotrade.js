@@ -546,9 +546,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
     // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
     // This ensures size × stopDist always = 1% of account regardless of instrument
-    const priceScale = CONTRACT_PRICE_SCALE[sig.epic] || 1;
-    const scaledATR = sig.atr * priceScale;
-    const tradeStopDist = scaledATR > 0 ? Math.max(10, Math.round(scaledATR * 1.5)) : 20;
+    // ATR from DB candles is already in contract price units (no scaling needed)
+    const tradeStopDist = sig.atr > 0 ? Math.max(10, Math.round(sig.atr * 1.5)) : 20;
     const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01); // Half risk when profit locked
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
