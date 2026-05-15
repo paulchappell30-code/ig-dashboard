@@ -450,7 +450,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       ].filter(Boolean);
 
       signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
-        reasons,rsi,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
+        reasons,rsi,tdRsi:tdRsiForMR,effectiveRSI,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
         atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
       // Note: group only marked occupied on open position, not on signal
     }catch(e){L(`${instr}: ${e.message}`);}
