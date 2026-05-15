@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     `;
     if (cacheRow.rows.length > 0) {
       const age = Date.now() - new Date(cacheRow.rows[0].created_at).getTime();
-      if (age < 10 * 60 * 1000) { // 10 minutes
+      if (age < 8 * 60 * 1000) { // 8 minutes
         L(`Cache fresh (${Math.round(age/60000)}m old) — skipping TD fetch`);
         return res.status(200).json({ action: 'cache_fresh', ageMinutes: Math.round(age/60000), log });
       }
@@ -118,7 +118,10 @@ module.exports = async (req, res) => {
                 WHERE event_type = 'td_cache'
                 AND created_at < NOW() - INTERVAL '2 hours'`;
       L(`TD cache saved: ${Object.keys(tdCache).length} instruments`);
-    } catch(e) { L('Cache save error: ' + e.message); }
+    } catch(e) { 
+      L('Cache save error: ' + e.message + ' — ' + e.stack?.split('\n')[0]);
+      console.error('[Alert] Cache save failed:', e);
+    }
   }
 
   // ── Trigger engine if RSI extreme found ───────────────────────────────────────
