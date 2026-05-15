@@ -167,6 +167,47 @@ async function getIGSentiment(epic, igBase, igH, L, base, instrName) {
   } catch(e) { return 0; }
 }
 
+
+async function aiConfirm(sig, cfg, plPct, openCount, winRate, L) {
+  L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
+  const regimeContext = sig.meanReversion && sig.tdRsi
+  ? `MEAN REVERSION trade in ranging market.
+PRIMARY SIGNAL: TD Hourly RSI ${sig.tdRsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought':'oversold'} — this IS the entry trigger.
+Daily RSI: ${sig.rsi.toFixed(1)} (context only — hourly RSI extreme is the signal).
+APPROVAL RULE: APPROVE if (1) the triggering RSI is ≤33 (oversold BUY) or ≥67 (overbought SELL), AND (2) score ≥2, AND (3) momentum does not STRONGLY contradict (i.e. momentum < +2% for SELL or > -2% for BUY).
+The RSI extreme justifies the trade. Daily RSI being neutral is acceptable — the hourly extreme is the mean reversion trigger on a shorter timeframe.`
+  : sig.meanReversion
+  ? `MEAN REVERSION trade: Daily RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥67)':'oversold (≤33)'} in ranging market — fading the RSI extreme. RSI ≥67 or ≤33 in a ranging regime IS the primary signal. APPROVE if score ≥2 and momentum does not strongly contradict.`
+  : sig.regime==='ranging'
+  ? `RANGING regime (non-mean-reversion): Only approve if score ≥6 AND RSI is extended (≥65 or ≤35) AND momentum confirms direction. Calendar surprise scores alone do not justify a trade without RSI confirmation. Reject neutral RSI trades.`
+  : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
+
+  const prompt = `Trading risk manager. Approve this spread bet?
+INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}${sig.meanReversion?' [MEAN REVERSION]':''}
+${sig.tdRsi?`TRIGGER: TD Hourly RSI ${sig.tdRsi.toFixed(1)} — THIS IS THE ENTRY SIGNAL (not the daily RSI)
+Daily RSI: ${sig.rsi.toFixed(1)} (context only)`:`RSI (daily): ${sig.rsi.toFixed(1)}`}
+SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj} td:${sig.tdAdj||0})
+TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
+ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
+WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
+Reasons: ${sig.reasons.join(', ')}
+CONTEXT: ${regimeContext}
+Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
+
+  const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+  const r = await fetch(`${base}/api/claude`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200,
+      messages: [{ role: 'user', content: prompt }] })
+  });
+  const data = await r.json();
+  const text = data.content?.[0]?.text || '{"approved":false,"confidence":0,"reasoning":"No response"}';
+  const result = JSON.parse(text.replace(/```json|```/g,'').trim());
+  const icon = result.approved ? '✅' : '❌';
+  L(`AI:${icon}(${result.confidence}%) ${result.reasoning}`);
+  return { approved: result.approved, confidence: result.confidence, reasoning: result.reasoning };
+}
+
 module.exports = async (req,res) => {
   res.setHeader('Access-Control-Allow-Origin','*');
   res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
