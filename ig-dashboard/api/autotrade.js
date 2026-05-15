@@ -55,7 +55,8 @@ const CORRELATION_GROUPS = {
 };
 
 const TRADING_HOURS = {
-  indices:{open:7,close:16},
+  indices:{open:7,close:21},    // Extended to 9pm UTC (10pm BST) — covers US session
+  us_indices:{open:13,close:21}, // US markets only: 2:30pm-9pm BST
   nikkei:{open:0,close:6},
   commodities:{open:1,close:23},
   fx:{open:0,close:24},
