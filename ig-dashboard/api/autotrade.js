@@ -407,8 +407,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const rsiPreCheck = calcRSI(closes);
       // Also check TD hourly RSI for mean reversion — catches intraday extremes
       const tdRsiForMR = tdSignals[instr]?.rsi || null;
-      const effectiveRSI = (tdRsiForMR && (tdRsiForMR <= 32 || tdRsiForMR >= 68)) ? tdRsiForMR : rsiPreCheck;
-      const isMeanReversionCandidate = regime === 'ranging' && (effectiveRSI >= 68 || effectiveRSI <= 32);
+      const effectiveRSI = (tdRsiForMR && (tdRsiForMR <= 33 || tdRsiForMR >= 67)) ? tdRsiForMR : rsiPreCheck;
+      const isMeanReversionCandidate = regime === 'ranging' && (effectiveRSI >= 67 || effectiveRSI <= 33);
       if(!isMeanReversionCandidate && Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
       if(isMeanReversionCandidate){L(`${instr}: mean reversion candidate RSI ${effectiveRSI.toFixed(1)}${tdRsiForMR===effectiveRSI?' (TD hourly)':' (daily)'} — bypassing score filter`);}
 
@@ -784,7 +784,7 @@ async function aiConfirm(sig,cfg,plPct,openCount,winRate,L){
   ? `MEAN REVERSION trade in ranging market.
 PRIMARY SIGNAL: ${sig.tdRsi ? `TD Hourly RSI ${sig.tdRsi.toFixed(1)}` : `Daily RSI ${sig.rsi.toFixed(1)}`} is ${sig.direction==='SELL'?'overbought':'oversold'} — this IS the entry trigger.
 Daily RSI: ${sig.rsi.toFixed(1)} (context only — hourly RSI extreme is the signal).
-APPROVAL RULE: APPROVE if (1) the triggering RSI is ≤32 (oversold BUY) or ≥68 (overbought SELL), AND (2) score ≥2, AND (3) momentum does not STRONGLY contradict (i.e. momentum < +2% for SELL or > -2% for BUY).
+APPROVAL RULE: APPROVE if (1) the triggering RSI is ≤33 (oversold BUY) or ≥67 (overbought SELL), AND (2) score ≥2, AND (3) momentum does not STRONGLY contradict (i.e. momentum < +2% for SELL or > -2% for BUY).
 The RSI extreme justifies the trade. Daily RSI being neutral is acceptable — the hourly extreme is the mean reversion trigger on a shorter timeframe.`
   : sig.regime==='ranging'
   ? `RANGING regime (non-mean-reversion): Only approve if score ≥6 AND RSI is extended (≥65 or ≤35) AND momentum confirms direction. Calendar surprise scores alone do not justify a trade without RSI confirmation. Reject neutral RSI trades.`
