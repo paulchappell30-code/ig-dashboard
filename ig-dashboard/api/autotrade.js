@@ -792,9 +792,10 @@ The RSI extreme justifies the trade. Daily RSI being neutral is acceptable — t
 
 const prompt=`Trading risk manager. Approve this spread bet?
 INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}${sig.meanReversion?' [MEAN REVERSION]':''}
-RSI (daily candle): ${sig.rsi.toFixed(1)}${sig.tdRsi?' | RSI (TD hourly trigger): '+sig.tdRsi.toFixed(1):''}
-SCORE:${sig.score}(raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj})
-RSI:${sig.rsi.toFixed(1)} SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(2)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
+${sig.tdRsi?`TRIGGER: TD Hourly RSI ${sig.tdRsi.toFixed(1)} — THIS IS THE ENTRY SIGNAL (not the daily RSI)
+Daily RSI: ${sig.rsi.toFixed(1)} (context only)`:`RSI (daily): ${sig.rsi.toFixed(1)}`}
+SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj} td:${sig.tdAdj||0})
+TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
 WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
