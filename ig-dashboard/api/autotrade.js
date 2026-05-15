@@ -9,7 +9,24 @@ const IG_BASES = {
   demo: 'https://demo-api.ig.com/gateway/deal',
 };
 
-const EPIC_MAP = {
+// Maps trading epic -> DB stored epic (candles stored under old MINI epics)
+const DB_EPIC_MAP = {
+  'CS.D.GBPUSD.TODAY.IP': 'CS.D.GBPUSD.MINI.IP',
+  'CS.D.EURUSD.TODAY.IP': 'CS.D.EURUSD.MINI.IP',
+  'CS.D.USDJPY.TODAY.IP': 'CS.D.USDJPY.MINI.IP',
+  'CS.D.EURGBP.TODAY.IP': 'CS.D.EURGBP.MINI.IP',
+};
+
+// TODAY FX contracts are priced in pips*10000 not decimal
+// ATR from DB candles is in decimal (e.g. 0.0055) — multiply by 10000 for stop points
+const CONTRACT_PRICE_SCALE = {
+  'CS.D.GBPUSD.TODAY.IP': 10000,
+  'CS.D.EURUSD.TODAY.IP': 10000,
+  'CS.D.USDJPY.TODAY.IP': 100,
+  'CS.D.EURGBP.TODAY.IP': 10000,
+};
+
+EPIC_MAP = {
   'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP',
   'DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
   'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
@@ -334,7 +351,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
     try{
       // Try DB first, fall back to IG, then Twelve Data
-      let closes=await getDbPrices(epic,60,L);
+      const dbEpic = DB_EPIC_MAP[epic] || epic;
+      let closes=await getDbPrices(dbEpic,60,L);
       let src='DB';
       if(!closes||closes.length<5){
         // Only hit IG historical if not blocked — avoids burning allowance
@@ -528,7 +546,9 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
     // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
     // This ensures size × stopDist always = 1% of account regardless of instrument
-    const tradeStopDist = sig.atr > 0 ? Math.max(10, Math.round(sig.atr * 1.5)) : 20;
+    const priceScale = CONTRACT_PRICE_SCALE[sig.epic] || 1;
+    const scaledATR = sig.atr * priceScale;
+    const tradeStopDist = scaledATR > 0 ? Math.max(10, Math.round(scaledATR * 1.5)) : 20;
     const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01); // Half risk when profit locked
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
