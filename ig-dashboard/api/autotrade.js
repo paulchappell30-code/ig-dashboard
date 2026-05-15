@@ -686,3 +686,93 @@ function calcATR(closes,p=14){
   const n=Math.min(p,c.length-1);if(n<1)return 50;
   const trs=c.slice(-n).map((x,i,a)=>i===0?x.high-x.low:Math.max(x.high-x.low,Math.abs(x.high-a[i-1].close),Math.abs(x.low-a[i-1].close)));
   return trs.reduce((a,b)=>a+b,0)/trs.length;}
+
+// ── HELPER FUNCTIONS ──────────────────────────────────────────────────────────
+async function saveToDb(type, data) {
+  try {
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    await fetch(`${base}/api/db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, data })
+    });
+  } catch(e) { console.log('[saveToDb]', e.message); }
+}
+
+async function sendNotify(type, subject, body) {
+  try {
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    await fetch(`${base}/api/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, subject, body })
+    });
+  } catch(e) { console.log('[sendNotify]', e.message); }
+}
+
+async function closeAll(igBase, igH) {
+  try {
+    const pr = await fetch(`${igBase}/positions`, { headers: { ...igH, 'Version': '1' } });
+    const pd = await pr.json();
+    const positions = pd.positions || [];
+    let closed = 0;
+    for (const p of positions) {
+      try {
+        const epic = p.market.epic;
+        const dir = p.position.direction === 'BUY' ? 'SELL' : 'BUY';
+        const size = p.position.dealSize || p.position.size;
+        const ob = { epic, direction: dir, size, orderType: 'MARKET', expiry: 'DFB',
+          guaranteedStop: false, forceOpen: false, currencyCode: 'GBP', dealType: 'SPREADBET' };
+        const r = await fetch(`${igBase}/positions/otc`, {
+          method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(ob)
+        });
+        const d = await r.json();
+        if (d.dealReference) closed++;
+      } catch(e) { console.log('[closeAll]', e.message); }
+    }
+    return closed;
+  } catch(e) { return 0; }
+}
+
+function getNewsAdj(instr, sentiment) {
+  if (!sentiment) return 0;
+  const s = sentiment.toLowerCase();
+  const positive = ['strong', 'rally', 'surge', 'gain', 'rise', 'bullish', 'optimism', 'growth'];
+  const negative = ['weak', 'fall', 'drop', 'decline', 'bearish', 'concern', 'risk', 'tension', 'inflation'];
+  let score = 0;
+  positive.forEach(w => { if (s.includes(w)) score++; });
+  negative.forEach(w => { if (s.includes(w)) score--; });
+  return Math.max(-2, Math.min(2, Math.round(score / 2)));
+}
+
+async function getIGSentiment(epic, igBase, igH, L, base, instrName) {
+  const ids = {
+    'IX.D.FTSE.DAILY.IP': 'FTSE', 'IX.D.SPTRD.DAILY.IP': 'SPTRD',
+    'IX.D.DAX.DAILY.IP': 'DAX', 'IX.D.DOW.DAILY.IP': 'DOW',
+    'CC.D.LCO.USS.IP': 'LCO', 'CS.D.GBPUSD.TODAY.IP': 'GBPUSD',
+    'CS.D.EURUSD.TODAY.IP': 'EURUSD', 'CS.D.USDJPY.TODAY.IP': 'USDJPY',
+    'CS.D.USCGC.TODAY.IP': 'GOLD', 'CS.D.USCSI.TODAY.IP': 'SILVER',
+    'CS.D.COPPER.TODAY.IP': 'COPPER', 'CS.D.EURGBP.TODAY.IP': 'EURGBP',
+  };
+  const id = ids[epic]; if (!id) return 0;
+  try {
+    const r = await fetch(`${igBase}/clientsentiment/${id}`, { headers: { ...igH, 'Version': '1' } });
+    if (!r.ok) return 0;
+    const d = await r.json();
+    if (!d || (!d.clientSentimentList && !d.longPositionPercentage)) return 0;
+    const sentiment = d.clientSentimentList?.[0] || d;
+    const lp = sentiment.longPositionPercentage || d.longPositionPercentage || 50;
+    const sp = sentiment.shortPositionPercentage || d.shortPositionPercentage || (100 - lp);
+    // Save sentiment history to DB
+    if (base && instrName) {
+      fetch(`${base}/api/db`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'sentiment', data: { instrument: instrName, epic, longPct: lp, shortPct: sp } })
+      }).catch(() => {});
+    }
+    if (lp > 70) { L(`${id}: ${lp}% long — contrarian SELL`); return -2; }
+    if (lp > 60) { L(`${id}: ${lp}% long — mild contrarian SELL`); return -1; }
+    if (lp < 30) { L(`${id}: ${lp}% long — contrarian BUY`); return 2; }
+    if (lp < 40) { L(`${id}: ${lp}% long — mild contrarian BUY`); return 1; }
+    return 0;
+  } catch(e) { return 0; }
+}
