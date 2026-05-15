@@ -7,10 +7,10 @@
 const fetch = require('node-fetch');
 
 const ALERT_INSTRUMENTS = [
-  { instr: 'GBP/USD', symbol: 'GBP/USD', epic: 'CS.D.GBPUSD.MINI.IP' },
-  { instr: 'EUR/USD', symbol: 'EUR/USD', epic: 'CS.D.EURUSD.MINI.IP' },
-  { instr: 'USD/JPY', symbol: 'USD/JPY', epic: 'CS.D.USDJPY.MINI.IP' },
-  { instr: 'EUR/GBP', symbol: 'EUR/GBP', epic: 'CS.D.EURGBP.MINI.IP' },
+  { instr: 'GBP/USD', symbol: 'GBP/USD', epic: 'CS.D.GBPUSD.TODAY.IP' },
+  { instr: 'EUR/USD', symbol: 'EUR/USD', epic: 'CS.D.EURUSD.TODAY.IP' },
+  { instr: 'USD/JPY', symbol: 'USD/JPY', epic: 'CS.D.USDJPY.TODAY.IP' },
+  { instr: 'EUR/GBP', symbol: 'EUR/GBP', epic: 'CS.D.EURGBP.TODAY.IP' },
 ];
 
 const RSI_OVERSOLD   = 33;
