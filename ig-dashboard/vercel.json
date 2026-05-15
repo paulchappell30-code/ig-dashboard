@@ -57,6 +57,9 @@
   "functions": {
     "api/alert.js": {
       "maxDuration": 30
+    },
+    "api/autotrade.js": {
+      "maxDuration": 30
     }
   }
 }
