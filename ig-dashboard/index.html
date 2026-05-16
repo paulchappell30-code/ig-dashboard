@@ -1019,10 +1019,12 @@ async function runHealthCheck(){
   add('IG Authentication',S.connected?'ok':'fail',S.connected?'Connected':'Not connected');
   const bal=S.accountData?.balance?.balance;add('Account Balance',bal?'ok':'warn',bal?'£'+parseFloat(bal).toFixed(2):'No data');
   const fp=document.getElementById('ws-price-IX-D-FTSE-DAILY-IP')?.textContent;add('Lightstreamer',fp&&fp!=='—'?'ok':'warn',fp&&fp!=='—'?'FTSE '+fp:'No ticks');
-  const gp=document.getElementById('ws-price-CS-D-GBPUSD-MINI-IP')?.textContent;add('Twelve Data FX',gp&&gp!=='—'?'ok':'warn',gp&&gp!=='—'?'GBP/USD '+gp:'Not updating');
+  const gp=document.getElementById('ws-price-CS-D-GBPUSD-TODAY-IP')?.textContent;add('Twelve Data FX',gp&&gp!=='—'?'ok':'warn',gp&&gp!=='—'?'GBP/USD '+gp:'Not updating');
   try{const r=await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=1&pageSize=0',{headers:{'Version':'3'}});add('IG Historical Data',r.status===200?'ok':'warn',r.status===200?'Allowance available':'403 — Blocked (using DB)');}catch(e){add('IG Historical Data','warn','Check status');}
   try{const r=await fetch('/api/autotrade');const d=await r.json();add('Autotrade Engine',d.version?'ok':'fail',d.version?'v'+d.version+' enabled:'+d.cfg?.enabled:'Error');}catch(e){add('Autotrade Engine','fail',e.message);}
-  try{const r=await fetch('/api/indicators?instrument=GBP%2FUSD&interval=1h');const d=await r.json();add('TD Indicators',d.rsi?'ok':'fail',d.rsi?'RSI:'+d.rsi.toFixed(1):d.error||'No data');}catch(e){add('TD Indicators','fail',e.message);}
+  try{const r=await fetch('/api/db?action=tdcache');const d=await r.json();
+    const cacheAge=d.ageMinutes;const hasTd=d.instruments&&Object.keys(d.instruments).length>0;
+    add('TD Indicators',hasTd?'ok':'fail',hasTd?'Cached '+(cacheAge||'?')+'m ago':d.error||'No cached data');}catch(e){add('TD Indicators','fail',e.message);}
   try{const r=await fetch('/api/db?action=stats');const d=await r.json();add('Database',d.error?'fail':'ok',d.error?d.error:d.totalTrades+' trades | '+(d.winRate||0)+'% WR');}catch(e){add('Database','fail',e.message);}
   try{const r=await fetch('/api/indicators?action=surprise');const d=await r.json();add('Economic Calendar',d.configured===false?'warn':'ok',d.configured===false?'No Finnhub key':d.eventsProcessed+' events today');}catch(e){add('Economic Calendar','warn','Unavailable');}
   try{const r=await fetch('/api/prices?epic=IX.D.FTSE.DAILY.IP&resolution=DAY&limit=5');const d=await r.json();add('Price DB',d.candles?.length>0?'ok':'warn',d.candles?.length>0?d.candles.length+' candles (latest: '+d.candles[d.candles.length-1]?.candle_time?.substring(0,10)+')':'No candles');}catch(e){add('Price DB','warn','Check');}
