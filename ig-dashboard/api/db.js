@@ -41,6 +41,15 @@ module.exports = async (req, res) => {
         return res.status(200).json({ snapshots: result.rows });
       }
 
+      if (action === 'tdcache') {
+        try {
+          const row = await sql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
+          if (row.rows.length === 0) return res.status(200).json({ error: 'No cache', instruments: {} });
+          const age = Math.round((Date.now() - new Date(row.rows[0].created_at).getTime()) / 60000);
+          return res.status(200).json({ instruments: row.rows[0].details || {}, ageMinutes: age });
+        } catch(e) { return res.status(200).json({ error: e.message, instruments: {} }); }
+      }
+
       if (action === 'stats') {
         const stats = await getStats();
         return res.status(200).json(stats);
