@@ -1138,7 +1138,7 @@ async function fetchTdPrices(){
             m.price=bid>999?Math.round(bid).toLocaleString('en-GB'):bid.toFixed(2);
             m.change=(pct>=0?'+':'')+Number(pct).toFixed(2)+'%';
             m.pos=pct>=0;
-            const eid='CS-D-USCSC-TODAY-IP';
+            const eid='CS-D-USCSI-TODAY-IP';
             const pe=document.getElementById('ws-price-'+eid);const ce=document.getElementById('ws-chg-'+eid);
             const lp=document.getElementById('lb-price-'+eid);const lc=document.getElementById('lb-chg-'+eid);
             if(pe)pe.textContent=m.price;
