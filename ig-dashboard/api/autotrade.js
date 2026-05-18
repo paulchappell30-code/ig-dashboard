@@ -214,9 +214,8 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 150,
       messages: [{ role: 'user', content: prompt }] }),
-    signal: AbortSignal.timeout(15000) // 15s timeout
   });
-  if(!r.ok){ throw new Error(`Claude API ${r.status}: ${await r.text().catch(()=>'')}`); }
+  if(!r.ok){ throw new Error(`Claude API ${r.status}`); }
   const data = await r.json();
   if(data.error){ throw new Error(`Claude error: ${data.error.message||JSON.stringify(data.error)}`); }
   const text = data.content?.[0]?.text || '{"approved":false,"confidence":0,"reasoning":"No response"}';
@@ -541,7 +540,7 @@ module.exports = async (req,res) => {
         // Fetch trade types from DB
         const {sql:eodSql} = require('@vercel/postgres');
         const tradeTypeRows = await eodSql`
-          SELECT deal_id, details->>'tradeType' as trade_type, created_at
+          SELECT deal_id, COALESCE(trade_type, 'hourly_mr') as trade_type, created_at
           FROM trades WHERE status = 'open'
         `.catch(() => ({ rows: [] }));
         const tradeTypeMap = {};
