@@ -761,7 +761,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           dir='SELL';
           meanReversion=true;
           L(`${instr}: mean reversion SELL (RSI:${rsiForMR.toFixed(1)} overbought in ranging)`);
-        } else if(rsiForMR<=32){
+        } else if(rsiForMR<=33){
           // Oversold in ranging — mean reversion BUY
           dir='BUY';
           meanReversion=true;
