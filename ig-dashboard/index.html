@@ -1115,8 +1115,37 @@ const TD_PRICE_MAP={
 };
 let _tdTimer=null;
 async function startTdPriceFallback(){
-  // Disabled — alert cron is sole TD data source to avoid credit conflicts
-  console.log('[TD Prices] Fallback disabled — using alert cron cache');
+  // Use IG market snapshot for NON_STREAM instruments — no TD credits used
+  if(_tdTimer)return;
+  async function fetchIGSnapshots(){
+    if(!S.connected||!S.cst)return;
+    const nonStream=['CS.D.GBPUSD.TODAY.IP','CS.D.EURUSD.TODAY.IP','CS.D.USDJPY.TODAY.IP',
+                     'CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
+    for(const epic of nonStream){
+      try{
+        const r=await igFetch('markets/'+epic);
+        if(!r.ok)continue;
+        const d=await r.json();
+        const bid=d.snapshot?.bid;
+        if(!bid)continue;
+        const pct=d.snapshot?.percentageChange||0;
+        const m=S.markets.find(x=>x.epic===epic);
+        if(!m)continue;
+        m.price=bid>999?Math.round(bid).toLocaleString('en-GB'):bid>10?bid.toFixed(2):bid.toFixed(4);
+        m.change=(pct>=0?'+':'')+Number(pct).toFixed(2)+'%';
+        m.pos=pct>=0;
+        const eid=epic.replace(/\./g,'-');
+        const pe=document.getElementById('ws-price-'+eid);
+        const ce=document.getElementById('ws-chg-'+eid);
+        if(pe)pe.textContent=m.price;
+        if(ce){ce.textContent=m.change;ce.className='w-chg '+(m.pos?'up':'dn');}
+      }catch(e){}
+      await new Promise(r=>setTimeout(r,500)); // 0.5s between calls
+    }
+  }
+  await fetchIGSnapshots();
+  _tdTimer=setInterval(fetchIGSnapshots,30000); // refresh every 30s
+  console.log('[IG Snapshots] Started for NON_STREAM instruments');
 }
 async function fetchTdPrices(){
   try{
