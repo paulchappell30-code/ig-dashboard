@@ -645,19 +645,23 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const newsAdj=getNewsAdj(instr,newsSentiment);
       let sentAdj=0; try { sentAdj=await getIGSentiment(epic,igBase,igH,L)||0; } catch(e) { sentAdj=0; }
       let sc=0,regime='unknown',tdAdj=0;
+      let divergence={type:'none',strength:0,description:'no data'};
+      let trendPullback=null;
+      let breakoutSignal=null;
 
       if(closes&&closes.length>=5){
         L(`${instr}: ${closes.length} candles from ${src}`);
         regime=detectRegime(closes);
         sc=calcScore(closes,regime);
 
+        // Declare dir early so trend/breakout can set it before mean reversion check
+        let dir = sc > 0 ? 'BUY' : 'SELL';
+
         // Trend pullback signal — overrides ranging score in trending markets
-        let trendPullback = null;
-        let breakoutSignal = null;
         if(regime === 'uptrend' || regime === 'downtrend'){
           trendPullback = calcTrendPullback(closes, regime);
           if(trendPullback.signal > 0){
-            sc = trendPullback.signal; // Replace ranging score with trend score
+            sc = trendPullback.signal;
             dir = trendPullback.direction;
             L(`${instr}: 📈 ${trendPullback.reason} (score:${sc})`);
           }
@@ -745,7 +749,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       // Mean reversion override for ranging regime
       const rsiForMR=effectiveRSI; // uses TD hourly if more extreme
       let meanReversion=false;
-      let dir=total>0?'BUY':'SELL';
+      // dir already declared above, update based on total score
+      if(!trendPullback?.signal && !breakoutSignal?.signal) dir=total>0?'BUY':'SELL';
       if(regime==='ranging'){
         if(rsiForMR>=68){
           // Overbought in ranging — mean reversion SELL
