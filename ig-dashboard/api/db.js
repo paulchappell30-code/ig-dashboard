@@ -114,14 +114,14 @@ module.exports = async (req, res) => {
             deal_id, deal_reference, instrument, epic, direction,
             size, open_level, opened_at, signal_score, ai_confidence,
             ai_reasoning, signal_reasons, status, regime, data_source,
-            open_hour, stop_level, stop_distance
+            open_hour, stop_level, stop_distance, trade_type
           ) VALUES (
             ${data.dealId}, ${data.dealReference}, ${data.instrument},
             ${data.epic}, ${data.direction}, ${data.size}, ${data.openLevel},
             NOW(), ${data.signalScore}, ${data.aiConfidence},
             ${data.aiReasoning||null}, ${JSON.stringify(data.signalReasons)},
             'open', ${data.regime||null}, ${data.dataSource||null},
-            ${openHour}, ${data.stopLevel||null}, ${data.stopDistance||null}
+            ${openHour}, ${data.stopLevel||null}, ${data.stopDistance||null}, ${data.tradeType||'hourly_mr'}
           )
           ON CONFLICT (deal_id) DO UPDATE SET status = 'open'
         `;
