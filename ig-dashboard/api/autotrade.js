@@ -511,15 +511,49 @@ module.exports = async (req,res) => {
     const isFridayEOD = now.getUTCDay() === 5 && utcH >= 15 && utcH < 17; // Friday close earlier
 
     if(isEOD || isFridayEOD){
-      // Close all open positions
+      // Close positions based on trade type:
+      // hourly_mr → always close at EOD (intraday only)
+      // daily_mr → only close if held >3 days OR it's Friday
+      // directional → only close if Friday (let trends run)
       try {
         const posRes = await fetch(`${igBase}/positions`, {headers:{...igH,'Version':'1'}});
         const posData = await posRes.json();
         const positions = posData.positions || [];
+        const isFriday = now.getUTCDay() === 5;
 
-        if(positions.length > 0){
-          L(`EOD close: closing ${positions.length} position(s)`);
-          for(const p of positions){
+        // Fetch trade types from DB
+        const {sql:eodSql} = require('@vercel/postgres');
+        const tradeTypeRows = await eodSql`
+          SELECT deal_id, details->>'tradeType' as trade_type, created_at
+          FROM trades WHERE status = 'open'
+        `.catch(() => ({ rows: [] }));
+        const tradeTypeMap = {};
+        tradeTypeRows.rows.forEach(r => { tradeTypeMap[r.deal_id] = r.trade_type || 'hourly_mr'; });
+
+        const toClose = [];
+        for(const p of positions){
+          const dealId = p.position.dealId;
+          const tradeType = tradeTypeMap[dealId] || 'hourly_mr';
+          const openTime = new Date(p.position.createdDateUtc || Date.now());
+          const daysHeld = (Date.now() - openTime.getTime()) / (1000*60*60*24);
+
+          let shouldClose = false;
+          if(tradeType === 'hourly_mr') shouldClose = true; // always close intraday
+          else if(tradeType === 'daily_mr') shouldClose = daysHeld >= 3 || isFriday;
+          else if(tradeType === 'directional') shouldClose = isFriday;
+          else shouldClose = true; // default: close
+
+          if(shouldClose){
+            L(`EOD close: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d)`);
+            toClose.push(p);
+          } else {
+            L(`EOD skip: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d — letting run)`);
+          }
+        }
+
+        if(toClose.length > 0){
+          L(`EOD close: closing ${toClose.length}/${positions.length} position(s)`);
+          for(const p of toClose){
             const closeBody = {
               epic: p.market.epic,
               direction: p.position.direction === 'BUY' ? 'SELL' : 'BUY',
@@ -832,12 +866,14 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const cd=await cr.json();
       if(cd.dealStatus==='ACCEPTED'){
         L(`✅ ACCEPTED ref:${ref} level:${cd.level}`);
-        await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
+        // Determine trade type for EOD close logic
+      const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : 'directional';
+      await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
           direction:sig.direction,size:finalSz,openLevel:cd.level,signalScore:sig.score,
           aiConfidence:confidence,aiReasoning:reasoning,signalReasons:sig.reasons.join(', '),
-          regime:sig.regime,atr:sig.atr,stopDistance:tradeStopDist});
+          regime:sig.regime,atr:sig.atr,stopDistance:tradeStopDist,tradeType});
         await sendNotify('trade',`🎯 Trade Placed: ${sig.instr} ${sig.direction}`,
-          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: £${finalSz}/pt\nLevel: ${cd.level}\nStop: ${tradeStopDist}pts\nMax Loss: £${actualRisk}\nAI: ${confidence}% — ${reasoning}\nRegime: ${sig.regime}\nScore: ${sig.score}`);
+          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: £${finalSz}/pt\nLevel: ${cd.level}\nStop: ${tradeStopDist}pts\nMax Loss: £${actualRisk}\nAI: ${confidence}% — ${reasoning}\nRegime: ${sig.regime}\nScore: ${sig.score}\nType: ${tradeType} (${tradeType==='hourly_mr'?'closes tonight':tradeType==='daily_mr'?'holds up to 3 days':'holds until Friday'})`);
         return res.status(200).json({action:'trade_placed',instrument:sig.instr,direction:sig.direction,level:cd.level,size:finalSz,log});
       }else{
         L(`Rejected: ${cd.reason||cd.dealStatus}`);
