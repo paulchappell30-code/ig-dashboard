@@ -188,6 +188,7 @@ ${sig.tdRsi?`TRIGGER: TD Hourly RSI ${sig.tdRsi.toFixed(1)} — THIS IS THE ENTR
 Daily RSI: ${sig.rsi.toFixed(1)} (context only)`:`RSI (daily): ${sig.rsi.toFixed(1)}`}
 SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj} td:${sig.tdAdj||0})
 TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
+${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence.type.toUpperCase()} — ${sig.divergence.description} (strength:${sig.divergence.strength}/3)`:''}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
 WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
@@ -591,6 +592,17 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         L(`${instr}: ${closes.length} candles from ${src}`);
         regime=detectRegime(closes);
         sc=calcScore(closes,regime);
+
+        // RSI Divergence detection — adds to score and passes to AI
+        const divergence = detectRSIDivergence(closes);
+        if(divergence.type==='bearish' && divergence.strength>0){
+          sc -= divergence.strength; // Bearish divergence reduces score (supports SELL)
+          L(`${instr}: ⚠️ Bearish RSI divergence (${divergence.description}) adj -${divergence.strength}`);
+        } else if(divergence.type==='bullish' && divergence.strength>0){
+          sc += divergence.strength; // Bullish divergence increases score (supports BUY)
+          L(`${instr}: ⚠️ Bullish RSI divergence (${divergence.description}) adj +${divergence.strength}`);
+        }
+
         if(tdSignals[instr]){
           const tdRsi = tdSignals[instr].rsi;
           const tdMacd = tdSignals[instr].macd;
@@ -689,7 +701,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
       signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
         reasons,rsi,tdRsi:tdRsiForMR,effectiveRSI,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
-        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length});
+        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence});
       // Note: group only marked occupied on open position, not on signal
     }catch(e){L(`${instr}: ${e.message}`);}
   }
@@ -905,3 +917,53 @@ function calcATR(closes,p=14){
   const n=Math.min(p,c.length-1);if(n<1)return 50;
   const trs=c.slice(-n).map((x,i,a)=>i===0?x.high-x.low:Math.max(x.high-x.low,Math.abs(x.high-a[i-1].close),Math.abs(x.low-a[i-1].close)));
   return trs.reduce((a,b)=>a+b,0)/trs.length;}
+
+// RSI Divergence Detection
+// Bearish divergence: price makes higher high but RSI makes lower high → weakening uptrend → SELL signal
+// Bullish divergence: price makes lower low but RSI makes higher low → weakening downtrend → BUY signal
+// Returns: { type: 'bearish'|'bullish'|'none', strength: 0-3, description: string }
+function detectRSIDivergence(closes, lookback=10) {
+  const n = closes.length;
+  if (n < lookback + 5) return { type: 'none', strength: 0, description: 'insufficient data' };
+
+  // Calculate RSI at each point over lookback window
+  const rsiSeries = [];
+  for (let i = n - lookback; i <= n; i++) {
+    if (i >= 14) rsiSeries.push(calcRSI(closes.slice(0, i)));
+  }
+  if (rsiSeries.length < 4) return { type: 'none', strength: 0, description: 'insufficient RSI data' };
+
+  const recentPrices = closes.slice(-lookback);
+  const recentRSI = rsiSeries;
+
+  // Find price highs and lows in the window
+  const priceNow = recentPrices[recentPrices.length - 1];
+  const priceMid = recentPrices[Math.floor(recentPrices.length / 2)];
+  const rsiNow = recentRSI[recentRSI.length - 1];
+  const rsiMid = recentRSI[Math.floor(recentRSI.length / 2)];
+
+  const priceChange = ((priceNow - priceMid) / priceMid) * 100;
+  const rsiChange = rsiNow - rsiMid;
+
+  // Bearish divergence: price up, RSI down (weakening rally)
+  if (priceChange > 0.5 && rsiChange < -3 && rsiNow > 55) {
+    const strength = Math.min(3, Math.floor(Math.abs(rsiChange) / 3));
+    return {
+      type: 'bearish',
+      strength,
+      description: `Price +${priceChange.toFixed(1)}% but RSI ${rsiChange.toFixed(1)} pts (weakening rally)`
+    };
+  }
+
+  // Bullish divergence: price down, RSI up (weakening selloff)
+  if (priceChange < -0.5 && rsiChange > 3 && rsiNow < 45) {
+    const strength = Math.min(3, Math.floor(Math.abs(rsiChange) / 3));
+    return {
+      type: 'bullish',
+      strength,
+      description: `Price ${priceChange.toFixed(1)}% but RSI +${rsiChange.toFixed(1)} pts (weakening selloff)`
+    };
+  }
+
+  return { type: 'none', strength: 0, description: 'no divergence' };
+}
