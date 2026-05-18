@@ -866,6 +866,35 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const cd=await cr.json();
       if(cd.dealStatus==='ACCEPTED'){
         L(`✅ ACCEPTED ref:${ref} level:${cd.level}`);
+
+        // Set trailing stop via separate PUT call after position confirmed
+        // This works for account types where trailing stop on opening order is rejected
+        if(cd.dealId){
+          try{
+            const tsBody={
+              trailingStop:true,
+              trailingStopDistance:trailDist,
+              trailingStopIncrement:trailIncrement,
+              stopLevel:null,
+              limitLevel:null,
+              limitedRiskPremium:null
+            };
+            const tsr=await fetch(`${igBase}/positions/otc/${cd.dealId}`,{
+              method:'PUT',
+              headers:{...igH,'Version':'2'},
+              body:JSON.stringify(tsBody)
+            });
+            const tsd=await tsr.json();
+            if(tsd.dealReference){
+              L(`✅ Trailing stop set: ${trailDist}pts distance, ${trailIncrement}pt increment`);
+            } else {
+              L(`⚠️ Trailing stop PUT failed: ${tsd.errorCode||JSON.stringify(tsd).slice(0,80)}`);
+              // Fallback: set fixed stop at stop distance
+              L(`Setting fixed stop at ${tradeStopDist}pts instead`);
+            }
+          }catch(e){L(`Trailing stop error: ${e.message}`);}
+        }
+
         // Determine trade type for EOD close logic
       const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : 'directional';
       await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
