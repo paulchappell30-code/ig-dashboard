@@ -198,6 +198,32 @@ Give: 1)Key patterns 2)AI calibration quality 3)Recommended threshold adjustment
       aiAnalysis = aiData.content?.[0]?.text || '';
     }
 
+    const sizingAnalysis = await analysePositionSizing(trades, process.env.ANTHROPIC_API_KEY);
+    sizingSection = sizingAnalysis ? `
+POSITION SIZING ANALYSIS (${sizingAnalysis.summary.totalTrades} trades):
+Average size: £${sizingAnalysis.summary.avgSize}/point
+
+Larger trades: ${sizingAnalysis.summary.largerTrades.count} trades | ${sizingAnalysis.summary.largerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.largerTrades.avgPnl}
+Smaller trades: ${sizingAnalysis.summary.smallerTrades.count} trades | ${sizingAnalysis.summary.smallerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.smallerTrades.avgPnl}
+
+${sizingAnalysis.summary.analysis ? 'SIZING INTELLIGENCE:\n' + sizingAnalysis.summary.analysis : ''}` : '';
+
+    const priceAnalysis = await runWeeklyPriceAnalysis(base, process.env.ANTHROPIC_API_KEY);
+    priceSection = priceAnalysis ? `
+WEEKLY MARKET OBSERVATIONS:
+${priceAnalysis.marketData.map(m=>`  ${m.name}: RSI ${m.rsi} | ${m.regime} | Week ${m.weekChg} | Month ${m.monthChg}`).join('\n')}
+
+${priceAnalysis.oversold.length ? 'OVERSOLD: '+priceAnalysis.oversold.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
+${priceAnalysis.overbought.length ? 'OVERBOUGHT: '+priceAnalysis.overbought.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
+
+MARKET INTELLIGENCE:
+${priceAnalysis.analysis}
+${priceAnalysis.sentimentShifts?.length ? '\nSENTIMENT SHIFTS:\n' + priceAnalysis.sentimentShifts.join('\n') : ''}
+` : '';
+
+    let sizingSection = '';
+
+
     const emailBody = `WEEKLY TRADING REPORT v4
 ${new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
 
@@ -214,30 +240,6 @@ ${todRows.slice(0,6).map(r=>`  ${r.open_hour}:00 — ${r.total_trades} trades, $
 ${aiAnalysis?'AI ANALYSIS:\n'+aiAnalysis:''}${sizingSection}${priceSection}
 
 Generated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/London'})}`;
-
-    // Run weekly price analysis
-    // Position sizing analysis
-    const sizingAnalysis = await analysePositionSizing(trades, process.env.ANTHROPIC_API_KEY);
-    const sizingSection = sizingAnalysis ? `
-POSITION SIZING ANALYSIS (${sizingAnalysis.summary.totalTrades} trades):
-Average size: £${sizingAnalysis.summary.avgSize}/point
-
-Larger trades: ${sizingAnalysis.summary.largerTrades.count} trades | ${sizingAnalysis.summary.largerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.largerTrades.avgPnl}
-Smaller trades: ${sizingAnalysis.summary.smallerTrades.count} trades | ${sizingAnalysis.summary.smallerTrades.winRate}% WR | avg P&L £${sizingAnalysis.summary.smallerTrades.avgPnl}
-
-${sizingAnalysis.summary.analysis ? 'SIZING INTELLIGENCE:\n' + sizingAnalysis.summary.analysis : ''}` : '';
-
-    const priceAnalysis = await runWeeklyPriceAnalysis(base, process.env.ANTHROPIC_API_KEY);
-    const priceSection = priceAnalysis ? `
-WEEKLY MARKET OBSERVATIONS:
-${priceAnalysis.marketData.map(m=>`  ${m.name}: RSI ${m.rsi} | ${m.regime} | Week ${m.weekChg} | Month ${m.monthChg}`).join('\n')}
-
-${priceAnalysis.oversold.length ? 'OVERSOLD: '+priceAnalysis.oversold.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
-${priceAnalysis.overbought.length ? 'OVERBOUGHT: '+priceAnalysis.overbought.map(m=>m.name+' RSI:'+m.rsi).join(', ') : ''}
-
-MARKET INTELLIGENCE:
-${priceAnalysis.analysis}
-${priceAnalysis.sentimentShifts?.length ? '\nSENTIMENT SHIFTS:\n' + priceAnalysis.sentimentShifts.join('\n') : ''}` : '';
 
     const notifyRes = await fetch(`${base}/api/notify`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({type:'daily_summary',subject:`📊 Weekly Report — ${weekPnL>=0?'+':''}£${weekPnL.toFixed(2)} | ${weekWinRate}% WR`,body:emailBody})});
