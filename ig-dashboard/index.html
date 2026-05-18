@@ -1064,7 +1064,7 @@ function startLightstreamer(){
     lsClient.addListener({
       onStatusChange:function(status){
         console.log('[LS] Status:',status);
-        if(status.startsWith('CONNECTED')){addLog('system','Lightstreamer connected');document.getElementById('conn-label').textContent='Live prices ●';setTimeout(()=>startTdPriceFallback(),5000);}
+        if(status.startsWith('CONNECTED')){addLog('system','Lightstreamer connected');document.getElementById('conn-label').textContent='Live prices ●';}
         else if(status==='DISCONNECTED:WILL-RETRY')addLog('system','Lightstreamer retrying...');
         else if(status.startsWith('DISCONNECTED')){addLog('system','Lightstreamer disconnected');setTimeout(()=>{if(S.connected)startLightstreamer();},15000);}
       },
@@ -1115,8 +1115,8 @@ const TD_PRICE_MAP={
 };
 let _tdTimer=null;
 async function startTdPriceFallback(){
-  if(_tdTimer)return;console.log('[TD Prices] Starting fallback');
-  await fetchTdPrices();_tdTimer=setInterval(fetchTdPrices,60000);
+  // Disabled — alert cron is sole TD data source to avoid credit conflicts
+  console.log('[TD Prices] Fallback disabled — using alert cron cache');
 }
 async function fetchTdPrices(){
   try{
