@@ -1064,7 +1064,7 @@ function startLightstreamer(){
     lsClient.addListener({
       onStatusChange:function(status){
         console.log('[LS] Status:',status);
-        if(status.startsWith('CONNECTED')){addLog('system','Lightstreamer connected');document.getElementById('conn-label').textContent='Live prices ●';}
+        if(status.startsWith('CONNECTED')){addLog('system','Lightstreamer connected');document.getElementById('conn-label').textContent='Live prices ●';startTdPriceFallback();}
         else if(status==='DISCONNECTED:WILL-RETRY')addLog('system','Lightstreamer retrying...');
         else if(status.startsWith('DISCONNECTED')){addLog('system','Lightstreamer disconnected');setTimeout(()=>{if(S.connected)startLightstreamer();},15000);}
       },
@@ -1186,6 +1186,10 @@ async function fetchTdPrices(){
 
 // ─── INIT ──────────────────────────────────────────────────────────────────────
 document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+</script>
+<script>
+// Ensure IG snapshots start even if LS connect event was missed
+setTimeout(()=>{if(!_tdTimer)startTdPriceFallback();},8000);
 </script>
 </body>
 </html>
