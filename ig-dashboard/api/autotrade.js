@@ -484,6 +484,21 @@ module.exports = async (req,res) => {
     const pd=await pr.json();openPos=pd.positions||[];
     portfolioHeat=openPos.reduce((s,p)=>s+(p.position.size||1)*50,0);
     L(`Open: ${openPos.length}/${cfg.maxPositions} | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
+
+    // Detect stop-loss triggered positions (in DB as open but not in IG positions)
+    try {
+      const {sql:slSql} = require('@vercel/postgres');
+      const dbOpenTrades = await slSql`SELECT deal_id, epic, instrument FROM trades WHERE status = 'open'`;
+      const igOpenIds = new Set(openPos.map(p => p.position.dealId));
+      for(const dbTrade of dbOpenTrades.rows){
+        if(!igOpenIds.has(dbTrade.deal_id)){
+          // Position closed by IG (stop loss or limit hit) — record it
+          L(`⚠️ ${dbTrade.instrument}: position closed by IG (stop loss) — recording and setting cooldown`);
+          await slSql`UPDATE trades SET status='closed', close_reason='stop_loss', closed_at=NOW() WHERE deal_id=${dbTrade.deal_id}`;
+        }
+      }
+    } catch(e){ L('Stop loss detection error: ' + e.message); }
+
     await managePositions(openPos,igBase,igH,cfg,balance,L);
   }catch(e){L('Positions error: '+e.message);}
 
@@ -620,12 +635,30 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   // Signal evaluation
   const occupied=new Set(openPos.map(p=>CORRELATION_GROUPS[p.market.epic]).filter(Boolean));
   L('Occupied: '+(([...occupied].join(', '))||'none'));
+
+  // Cooldown: block re-entry on same instrument within 4 hours of a stop loss
+  const recentlyStoppedEpics = new Set();
+  try {
+    const {sql:coolSql} = require('@vercel/postgres');
+    const stoppedRows = await coolSql`
+      SELECT epic FROM trades
+      WHERE status = 'closed'
+      AND close_reason = 'stop_loss'
+      AND closed_at > NOW() - INTERVAL '4 hours'
+    `.catch(() => ({ rows: [] }));
+    stoppedRows.rows.forEach(r => recentlyStoppedEpics.add(r.epic));
+    if(recentlyStoppedEpics.size > 0){
+      L(`Cooldown active for: ${[...recentlyStoppedEpics].join(', ')}`);
+    }
+  } catch(e) { L('Cooldown check error: ' + e.message); }
+
   const signals=[];
 
   for(const instr of Object.keys(EPIC_MAP)){
     const epic=EPIC_MAP[instr];const grp=CORRELATION_GROUPS[epic];
     if(openPos.some(p=>p.market.epic===epic)){L(`${instr}: open`);continue;}
     if(grp&&occupied.has(grp)){L(`${instr}: group occupied`);continue;}
+    if(recentlyStoppedEpics.has(epic)){L(`${instr}: cooldown (stopped out within 4h)`);continue;}
     // Nikkei has different hours
     const mktHrs = instr === 'Nikkei 225' ? 'nikkei' : grp;
     if(!isMarketOpen(mktHrs)){L(`${instr}: market closed`);continue;}
