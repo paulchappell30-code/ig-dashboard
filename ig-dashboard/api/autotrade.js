@@ -170,7 +170,21 @@ async function getIGSentiment(epic, igBase, igH, L, base, instrName) {
 
 async function aiConfirm(sig, cfg, plPct, openCount, winRate, L) {
   L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
-  const regimeContext = sig.meanReversion && sig.tdRsi
+  // Determine trade strategy type
+  const isTrendPullback = sig.trendPullback && sig.trendPullback.signal > 0;
+  const isBreakout = sig.breakoutSignal && sig.breakoutSignal.signal > 0;
+
+  const regimeContext = isTrendPullback
+  ? `TREND PULLBACK trade: ${sig.trendPullback.reason}.
+STRATEGY: Trading WITH the ${sig.regime} — entering on a healthy pullback/bounce, NOT fading the trend.
+APPROVAL RULE: APPROVE if (1) score ≥2, AND (2) MACD confirms trend direction, AND (3) RSI is in pullback zone (38-58 for uptrend BUY, 42-62 for downtrend SELL).
+This is a multi-day trade — do not reject because momentum seems moderate. Pullbacks in trends have good expectancy.`
+  : isBreakout
+  ? `BREAKOUT trade: ${sig.breakoutSignal.reason}.
+STRATEGY: Price has broken out of a 20-candle consolidation range with momentum confirmation.
+APPROVAL RULE: APPROVE if (1) score ≥2, AND (2) RSI confirms direction (>52 for BUY, <48 for SELL), AND (3) the breakout level is meaningful (not noise).
+This is a multi-day trade — breakouts can run significantly if genuine.`
+  : sig.meanReversion && sig.tdRsi
   ? `MEAN REVERSION trade in ranging market.
 PRIMARY SIGNAL: TD Hourly RSI ${sig.tdRsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought':'oversold'} — this IS the entry trigger.
 Daily RSI: ${sig.rsi.toFixed(1)} (context only — hourly RSI extreme is the signal).
@@ -637,6 +651,28 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         regime=detectRegime(closes);
         sc=calcScore(closes,regime);
 
+        // Trend pullback signal — overrides ranging score in trending markets
+        let trendPullback = null;
+        let breakoutSignal = null;
+        if(regime === 'uptrend' || regime === 'downtrend'){
+          trendPullback = calcTrendPullback(closes, regime);
+          if(trendPullback.signal > 0){
+            sc = trendPullback.signal; // Replace ranging score with trend score
+            dir = trendPullback.direction;
+            L(`${instr}: 📈 ${trendPullback.reason} (score:${sc})`);
+          }
+        }
+
+        // Breakout signal — works in any regime
+        if(regime === 'ranging'){
+          breakoutSignal = calcBreakout(closes);
+          if(breakoutSignal.signal > 0){
+            sc = Math.max(sc, breakoutSignal.signal);
+            dir = breakoutSignal.direction;
+            L(`${instr}: 💥 ${breakoutSignal.reason} (score:${sc})`);
+          }
+        }
+
         // RSI Divergence detection — adds to score and passes to AI
         const divergence = detectRSIDivergence(closes);
         if(divergence.type==='bearish' && divergence.strength>0){
@@ -745,7 +781,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
       signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
         reasons,rsi,tdRsi:tdRsiForMR,effectiveRSI,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
-        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence});
+        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence,trendPullback,breakoutSignal});
       // Note: group only marked occupied on open position, not on signal
     }catch(e){L(`${instr}: ${e.message}`);}
   }
@@ -826,8 +862,14 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // Tiered stop: hourly RSI MR uses tight 0.5x ATR, daily uses 1.5x ATR
     const priceScale = CONTRACT_PRICE_SCALE[sig.epic] || 1;
     const scaledATR = (sig.atr || 0) * priceScale;
-    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5 : 1.5;
-    const stopType = sig.meanReversion && sig.tdRsi ? 'hourly MR (0.5x ATR)' : sig.meanReversion ? 'daily MR (1.5x ATR)' : 'standard (1.5x ATR)';
+    const isTrendTrade = sig.trendPullback?.signal > 0;
+    const isBreakoutTrade = sig.breakoutSignal?.signal > 0;
+    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5 : (isTrendTrade || isBreakoutTrade) ? 2.0 : 1.5;
+    const stopType = sig.meanReversion && sig.tdRsi ? 'hourly MR (0.5x ATR)'
+      : sig.meanReversion ? 'daily MR (1.5x ATR)'
+      : isTrendTrade ? 'trend pullback (2x ATR)'
+      : isBreakoutTrade ? 'breakout (2x ATR)'
+      : 'standard (1.5x ATR)';
     const minStop = Math.max(10, priceScale * 5);
     const tradeStopDist = scaledATR > 0 ? Math.max(minStop, Math.round(scaledATR * atrMult)) : minStop;
     const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01);
@@ -896,7 +938,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         }
 
         // Determine trade type for EOD close logic
-      const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : 'directional';
+      const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : (sig.trendPullback?.signal>0) ? 'trend' : (sig.breakoutSignal?.signal>0) ? 'breakout' : 'directional';
       await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
           direction:sig.direction,size:finalSz,openLevel:cd.level,signalScore:sig.score,
           aiConfidence:confidence,aiReasoning:reasoning,signalReasons:sig.reasons.join(', '),
@@ -972,6 +1014,32 @@ function calcScore(closes,regime){
 
 function detectRegime(closes){
   const n=closes.length;if(n<10)return'ranging';
+  
+  // SMA-based trend detection
+  const sma10 = closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
+  const sma20 = closes.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
+  const sma50 = closes.slice(-Math.min(50,n)).reduce((a,b)=>a+b,0)/Math.min(50,n);
+  const price = closes[n-1];
+  
+  // Slope of SMA20 over last 5 candles
+  const sma20_5ago = closes.slice(-Math.min(25,n),-5).slice(-Math.min(20,n-5)).reduce((a,b)=>a+b,0)/Math.min(20,n-5);
+  const slopePct = ((sma20 - sma20_5ago) / sma20_5ago) * 100;
+  
+  // Consecutive higher highs / lower lows
+  const recent10 = closes.slice(-Math.min(10,n));
+  let higherHighs=0, lowerLows=0;
+  for(let i=1;i<recent10.length;i++){
+    if(recent10[i]>recent10[i-1])higherHighs++;
+    else lowerLows++;
+  }
+  
+  // Strong uptrend: price > SMA10 > SMA20, slope up, more higher highs
+  if(price>sma10 && sma10>sma20 && slopePct>1.5 && higherHighs>lowerLows+2) return 'uptrend';
+  
+  // Strong downtrend: price < SMA10 < SMA20, slope down, more lower lows
+  if(price<sma10 && sma10<sma20 && slopePct<-1.5 && lowerLows>higherHighs+2) return 'downtrend';
+  
+  // Weak trend signals — use old slope method as tiebreaker
   const mid=Math.floor(n/2);
   const h1=closes.slice(0,mid).reduce((a,b)=>a+b,0)/mid;
   const h2=closes.slice(mid).reduce((a,b)=>a+b,0)/(n-mid);
@@ -980,7 +1048,104 @@ function detectRegime(closes){
   const rr=Math.max(...recent)-Math.min(...recent);
   const tr=Math.max(...closes)-Math.min(...closes);
   if(Math.abs(slope)>3&&rr/(tr||1)>0.3)return slope>0?'uptrend':'downtrend';
+  
   return'ranging';
+}
+
+// ── TREND PULLBACK SIGNAL ────────────────────────────────────────────────────
+// In uptrend: BUY when RSI pulls back to 40-55 (healthy dip, not oversold)
+// In downtrend: SELL when RSI bounces to 45-60 (healthy bounce, not overbought)
+function calcTrendPullback(closes, regime) {
+  const n = closes.length;
+  if(n < 10) return { signal: 0, reason: 'insufficient data' };
+  if(regime !== 'uptrend' && regime !== 'downtrend') return { signal: 0, reason: 'not trending' };
+
+  const rsi = calcRSI(closes);
+  const sma10 = closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
+  const sma20 = closes.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
+  const price = closes[n-1];
+  const mom = n>=5 ? ((price - closes[n-5])/closes[n-5])*100 : 0;
+  const ema12 = calcEMA(closes,12);
+  const ema26 = calcEMA(closes,26);
+  const macd = ema12 - ema26;
+
+  if(regime === 'uptrend') {
+    // Pullback entry: RSI dipped to 40-55 (not oversold, just resting)
+    // MACD still positive (trend intact), price near SMA10-SMA20 (support)
+    const rsiPullback = rsi >= 38 && rsi <= 58;
+    const nearSupport = price <= sma10 * 1.01; // within 1% of SMA10
+    const macdPositive = macd > 0;
+    const momentumRecovering = mom > -2; // not falling hard
+
+    if(rsiPullback && nearSupport && macdPositive && momentumRecovering) {
+      return { signal: 3, direction: 'BUY', reason: `Uptrend pullback: RSI ${rsi.toFixed(0)} near SMA10, MACD+` };
+    }
+    if(rsiPullback && macdPositive) {
+      return { signal: 2, direction: 'BUY', reason: `Uptrend pullback: RSI ${rsi.toFixed(0)}, MACD+` };
+    }
+  }
+
+  if(regime === 'downtrend') {
+    // Bounce entry: RSI recovered to 42-62 (not overbought, just bouncing)
+    // MACD still negative (trend intact), price near SMA10 (resistance)
+    const rsiBounce = rsi >= 42 && rsi <= 62;
+    const nearResistance = price >= sma10 * 0.99;
+    const macdNegative = macd < 0;
+    const momentumFading = mom < 2;
+
+    if(rsiBounce && nearResistance && macdNegative && momentumFading) {
+      return { signal: 3, direction: 'SELL', reason: `Downtrend bounce: RSI ${rsi.toFixed(0)} near SMA10, MACD-` };
+    }
+    if(rsiBounce && macdNegative) {
+      return { signal: 2, direction: 'SELL', reason: `Downtrend bounce: RSI ${rsi.toFixed(0)}, MACD-` };
+    }
+  }
+
+  return { signal: 0, reason: `${regime} but no pullback entry` };
+}
+
+// ── BREAKOUT SIGNAL ───────────────────────────────────────────────────────────
+// Price closes above 20-candle high (bullish) or below 20-candle low (bearish)
+// with RSI confirmation and ATR expansion
+function calcBreakout(closes) {
+  const n = closes.length;
+  if(n < 22) return { signal: 0, reason: 'insufficient data' };
+
+  const price = closes[n-1];
+  const prevPrice = closes[n-2];
+  const lookback = closes.slice(-21, -1); // last 20 candles excluding current
+  const high20 = Math.max(...lookback);
+  const low20 = Math.min(...lookback);
+  const rsi = calcRSI(closes);
+  const atr = calcATR(closes);
+  const atrAvg = calcATR(closes.slice(0,-5)); // ATR excluding recent 5
+  const atrExpansion = atr / (atrAvg || atr); // >1.3 = expanding volatility
+  const priceMove = Math.abs(price - prevPrice);
+  const movePct = (priceMove / prevPrice) * 100;
+
+  // Bullish breakout: close above 20-candle high
+  if(price > high20 && prevPrice <= high20) {
+    const rsiConfirm = rsi > 52; // RSI crossing above midline
+    const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
+    const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
+    if(strength >= 1) {
+      return { signal: strength + 1, direction: 'BUY',
+        reason: `Breakout above ${high20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
+    }
+  }
+
+  // Bearish breakout: close below 20-candle low
+  if(price < low20 && prevPrice >= low20) {
+    const rsiConfirm = rsi < 48;
+    const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
+    const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
+    if(strength >= 1) {
+      return { signal: strength + 1, direction: 'SELL',
+        reason: `Breakdown below ${low20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
+    }
+  }
+
+  return { signal: 0, reason: 'no breakout' };
 }
 
 function calcBB(c,p=20){const n=Math.min(p,c.length);const sma=c.slice(-n).reduce((a,b)=>a+b,0)/n;
