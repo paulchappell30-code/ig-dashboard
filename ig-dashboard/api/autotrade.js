@@ -889,8 +889,27 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     try{
       const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
-      ob.stopDistance=tradeStopDist;
-      L(`Stop loss: ${tradeStopDist}pts (${stopType}) — max loss £${actualRisk}`);
+      // Verify stop distance against IG's minimum for this instrument
+      let finalStopDist = tradeStopDist;
+      try {
+        const mktR = await fetch(`${igBase}/markets/${sig.epic}`, {headers:{...igH,'Version':'3'}});
+        if(mktR.ok){
+          const mktD = await mktR.json();
+          const minStop = mktD.dealingRules?.minNormalStopOrLimitDistance?.value || 0;
+          const minStopUnit = mktD.dealingRules?.minNormalStopOrLimitDistance?.unit || 'POINTS';
+          if(minStopUnit === 'POINTS' && minStop > finalStopDist){
+            L(`Stop adjusted from ${finalStopDist} to ${minStop}pts (IG minimum)`);
+            finalStopDist = Math.ceil(minStop * 1.1); // 10% above minimum
+          }
+          const minSize = mktD.dealingRules?.minDealSize?.value || 0.01;
+          if(finalSz < minSize){
+            L(`Size ${finalSz} below IG minimum ${minSize} — adjusting`);
+            finalSz = minSize;
+          }
+        }
+      } catch(e){ L(`Market rules check failed: ${e.message}`); }
+      ob.stopDistance=finalStopDist;
+      L(`Stop loss: ${finalStopDist}pts (${stopType}) — max loss £${(finalSz*finalStopDist).toFixed(2)}`);
       const trailDist=Math.max(minStop,Math.round(tradeStopDist*1.5));
       const trailIncrement=Math.max(1,Math.round(trailDist/5));
       ob.trailingStop=true;
