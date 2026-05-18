@@ -975,11 +975,17 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // This works for account types where trailing stop on opening order is rejected
         if(cd.dealId){
           try{
+            // IG requires current stopLevel when converting to trailing stop
+            const currentStopLevel = cd.level
+              ? (sig.direction==='BUY'
+                  ? cd.level - finalStopDist
+                  : cd.level + finalStopDist)
+              : null;
             const tsBody={
               trailingStop:true,
               trailingStopDistance:trailDist,
               trailingStopIncrement:trailIncrement,
-              stopLevel:null,
+              stopLevel:currentStopLevel,
               limitLevel:null,
               limitedRiskPremium:null
             };
