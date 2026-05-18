@@ -213,10 +213,20 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 async function fetchNews(L) {
   try {
     const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    const r = await fetch(`${base}/api/indicators?action=news`, { timeout: 5000 });
+    // Use Finnhub calendar endpoint for news — no TD credits consumed
+    const today = new Date().toISOString().split('T')[0];
+    const r = await fetch(`${base}/api/indicators?action=recent&date=${today}`, { timeout: 5000 });
     if (!r.ok) return null;
     const d = await r.json();
-    return d.summary || null;
+    if (d.summary) return d.summary;
+    // Fallback: summarise recent events as sentiment string
+    const events = d.events || [];
+    if (!events.length) return null;
+    const pos = events.filter(e => (e.actual||0) > (e.forecast||0)).length;
+    const neg = events.filter(e => (e.actual||0) < (e.forecast||0)).length;
+    if (pos > neg) return 'Positive economic data beats supporting risk-on sentiment.';
+    if (neg > pos) return 'Negative economic data misses weighing on risk sentiment.';
+    return 'Mixed economic data with no clear directional bias.';
   } catch(e) { L('News fetch failed: ' + e.message); return null; }
 }
 
