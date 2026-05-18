@@ -212,10 +212,13 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
   const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
   const r = await fetch(`${base}/api/claude`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 150,
+      messages: [{ role: 'user', content: prompt }] }),
+    signal: AbortSignal.timeout(15000) // 15s timeout
   });
+  if(!r.ok){ throw new Error(`Claude API ${r.status}: ${await r.text().catch(()=>'')}`); }
   const data = await r.json();
+  if(data.error){ throw new Error(`Claude error: ${data.error.message||JSON.stringify(data.error)}`); }
   const text = data.content?.[0]?.text || '{"approved":false,"confidence":0,"reasoning":"No response"}';
   const result = JSON.parse(text.replace(/```json|```/g,'').trim());
   const icon = result.approved ? '✅' : '❌';
@@ -648,14 +651,15 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       let divergence={type:'none',strength:0,description:'no data'};
       let trendPullback=null;
       let breakoutSignal=null;
+      let dir='BUY'; // default, overridden by scoring
 
       if(closes&&closes.length>=5){
         L(`${instr}: ${closes.length} candles from ${src}`);
         regime=detectRegime(closes);
         sc=calcScore(closes,regime);
 
-        // Declare dir early so trend/breakout can set it before mean reversion check
-        let dir = sc > 0 ? 'BUY' : 'SELL';
+        // Update dir based on score
+        dir = sc > 0 ? 'BUY' : 'SELL';
 
         // Trend pullback signal — overrides ranging score in trending markets
         if(regime === 'uptrend' || regime === 'downtrend'){
@@ -749,7 +753,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       // Mean reversion override for ranging regime
       const rsiForMR=effectiveRSI; // uses TD hourly if more extreme
       let meanReversion=false;
-      // dir already declared above, update based on total score
+      // Update dir based on total score (unless trend/breakout already set it)
       if(!trendPullback?.signal && !breakoutSignal?.signal) dir=total>0?'BUY':'SELL';
       if(regime==='ranging'){
         if(rsiForMR>=68){
