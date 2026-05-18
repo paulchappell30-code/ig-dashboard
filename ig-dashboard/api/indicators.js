@@ -199,6 +199,13 @@ module.exports = async (req, res) => {
     if (req.query.action === 'prices') {
       const symbols = (req.query.symbols || '').split(',').filter(Boolean).slice(0, 12);
       if (!symbols.length) return res.status(400).json({ error: 'symbols required' });
+      // Cache prices for 5 minutes to avoid burning TD credits on every dashboard refresh
+      const cacheKey = symbols.join(',');
+      if (!global._priceCache) global._priceCache = {};
+      const cached = global._priceCache[cacheKey];
+      if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+        return res.status(200).json({ prices: cached.prices, cached: true });
+      }
       try {
         const prices = {};
         // Batch fetch using Twelve Data price endpoint
@@ -213,6 +220,7 @@ module.exports = async (req, res) => {
             if (val && val.price) prices[sym] = val.price;
           }
         }
+        global._priceCache[cacheKey] = { prices, ts: Date.now() };
         return res.status(200).json({ prices, count: Object.keys(prices).length });
       } catch(e) {
         return res.status(500).json({ error: e.message });
