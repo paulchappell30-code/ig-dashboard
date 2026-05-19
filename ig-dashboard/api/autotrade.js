@@ -834,23 +834,27 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   if(!signals.length){L('No signals');return res.status(200).json({action:'no_signals',log});}
   signals.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
 
-  // Keep only the best signal per correlation group
-  // Mean reversion signals (RSI extreme) take priority over higher-scoring non-MR signals
-  const seenGroups=new Set();
-  // Sort: mean reversion first within score, then by absolute score
+  // Allow up to 2 signals per correlation group
+  // Priority: mean reversion > breakout > trend > regular
+  const GROUP_MAX = 2;
+  const groupCounts = {};
   signals.sort((a,b)=>{
-    if(a.meanReversion&&!b.meanReversion)return -1;
-    if(!a.meanReversion&&b.meanReversion)return 1;
+    const aPri = a.meanReversion ? 3 : a.breakoutSignal?.signal>0 ? 2 : a.trendPullback?.signal>0 ? 1 : 0;
+    const bPri = b.meanReversion ? 3 : b.breakoutSignal?.signal>0 ? 2 : b.trendPullback?.signal>0 ? 1 : 0;
+    if(aPri !== bPri) return bPri - aPri;
     return Math.abs(b.score)-Math.abs(a.score);
   });
   const filteredSignals=signals.filter(sig=>{
     const grp=CORRELATION_GROUPS[sig.epic];
     if(!grp){return true;}
-    if(seenGroups.has(grp))return false;
-    seenGroups.add(grp);return true;
+    groupCounts[grp] = (groupCounts[grp]||0);
+    if(groupCounts[grp] >= GROUP_MAX) return false;
+    groupCounts[grp]++;
+    return true;
   });
   const mrCount=filteredSignals.filter(s=>s.meanReversion).length;
-  L(`${signals.length} signal(s) — ${filteredSignals.length} after group filter (${mrCount} mean reversion)`);
+  const boCount=filteredSignals.filter(s=>s.breakoutSignal?.signal>0).length;
+  L(`${signals.length} signal(s) — ${filteredSignals.length} after group filter (${mrCount} MR, ${boCount} breakout)`);
 
   for(const sig of filteredSignals.slice(0,3)){
     let approved=!cfg.requireAIConfirm,confidence=100,reasoning='AI not required';
