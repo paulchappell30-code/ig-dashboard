@@ -81,12 +81,16 @@ const MAX_CANDLES_IG = 10;
 async function saveToDb(type, data) {
   try {
     const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    await fetch(`${base}/api/db`, {
+    const r = await fetch(`${base}/api/db`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, data })
     });
-  } catch(e) { console.log('[saveToDb]', e.message); }
+    if(!r.ok){
+      const txt = await r.text().catch(()=>'');
+      console.error(`[saveToDb] ${type} failed ${r.status}: ${txt.substring(0,200)}`);
+    }
+  } catch(e) { console.error('[saveToDb]', type, e.message); }
 }
 
 async function sendNotify(type, subject, body) {
@@ -1015,10 +1019,22 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
         // Determine trade type for EOD close logic
       const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : (sig.trendPullback?.signal>0) ? 'trend' : (sig.breakoutSignal?.signal>0) ? 'breakout' : 'directional';
-      await saveToDb('trade_opened',{dealId:cd.dealId,dealReference:ref,instrument:sig.instr,epic:sig.epic,
-          direction:sig.direction,size:finalSz,openLevel:cd.level,signalScore:sig.score,
-          aiConfidence:confidence,aiReasoning:reasoning,signalReasons:sig.reasons.join(', '),
-          regime:sig.regime,atr:sig.atr,stopDistance:tradeStopDist,tradeType});
+      // Save trade to DB with visible error logging
+        try {
+          const base2 = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+          const dbr = await fetch(`${base2}/api/db`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ type:'trade_opened', data:{
+              dealId:cd.dealId, dealReference:ref, instrument:sig.instr, epic:sig.epic,
+              direction:sig.direction, size:finalSz, openLevel:cd.level, signalScore:sig.score,
+              aiConfidence:confidence, aiReasoning:reasoning,
+              signalReasons:(sig.reasons||[]).join(', '),
+              regime:sig.regime, atr:sig.atr, stopDistance:finalStopDist||tradeStopDist, tradeType
+            }})
+          });
+          const dbd = await dbr.json().catch(()=>({}));
+          L(`DB save: ${dbr.ok?'✅ saved':'❌ failed '+dbr.status+' '+JSON.stringify(dbd).substring(0,100)}`);
+        } catch(e){ L(`DB save error: ${e.message}`); }
         await sendNotify('trade',`🎯 Trade Placed: ${sig.instr} ${sig.direction}`,
           `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: £${finalSz}/pt\nLevel: ${cd.level}\nStop: ${tradeStopDist}pts\nMax Loss: £${actualRisk}\nAI: ${confidence}% — ${reasoning}\nRegime: ${sig.regime}\nScore: ${sig.score}\nType: ${tradeType} (${tradeType==='hourly_mr'?'closes tonight':tradeType==='daily_mr'?'holds up to 3 days':'holds until Friday'})`);
         return res.status(200).json({action:'trade_placed',instrument:sig.instr,direction:sig.direction,level:cd.level,size:finalSz,log});
