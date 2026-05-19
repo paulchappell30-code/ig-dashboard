@@ -538,8 +538,12 @@ module.exports = async (req,res) => {
     const now = new Date();
     const utcH = now.getUTCHours();
     const utcM = now.getUTCMinutes();
-    const isEOD = utcH === cfg.eodCloseTime.h && utcM >= cfg.eodCloseTime.m && utcM < cfg.eodCloseTime.m + 5;
-    const isFridayEOD = now.getUTCDay() === 5 && utcH >= 15 && utcH < 17; // Friday close earlier
+    // EOD: close 10 mins before configured time to avoid spread widening at session close
+    // e.g. configured 21:00 UTC → actually closes at 20:50 UTC
+    const eodMins = cfg.eodCloseTime.h * 60 + cfg.eodCloseTime.m - 10;
+    const nowMins = utcH * 60 + utcM;
+    const isEOD = nowMins >= eodMins && nowMins < eodMins + 60; // window: 10 mins early, up to 1hr after
+    const isFridayEOD = now.getUTCDay() === 5 && utcH >= 14 && utcH < 17; // Friday close 2pm-5pm UTC
 
     if(isEOD || isFridayEOD){
       // Close positions based on trade type:
