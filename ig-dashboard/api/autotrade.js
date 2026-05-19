@@ -1185,40 +1185,50 @@ function calcTrendPullback(closes, regime) {
 // with RSI confirmation and ATR expansion
 function calcBreakout(closes) {
   const n = closes.length;
-  if(n < 22) return { signal: 0, reason: 'insufficient data' };
+  if(n < 23) return { signal: 0, reason: 'insufficient data' };
 
-  const price = closes[n-1];
-  const prevPrice = closes[n-2];
-  const lookback = closes.slice(-21, -1); // last 20 candles excluding current
+  const price = closes[n-1];     // today's close
+  const prev1 = closes[n-2];     // yesterday
+  const prev2 = closes[n-3];     // two days ago
+  // Lookback: 20 candles excluding the last 2 (so we check if both recent candles broke out)
+  const lookback = closes.slice(-22, -2);
   const high20 = Math.max(...lookback);
   const low20 = Math.min(...lookback);
   const rsi = calcRSI(closes);
   const atr = calcATR(closes);
-  const atrAvg = calcATR(closes.slice(0,-5)); // ATR excluding recent 5
-  const atrExpansion = atr / (atrAvg || atr); // >1.3 = expanding volatility
-  const priceMove = Math.abs(price - prevPrice);
-  const movePct = (priceMove / prevPrice) * 100;
+  const atrAvg = calcATR(closes.slice(0,-5));
+  const atrExpansion = atr / (atrAvg || atr);
+  const priceMove = Math.abs(price - prev1);
+  const movePct = (priceMove / prev1) * 100;
 
-  // Bullish breakout: close above 20-candle high
-  if(price > high20 && prevPrice <= high20) {
-    const rsiConfirm = rsi > 52; // RSI crossing above midline
+  // Bullish breakout: BOTH last 2 candles close above 20-candle high (2-candle confirmation)
+  if(price > high20 && prev1 > high20 && prev2 <= high20) {
+    const rsiConfirm = rsi > 52;
     const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
     const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
     if(strength >= 1) {
       return { signal: strength + 1, direction: 'BUY',
-        reason: `Breakout above ${high20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
+        reason: `Breakout confirmed (2 candles) above ${high20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
     }
   }
 
-  // Bearish breakout: close below 20-candle low
-  if(price < low20 && prevPrice >= low20) {
+  // Bearish breakout: BOTH last 2 candles close below 20-candle low (2-candle confirmation)
+  if(price < low20 && prev1 < low20 && prev2 >= low20) {
     const rsiConfirm = rsi < 48;
     const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
     const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
     if(strength >= 1) {
       return { signal: strength + 1, direction: 'SELL',
-        reason: `Breakdown below ${low20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
+        reason: `Breakdown confirmed (2 candles) below ${low20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
     }
+  }
+
+  // Show unconfirmed breakout in log for awareness (no signal)
+  if(price < low20 && prev1 >= low20) {
+    return { signal: 0, reason: `Unconfirmed breakdown below ${low20.toFixed(0)} — needs 2nd candle` };
+  }
+  if(price > high20 && prev1 <= high20) {
+    return { signal: 0, reason: `Unconfirmed breakout above ${high20.toFixed(0)} — needs 2nd candle` };
   }
 
   return { signal: 0, reason: 'no breakout' };
