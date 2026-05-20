@@ -130,6 +130,15 @@ module.exports = async (req, res) => {
     if (req.method === 'POST') {
       const { type, data } = req.body || {};
 
+      if (type === 'delete_trade') {
+        const { dealId } = data || {};
+        if (!dealId) return res.status(400).json({ error: 'No dealId' });
+        try {
+          await sql`DELETE FROM trades WHERE deal_id = ${dealId}`;
+          return res.status(200).json({ success: true, deleted: dealId });
+        } catch(e) { return res.status(200).json({ error: e.message }); }
+      }
+
       if (type === 'import_trade') {
         const t = data;
         if (!t) return res.status(400).json({ error: 'No trade data' });
