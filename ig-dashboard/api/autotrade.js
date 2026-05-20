@@ -798,14 +798,30 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       if(regime==='ranging'){
         if(rsiForMR>=68){
           // Overbought in ranging — mean reversion SELL
-          dir='SELL';
-          meanReversion=true;
-          L(`${instr}: mean reversion SELL (RSI:${rsiForMR.toFixed(1)} overbought in ranging)`);
+          // Trend filter: only SELL if daily SMA not in clear uptrend
+          const sma10mr = closes.length>=10 ? closes.slice(-10).reduce((a,b)=>a+b,0)/10 : null;
+          const sma20mr = closes.length>=20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : null;
+          const inUptrend = sma10mr && sma20mr && sma10mr > sma20mr * 1.002;
+          if(inUptrend){
+            L(`${instr}: mean reversion SELL blocked — SMA10 (${sma10mr.toFixed(0)}) above SMA20 (${sma20mr.toFixed(0)}) — trend filter`);
+          } else {
+            dir='SELL';
+            meanReversion=true;
+            L(`${instr}: mean reversion SELL (RSI:${rsiForMR.toFixed(1)} overbought in ranging${sma10mr?', SMA trend OK':''})`);
+          }
         } else if(rsiForMR<=33){
           // Oversold in ranging — mean reversion BUY
-          dir='BUY';
-          meanReversion=true;
-          L(`${instr}: mean reversion BUY (RSI:${rsiForMR.toFixed(1)} oversold in ranging)`);
+          // Trend filter: only BUY if daily SMA not in clear downtrend
+          const sma10mr = closes.length>=10 ? closes.slice(-10).reduce((a,b)=>a+b,0)/10 : null;
+          const sma20mr = closes.length>=20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : null;
+          const inDowntrend = sma10mr && sma20mr && sma10mr < sma20mr * 0.998; // >0.2% below SMA20
+          if(inDowntrend){
+            L(`${instr}: mean reversion BUY blocked — daily SMA10 (${sma10mr.toFixed(0)}) below SMA20 (${sma20mr.toFixed(0)}) — trend filter`);
+          } else {
+            dir='BUY';
+            meanReversion=true;
+            L(`${instr}: mean reversion BUY (RSI:${rsiForMR.toFixed(1)} oversold in ranging${sma10mr?', SMA trend OK':''})`);
+          }
         } else if(Math.abs(total)<3){
           // Ranging + weak signal + neutral RSI = skip
           L(`${instr}: ranging regime + neutral RSI (${rsiForMR.toFixed(1)}) + weak signal — skip`);
