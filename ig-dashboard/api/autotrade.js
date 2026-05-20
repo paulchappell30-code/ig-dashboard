@@ -941,7 +941,10 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       : isTrendTrade ? 'trend pullback (2x ATR)'
       : isBreakoutTrade ? 'breakout (2x ATR)'
       : 'standard (1.5x ATR)';
-    const minStop = Math.max(10, priceScale * 5);
+    // minStop in contract units (after ATR scaling) — fixed minimums by instrument type
+    const minStop = sig.src === 'DB' && priceScale > 1
+      ? Math.max(5, Math.round(priceScale * 0.001))  // 0.1% of scale e.g. 10pts for FX
+      : Math.max(5, 10);                              // 10pts for IG-sourced candles
     const tradeStopDist = scaledATR > 0 ? Math.max(minStop, Math.round(scaledATR * atrMult)) : minStop;
     // Tiered risk % by signal quality
     // Daily MR (strongest signal): 2%
