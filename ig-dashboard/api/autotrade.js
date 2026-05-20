@@ -943,11 +943,26 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       : 'standard (1.5x ATR)';
     const minStop = Math.max(10, priceScale * 5);
     const tradeStopDist = scaledATR > 0 ? Math.max(minStop, Math.round(scaledATR * atrMult)) : minStop;
-    const tradeRiskAmt = balance * (profitLockActive ? 0.005 : 0.01);
+    // Tiered risk % by signal quality
+    // Daily MR (strongest signal): 2%
+    // Hourly MR with trend filter passed: 1.5%
+    // Trend pullback: 1.5%
+    // Breakout confirmed: 1%
+    // Standard/other: 1%
+    const isHourlyMR = sig.tdRsi && sig.meanReversion;
+    const isDailyMR = sig.meanReversion && !sig.tdRsi;
+    let baseRiskPct;
+    if(isDailyMR)             baseRiskPct = 0.02;   // 2% — daily RSI extreme, strongest
+    else if(isHourlyMR)       baseRiskPct = 0.015;  // 1.5% — hourly MR, trend-filtered
+    else if(isTrendTrade)     baseRiskPct = 0.015;  // 1.5% — with-trend entry
+    else if(isBreakoutTrade)  baseRiskPct = 0.01;   // 1% — breakout still higher false rate
+    else                      baseRiskPct = 0.01;   // 1% — default
+    const riskPct = profitLockActive ? 0.005 : baseRiskPct;
+    const tradeRiskAmt = balance * riskPct;
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
     const actualRisk = (finalSz * tradeStopDist).toFixed(2);
-    L(`${sig.instr}: size £${finalSz}/pt (risk £${tradeRiskAmt.toFixed(2)} / ${tradeStopDist}pt stop — ${stopType})`);
+    L(`${sig.instr}: size £${finalSz}/pt | risk ${(riskPct*100).toFixed(1)}% = £${tradeRiskAmt.toFixed(2)} | stop ${tradeStopDist}pt | ${stopType}`);
 
     L(`${sig.instr}: size £${finalSz}/pt × ${tradeStopDist}pt stop = £${actualRisk} risk (${((parseFloat(actualRisk)/balance)*100).toFixed(1)}% of account)`);
     L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
