@@ -1117,13 +1117,21 @@ let _tdTimer=null;
 async function startTdPriceFallback(){
   // Use IG market snapshot for NON_STREAM instruments — no TD credits used
   if(_tdTimer)return;
+  let _snapshotPaused = false;
   async function fetchIGSnapshots(){
     if(!S.connected||!S.cst)return;
+    if(_snapshotPaused)return;
     const nonStream=['CS.D.GBPUSD.TODAY.IP','CS.D.EURUSD.TODAY.IP','CS.D.USDJPY.TODAY.IP',
                      'CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
     for(const epic of nonStream){
       try{
         const r=await igFetch('markets/'+epic);
+        if(r.status===403){
+          // Session expired — pause snapshots for 60s then retry
+          _snapshotPaused=true;
+          setTimeout(()=>{_snapshotPaused=false;},60000);
+          return;
+        }
         if(!r.ok)continue;
         const d=await r.json();
         const bid=d.snapshot?.bid;
