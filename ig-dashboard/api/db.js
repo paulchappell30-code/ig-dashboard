@@ -220,7 +220,9 @@ async function initTables() {
       stop_distance DECIMAL(10,4),
       ai_was_correct BOOLEAN,
       holding_minutes INTEGER,
-      partial_close BOOLEAN DEFAULT false
+      partial_close BOOLEAN DEFAULT false,
+      trade_type VARCHAR(20) DEFAULT 'hourly_mr',
+      close_reason VARCHAR(30)
     )
   `;
 
@@ -232,6 +234,8 @@ async function initTables() {
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS open_hour INTEGER",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS stop_level DECIMAL(15,4)",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS stop_distance DECIMAL(10,4)",
+    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_type VARCHAR(20) DEFAULT 'hourly_mr'",
+    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS close_reason VARCHAR(30)",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ai_was_correct BOOLEAN",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS holding_minutes INTEGER",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false",
