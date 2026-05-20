@@ -50,6 +50,38 @@ module.exports = async (req, res) => {
         } catch(e) { return res.status(200).json({ error: e.message, instruments: {} }); }
       }
 
+      if (action === 'import_trade') {
+        // Manual trade import for missed trades
+        const t = req.body.trade;
+        if (!t) return res.status(400).json({ error: 'No trade data' });
+        try {
+          await sql`
+            INSERT INTO trades (
+              deal_id, instrument, epic, direction, size,
+              open_level, close_level, opened_at, closed_at,
+              profit_loss, signal_score, ai_confidence, status,
+              regime, trade_type, close_reason, ai_was_correct
+            ) VALUES (
+              ${t.dealId}, ${t.instrument}, ${t.epic||null}, ${t.direction}, ${t.size},
+              ${t.openLevel}, ${t.closeLevel||null}, ${t.openedAt}::timestamptz, 
+              ${t.closedAt||null}::timestamptz,
+              ${t.profitLoss||null}, ${t.signalScore||null}, ${t.aiConfidence||null},
+              ${t.status||'closed'}, ${t.regime||'ranging'}, 
+              ${t.tradeType||'hourly_mr'}, ${t.closeReason||'manual'},
+              ${t.profitLoss > 0 ? true : false}
+            )
+            ON CONFLICT (deal_id) DO UPDATE SET
+              close_level = EXCLUDED.close_level,
+              closed_at = EXCLUDED.closed_at,
+              profit_loss = EXCLUDED.profit_loss,
+              status = EXCLUDED.status,
+              close_reason = EXCLUDED.close_reason,
+              ai_was_correct = EXCLUDED.ai_was_correct
+          `;
+          return res.status(200).json({ success: true, instrument: t.instrument });
+        } catch(e) { return res.status(200).json({ error: e.message }); }
+      }
+
       if (action === 'stats') {
         const stats = await getStats();
         return res.status(200).json(stats);
