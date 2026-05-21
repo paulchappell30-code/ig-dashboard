@@ -210,6 +210,12 @@ ${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
 WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
+${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal.replace('_',' ')} vs ${sig.pairsCtx.partner} (Z-score: ${sig.pairsCtx.zscore.toFixed(2)}, ${sig.pairsCtx.n} days data)
+${sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this BUY — instrument cheap vs partner' :
+  sig.pairsCtx.signal === 'expensive' && sig.direction === 'SELL' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this SELL — instrument expensive vs partner' :
+  sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY' ? '⚠️ CONTRADICTION: Pairs signal OPPOSES this BUY — instrument already expensive vs partner' :
+  sig.pairsCtx.signal === 'cheap' && sig.direction === 'SELL' ? '⚠️ CONTRADICTION: Pairs signal OPPOSES this SELL — instrument already cheap vs partner' :
+  'Pairs signal neutral — no confluence or contradiction'}` : 'PAIRS CONTEXT: No pairs data for this instrument'}
 CONTEXT: ${regimeContext}
 Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
@@ -640,6 +646,64 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     if(stats.totalTrades>=5){winRate=stats.winRate/100;L(`Kelly win rate: ${stats.winRate}%`);}
   }catch(e){}
 
+  // ── PAIRS Z-SCORE CALCULATION ─────────────────────────────────────────────
+  // Calculate live Z-scores for instrument pairs using DB candle history
+  // Used to add confluence/contradiction context to AI signal evaluation
+  const PAIRS_DEFINITIONS = [
+    { instrA:'GBP/USD', instrB:'EUR/USD', epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP' },
+    { instrA:'EUR/USD', instrB:'EUR/GBP', epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP' },
+    { instrA:'FTSE 100', instrB:'DAX 40', epicA:'IX.D.FTSE.DAILY.IP',   epicB:'IX.D.DAX.DAILY.IP' },
+    { instrA:'Gold',    instrB:'Silver',  epicA:'CS.D.USCGC.TODAY.IP',  epicB:'CS.D.USCSI.TODAY.IP' },
+    { instrA:'Brent Oil', instrB:'Gold',  epicA:'CC.D.LCO.USS.IP',      epicB:'CS.D.USCGC.TODAY.IP' },
+  ];
+  const pairsZScores = {}; // keyed by instrA → { zscore, instrB, direction }
+
+  try {
+    const {sql: pairSql} = require('@vercel/postgres');
+    for(const pair of PAIRS_DEFINITIONS) {
+      try {
+        const rowsA = await pairSql`
+          SELECT close_price FROM price_history
+          WHERE instrument = ${pair.instrA} AND resolution = 'DAY'
+          ORDER BY candle_time DESC LIMIT 60`;
+        const rowsB = await pairSql`
+          SELECT close_price, candle_time::date as dt FROM price_history
+          WHERE instrument = ${pair.instrB} AND resolution = 'DAY'
+          ORDER BY candle_time DESC LIMIT 60`;
+        
+        if(rowsA.rows.length < 10 || rowsB.rows.length < 10) continue;
+        
+        // Build ratio series (most recent last)
+        const closesA = rowsA.rows.map(r => parseFloat(r.close_price)).reverse();
+        const closesB = rowsB.rows.map(r => parseFloat(r.close_price)).reverse();
+        const n = Math.min(closesA.length, closesB.length);
+        const ratios = [];
+        for(let i = 0; i < n; i++) {
+          if(closesB[i] > 0) ratios.push(closesA[i] / closesB[i]);
+        }
+        if(ratios.length < 10) continue;
+
+        const mean = ratios.reduce((a,b) => a+b, 0) / ratios.length;
+        const std = Math.sqrt(ratios.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ratios.length);
+        const current = ratios[ratios.length - 1];
+        const zscore = std > 0 ? (current - mean) / std : 0;
+
+        // Store for both instruments in the pair
+        // Positive Z = instrA expensive vs instrB
+        // Negative Z = instrA cheap vs instrB
+        pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
+          signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
+        // From instrB perspective, Z is inverted
+        pairsZScores[pair.instrB] = { zscore: -zscore, partner: pair.instrA, n: ratios.length,
+          signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
+
+        if(Math.abs(zscore) >= 1.5) {
+          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} (${pairsZScores[pair.instrA].signal})`);
+        }
+      } catch(e) { /* skip pair on error */ }
+    }
+  } catch(e) { L('Pairs Z-score error: ' + e.message); }
+
   // Signal evaluation
   const occupied=new Set(openPos.map(p=>CORRELATION_GROUPS[p.market.epic]).filter(Boolean));
   L('Occupied: '+(([...occupied].join(', '))||'none'));
@@ -844,9 +908,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         sentAdj!==0?`Sentiment:${sentAdj>0?'+':''}${sentAdj}`:'',
       ].filter(Boolean);
 
+      // Add pairs context for this instrument
+      const pairsCtx = pairsZScores[instr] || null;
       signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
         reasons,rsi,tdRsi:tdRsiForMR,effectiveRSI,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
-        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence,trendPullback,breakoutSignal});
+        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence,trendPullback,breakoutSignal,pairsCtx});
       // Note: group only marked occupied on open position, not on signal
     }catch(e){L(`${instr}: ${e.message}`);}
   }
@@ -954,12 +1020,26 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // Standard/other: 1%
     const isHourlyMR = sig.tdRsi && sig.meanReversion;
     const isDailyMR = sig.meanReversion && !sig.tdRsi;
+    // Check pairs confluence — does pairs signal confirm this trade direction?
+    const pairsConfirms = sig.pairsCtx && (
+      (sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY') ||
+      (sig.pairsCtx.signal === 'expensive' && sig.direction === 'SELL')
+    );
+    const pairsContradicts = sig.pairsCtx && (
+      (sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY') ||
+      (sig.pairsCtx.signal === 'cheap' && sig.direction === 'SELL')
+    );
     let baseRiskPct;
-    if(isDailyMR)             baseRiskPct = 0.02;   // 2% — daily RSI extreme, strongest
-    else if(isHourlyMR)       baseRiskPct = 0.015;  // 1.5% — hourly MR, trend-filtered
-    else if(isTrendTrade)     baseRiskPct = 0.015;  // 1.5% — with-trend entry
-    else if(isBreakoutTrade)  baseRiskPct = 0.01;   // 1% — breakout still higher false rate
-    else                      baseRiskPct = 0.01;   // 1% — default
+    if(isDailyMR && pairsConfirms)  baseRiskPct = 0.025; // 2.5% — daily MR + pairs confluence
+    else if(isDailyMR)              baseRiskPct = 0.02;   // 2% — daily RSI extreme
+    else if(isHourlyMR && pairsConfirms) baseRiskPct = 0.02; // 2% — hourly MR + pairs confluence
+    else if(isHourlyMR)             baseRiskPct = 0.015;  // 1.5% — hourly MR
+    else if(isTrendTrade)           baseRiskPct = 0.015;  // 1.5% — with-trend entry
+    else if(isBreakoutTrade)        baseRiskPct = 0.01;   // 1% — breakout
+    else                            baseRiskPct = 0.01;   // 1% — default
+    if(pairsContradicts) baseRiskPct = Math.min(baseRiskPct, 0.01); // Cap at 1% if pairs contradicts
+    if(pairsConfirms) L(`${sig.instr}: ✅ Pairs confluence — risk boosted to ${(baseRiskPct*100).toFixed(1)}%`);
+    if(pairsContradicts) L(`${sig.instr}: ⚠️ Pairs contradiction — risk capped at ${(baseRiskPct*100).toFixed(1)}%`);
     const riskPct = profitLockActive ? 0.005 : baseRiskPct;
     const tradeRiskAmt = balance * riskPct;
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
