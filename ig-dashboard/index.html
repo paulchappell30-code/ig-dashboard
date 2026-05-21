@@ -1046,7 +1046,15 @@ function switchTab(id,el){
   if(id==='journal')loadJournal();
   if(id==='log')renderLog();
   if(id==='autotrade'){loadCalendarData();checkAutoTradeStatus();}
-  if(id==='pairs'){if(!Object.keys(pairsData).length)loadPairsData();}
+  if(id==='pairs'){
+    if(!Object.keys(pairsData).length){
+      loadPairsData().then(()=>{
+        setTimeout(()=>document.getElementById('pairs-grid')?.firstElementChild?.scrollIntoView(),100);
+      });
+    } else {
+      setTimeout(()=>document.getElementById('pairs-grid')?.firstElementChild?.scrollIntoView(),100);
+    }
+  }
   if(id==='charts'&&S.connected){
     const key=chartState.epic+'_'+chartState.resolution+'_'+chartState.count;
     const cached=S.priceCache[key]&&(Date.now()-S.priceCache[key].ts<30*60*1000);
