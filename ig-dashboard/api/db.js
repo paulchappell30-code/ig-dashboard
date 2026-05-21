@@ -48,9 +48,11 @@ module.exports = async (req, res) => {
         if(!instrument) return res.status(400).json({ error: 'instrument required' });
         try {
           const rows = await sql`
-            SELECT candle_time, open, high, low, close, instrument
+            SELECT candle_time, open_price as close, close_price as close, 
+                   close_price, instrument
             FROM price_history
             WHERE instrument = ${instrument}
+            AND resolution = 'DAY'
             ORDER BY candle_time DESC
             LIMIT ${limit}
           `;
