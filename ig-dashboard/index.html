@@ -179,6 +179,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
     <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
     <div class="nav-tab" onclick="switchTab('research',this)">🧬 Research</div>
+    <div class="nav-tab" onclick="switchTab('pairs',this)">⚖️ Pairs</div>
   </div>
   <!-- Live bar -->
   <div id="live-bar" style="display:none"></div>
@@ -1195,9 +1196,310 @@ async function fetchTdPrices(){
 // ─── INIT ──────────────────────────────────────────────────────────────────────
 document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 </script>
+
+  <!-- PAIRS TRADING TAB -->
+  <div id="tab-pairs" class="tab-content" style="display:none;padding:16px;max-width:900px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">⚖️ Pairs / Spread Monitor</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="pairs-updated" style="font-size:11px;color:var(--text2)"></span>
+          <button onclick="loadPairsData()" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Refresh</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 16px">
+        Z-score measures how many standard deviations the current spread is from its historical mean. 
+        <strong>±2.0</strong> = significant divergence. <strong>±1.5</strong> = watch zone.
+      </p>
+      <div id="pairs-grid" style="display:grid;gap:12px"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:15px">📊 Spread History</h3>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
+      <canvas id="pairs-chart" height="200"></canvas>
+    </div>
+  </div>
+
 <script>
 // Ensure IG snapshots start even if LS connect event was missed
 setTimeout(()=>{if(!_tdTimer)startTdPriceFallback();},8000);
+
+// ── PAIRS TRADING ─────────────────────────────────────────────────────────────
+const PAIRS_CONFIG = [
+  { id:'ftse_dax',   name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40',    type:'ratio',
+    description:'European indices — same macro drivers, different compositions' },
+  { id:'gold_silver', name:'Gold / Silver',     a:'Gold',      b:'Silver',    type:'ratio',
+    description:'Precious metals ratio — historically mean-reverts strongly' },
+  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio',
+    description:'Dollar pairs — divergence often means one is mispriced vs USD' },
+  { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio',
+    description:'EUR crosses — triangular arbitrage relationship' },
+  { id:'brent_gold',  name:'Brent / Gold',      a:'Brent Oil', b:'Gold',      type:'ratio',
+    description:'Risk assets — Oil/Gold ratio signals risk-on vs risk-off' },
+];
+
+let pairsData = {};
+let selectedPair = 'ftse_dax';
+
+async function loadPairsData() {
+  document.getElementById('pairs-updated').textContent = 'Loading...';
+  try {
+    // Fetch candle data from DB for all pair instruments
+    const instruments = [...new Set(PAIRS_CONFIG.flatMap(p => [p.a, p.b]))];
+    const results = {};
+
+    for(const instr of instruments) {
+      try {
+        const r = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(instr)}&limit=60`);
+        if(r.ok) {
+          const d = await r.json();
+          results[instr] = d.candles || [];
+        }
+      } catch(e) { results[instr] = []; }
+    }
+
+    pairsData = results;
+    renderPairsGrid();
+    renderPairsChart(selectedPair);
+    document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB');
+  } catch(e) {
+    document.getElementById('pairs-updated').textContent = 'Error: ' + e.message;
+  }
+}
+
+function calcPairSpread(candlesA, candlesB) {
+  // Align candles by date and calculate ratio
+  const mapB = {};
+  candlesB.forEach(c => { mapB[c.date?.substring(0,10) || c.candle_time?.substring(0,10)] = c.close; });
+
+  const spreads = [];
+  candlesA.forEach(c => {
+    const date = c.date?.substring(0,10) || c.candle_time?.substring(0,10);
+    const closeA = parseFloat(c.close);
+    const closeB = parseFloat(mapB[date]);
+    if(closeA && closeB && closeB > 0) {
+      spreads.push({ date, spread: closeA / closeB, closeA, closeB });
+    }
+  });
+
+  return spreads.sort((a,b) => a.date.localeCompare(b.date));
+}
+
+function calcZScore(spreads) {
+  if(spreads.length < 5) return { zscore: null, mean: null, std: null };
+  const values = spreads.map(s => s.spread);
+  const mean = values.reduce((a,b) => a+b, 0) / values.length;
+  const variance = values.reduce((a,b) => a + Math.pow(b-mean, 2), 0) / values.length;
+  const std = Math.sqrt(variance);
+  const current = values[values.length - 1];
+  const zscore = std > 0 ? (current - mean) / std : 0;
+  return { zscore, mean, std, current, n: values.length };
+}
+
+function getZScoreColor(z) {
+  if(z === null) return 'var(--text2)';
+  const abs = Math.abs(z);
+  if(abs >= 2.0) return z > 0 ? '#e74c3c' : '#2ecc71';
+  if(abs >= 1.5) return z > 0 ? '#f39c12' : '#3498db';
+  return 'var(--text2)';
+}
+
+function getSignal(pair, zscore) {
+  if(zscore === null || Math.abs(zscore) < 1.5) return { text: 'Neutral', color: 'var(--text2)' };
+  const extreme = Math.abs(zscore) >= 2.0;
+  if(zscore > 0) {
+    // Ratio high: A expensive vs B → sell A, buy B
+    return {
+      text: `${extreme?'⚠️ ':''}${pair.a} expensive vs ${pair.b}`,
+      action: `SELL ${pair.a} / BUY ${pair.b}`,
+      color: extreme ? '#e74c3c' : '#f39c12'
+    };
+  } else {
+    // Ratio low: A cheap vs B → buy A, sell B
+    return {
+      text: `${extreme?'⚠️ ':''}${pair.a} cheap vs ${pair.b}`,
+      action: `BUY ${pair.a} / SELL ${pair.b}`,
+      color: extreme ? '#2ecc71' : '#3498db'
+    };
+  }
+}
+
+function renderPairsGrid() {
+  const grid = document.getElementById('pairs-grid');
+  const selector = document.getElementById('pairs-selector');
+  if(!grid) return;
+
+  grid.innerHTML = '';
+  selector.innerHTML = '';
+
+  PAIRS_CONFIG.forEach(pair => {
+    const candlesA = pairsData[pair.a] || [];
+    const candlesB = pairsData[pair.b] || [];
+    const spreads = calcPairSpread(candlesA, candlesB);
+    const { zscore, mean, std, current, n } = calcZScore(spreads);
+    const signal = getSignal(pair, zscore);
+    const zColor = getZScoreColor(zscore);
+
+    // Gauge bar
+    const clampedZ = Math.max(-3, Math.min(3, zscore || 0));
+    const barPct = ((clampedZ + 3) / 6) * 100;
+
+    grid.innerHTML += `
+      <div style="background:var(--bg2);border-radius:8px;padding:14px;cursor:pointer;border:1px solid ${Math.abs(zscore||0)>=2?zColor:'var(--border)'}"
+           onclick="selectPair('${pair.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <div style="font-weight:600;font-size:14px">${pair.name}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${pair.description}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:22px;font-weight:700;color:${zColor}">
+              ${zscore !== null ? (zscore > 0 ? '+' : '') + zscore.toFixed(2) : 'N/A'}
+            </div>
+            <div style="font-size:10px;color:var(--text2)">Z-score (${n||0} days)</div>
+          </div>
+        </div>
+        <!-- Gauge -->
+        <div style="position:relative;height:6px;background:var(--bg1);border-radius:3px;margin:8px 0">
+          <div style="position:absolute;left:33.3%;right:33.3%;top:0;bottom:0;background:var(--border);border-radius:3px"></div>
+          <div style="position:absolute;left:${barPct.toFixed(1)}%;top:-2px;width:10px;height:10px;background:${zColor};border-radius:50%;transform:translateX(-50%)"></div>
+          <div style="position:absolute;left:16.6%;top:-2px;width:2px;height:10px;background:var(--border)"></div>
+          <div style="position:absolute;left:83.3%;top:-2px;width:2px;height:10px;background:var(--border)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-bottom:8px">
+          <span>-3σ</span><span>-2σ</span><span>0</span><span>+2σ</span><span>+3σ</span>
+        </div>
+        ${zscore !== null && Math.abs(zscore) >= 1.5 ? `
+        <div style="background:var(--bg1);border-radius:4px;padding:6px 8px;font-size:12px;color:${signal.color}">
+          ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
+        </div>` : ''}
+        ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
+          Ratio: ${current?.toFixed(4)} | Mean: ${mean.toFixed(4)} | σ: ${std?.toFixed(4)}
+        </div>` : ''}
+      </div>`;
+
+    // Selector button
+    selector.innerHTML += `<button onclick="selectPair('${pair.id}')"
+      style="padding:4px 10px;font-size:12px;border-radius:4px;border:1px solid var(--border);
+      background:${selectedPair===pair.id?'var(--accent)':'var(--bg2)'};
+      color:${selectedPair===pair.id?'#fff':'var(--text1)'};cursor:pointer">
+      ${pair.name}</button>`;
+  });
+}
+
+function selectPair(id) {
+  selectedPair = id;
+  renderPairsGrid();
+  renderPairsChart(id);
+}
+
+function renderPairsChart(pairId) {
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return;
+  const canvas = document.getElementById('pairs-chart');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  const candlesA = pairsData[pair.a] || [];
+  const candlesB = pairsData[pair.b] || [];
+  const spreads = calcPairSpread(candlesA, candlesB);
+  if(spreads.length < 3) {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'var(--text2)';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Insufficient data — need candles for both instruments', canvas.width/2, canvas.height/2);
+    return;
+  }
+
+  const { mean, std } = calcZScore(spreads);
+  const values = spreads.map(s => s.spread);
+  const dates = spreads.map(s => s.date.substring(5));
+  const upper2 = mean + 2*std;
+  const lower2 = mean - 2*std;
+  const upper1 = mean + std;
+  const lower1 = mean - std;
+  const minV = Math.min(...values, lower2) * 0.999;
+  const maxV = Math.max(...values, upper2) * 1.001;
+
+  const W = canvas.width, H = canvas.height;
+  const pad = { t:20, r:20, b:30, l:60 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  ctx.clearRect(0,0,W,H);
+
+  const xS = i => pad.l + (i / (values.length-1)) * cw;
+  const yS = v => pad.t + (1 - (v-minV)/(maxV-minV)) * ch;
+
+  // Band fills
+  const fillBand = (top, bot, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, yS(top));
+    ctx.lineTo(pad.l+cw, yS(top));
+    ctx.lineTo(pad.l+cw, yS(bot));
+    ctx.lineTo(pad.l, yS(bot));
+    ctx.fill();
+  };
+  fillBand(upper2, maxV, 'rgba(231,76,60,0.08)');
+  fillBand(minV, lower2, 'rgba(46,204,113,0.08)');
+  fillBand(upper2, upper1, 'rgba(243,156,18,0.06)');
+  fillBand(lower1, lower2, 'rgba(52,152,219,0.06)');
+
+  // Reference lines
+  const drawLine = (v, color, dash=[]) => {
+    ctx.strokeStyle = color; ctx.lineWidth=1; ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(pad.l, yS(v)); ctx.lineTo(pad.l+cw, yS(v)); ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  drawLine(mean, 'var(--text2)', [4,4]);
+  drawLine(upper2, '#e74c3c', [2,3]);
+  drawLine(lower2, '#2ecc71', [2,3]);
+  drawLine(upper1, '#f39c12', [1,4]);
+  drawLine(lower1, '#3498db', [1,4]);
+
+  // Labels
+  ctx.font = '10px sans-serif'; ctx.fillStyle = 'var(--text2)'; ctx.textAlign = 'right';
+  [[mean,'Mean'],[upper2,'+2σ'],[lower2,'-2σ']].forEach(([v,l]) => {
+    ctx.fillText(`${l} ${v.toFixed(4)}`, pad.l-4, yS(v)+3);
+  });
+
+  // Spread line
+  ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath();
+  values.forEach((v,i) => i===0 ? ctx.moveTo(xS(i),yS(v)) : ctx.lineTo(xS(i),yS(v)));
+  ctx.stroke();
+
+  // Dots at extremes
+  values.forEach((v,i) => {
+    if(Math.abs((v-mean)/std) >= 1.5) {
+      ctx.fillStyle = v > upper2 ? '#e74c3c' : v < lower2 ? '#2ecc71' : '#f39c12';
+      ctx.beginPath(); ctx.arc(xS(i),yS(v),4,0,Math.PI*2); ctx.fill();
+    }
+  });
+
+  // X axis labels
+  ctx.fillStyle = 'var(--text2)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(dates.length/8));
+  dates.forEach((d,i) => { if(i%step===0) ctx.fillText(d, xS(i), H-pad.b+14); });
+
+  // Title
+  ctx.fillStyle = 'var(--text1)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(`${pair.name} spread ratio`, pad.l, 14);
+}
+
+// Auto-load when pairs tab shown
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+document.addEventListener('DOMContentLoaded', () => {
+  const tabs = document.querySelectorAll('.nav-tab');
+  tabs.forEach(t => {
+    if(t.textContent.includes('Pairs')) {
+      t.addEventListener('click', () => { if(!Object.keys(pairsData).length) loadPairsData(); });
+    }
+  });
+});
+
 </script>
 </body>
 </html>
