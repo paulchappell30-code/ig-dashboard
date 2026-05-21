@@ -697,9 +697,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         pairsZScores[pair.instrB] = { zscore: -zscore, partner: pair.instrA, n: ratios.length,
           signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
 
-        if(Math.abs(zscore) >= 1.5) {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} (${pairsZScores[pair.instrA].signal})`);
-        }
+        L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length} (${pairsZScores[pair.instrA].signal})`);
       } catch(e) { /* skip pair on error */ }
     }
   } catch(e) { L('Pairs Z-score error: ' + e.message); }
