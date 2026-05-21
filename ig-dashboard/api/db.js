@@ -41,6 +41,23 @@ module.exports = async (req, res) => {
         return res.status(200).json({ snapshots: result.rows });
       }
 
+      if (action === 'candles') {
+        // Return historical candles for an instrument (for pairs analysis)
+        const instrument = req.query.instrument;
+        const limit = parseInt(req.query.limit || '60');
+        if(!instrument) return res.status(400).json({ error: 'instrument required' });
+        try {
+          const rows = await sql`
+            SELECT candle_time, open, high, low, close, instrument
+            FROM price_history
+            WHERE instrument = ${instrument}
+            ORDER BY candle_time DESC
+            LIMIT ${limit}
+          `;
+          return res.status(200).json({ candles: rows.rows.reverse() });
+        } catch(e) { return res.status(200).json({ error: e.message, candles: [] }); }
+      }
+
       if (action === 'tdcache') {
         try {
           const row = await sql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
