@@ -1249,14 +1249,34 @@ async function loadPairsData() {
     const instruments = [...new Set(PAIRS_CONFIG.flatMap(p => [p.a, p.b]))];
     const results = {};
 
+    // Map instrument names to epics for DB lookup
+    const EPIC_MAP_PAIRS = {
+      'FTSE 100':'IX.D.FTSE.DAILY.IP', 'DAX 40':'IX.D.DAX.DAILY.IP',
+      'S&P 500':'IX.D.SPTRD.DAILY.IP', 'Brent Oil':'CC.D.LCO.USS.IP',
+      'Gold':'CS.D.USCGC.TODAY.IP', 'Silver':'CS.D.USCSI.TODAY.IP',
+      'GBP/USD':'CS.D.GBPUSD.TODAY.IP', 'EUR/USD':'CS.D.EURUSD.TODAY.IP',
+      'EUR/GBP':'CS.D.EURGBP.TODAY.IP', 'USD/JPY':'CS.D.USDJPY.TODAY.IP',
+    };
     for(const instr of instruments) {
       try {
+        // Try by instrument name first, then by epic
+        let candles = [];
         const r = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(instr)}&limit=60`);
         if(r.ok) {
           const d = await r.json();
-          results[instr] = d.candles || [];
+          candles = d.candles || [];
         }
-      } catch(e) { results[instr] = []; }
+        // If no results, try by epic
+        if(candles.length === 0 && EPIC_MAP_PAIRS[instr]) {
+          const r2 = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(EPIC_MAP_PAIRS[instr])}&limit=60`);
+          if(r2.ok) {
+            const d2 = await r2.json();
+            candles = d2.candles || [];
+          }
+        }
+        results[instr] = candles;
+        console.log(`[Pairs] ${instr}: ${candles.length} candles`);
+      } catch(e) { results[instr] = []; console.warn('[Pairs]', instr, e.message); }
     }
 
     pairsData = results;
