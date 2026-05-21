@@ -1396,12 +1396,48 @@ function calcPairSpread(candlesA, candlesB, livePriceA, livePriceB) {
 function calcZScore(spreads) {
   if(spreads.length < 5) return { zscore: null, mean: null, std: null };
   const values = spreads.map(s => s.spread);
+  const dates = spreads.map(s => s.date);
   const mean = values.reduce((a,b) => a+b, 0) / values.length;
   const variance = values.reduce((a,b) => a + Math.pow(b-mean, 2), 0) / values.length;
   const std = Math.sqrt(variance);
   const current = values[values.length - 1];
   const zscore = std > 0 ? (current - mean) / std : 0;
-  return { zscore, mean, std, current, n: values.length };
+
+  // Calculate Z-score for each historical point
+  const zscores = values.map(v => std > 0 ? (v - mean) / std : 0);
+
+  // Direction: compare last 3 Z-scores to determine trend
+  const recent = zscores.slice(-4);
+  const zTrend = recent.length >= 2 ? recent[recent.length-1] - recent[0] : 0;
+  const direction = Math.abs(zTrend) < 0.1 ? 'flat'
+    : zTrend > 0 ? 'rising' : 'falling';
+
+  // Find recent extreme (max absolute Z in last 10 days)
+  const lookback = Math.min(10, zscores.length);
+  const recentZs = zscores.slice(-lookback);
+  const recentDates = dates.slice(-lookback);
+  let maxAbsIdx = 0;
+  recentZs.forEach((z, i) => { if(Math.abs(z) > Math.abs(recentZs[maxAbsIdx])) maxAbsIdx = i; });
+  const recentMaxZ = recentZs[maxAbsIdx];
+  const recentMaxDate = recentDates[maxAbsIdx];
+
+  // Signal strength: combines Z magnitude + data quality
+  // 0-100 score: 50% from Z-score, 50% from data days
+  const zStrength = Math.min(100, (Math.abs(zscore) / 3) * 100); // 3σ = max
+  const dataStrength = Math.min(100, (values.length / 60) * 100); // 60 days = max
+  const signalStrength = Math.round((zStrength * 0.6) + (dataStrength * 0.4));
+  const strengthLabel = signalStrength >= 70 ? 'Strong'
+    : signalStrength >= 50 ? 'Moderate'
+    : signalStrength >= 30 ? 'Developing'
+    : 'Weak';
+  const strengthColor = signalStrength >= 70 ? 'var(--green)'
+    : signalStrength >= 50 ? '#f39c12'
+    : signalStrength >= 30 ? '#3498db'
+    : 'var(--text2)';
+
+  return { zscore, mean, std, current, n: values.length,
+    direction, zTrend, recentMaxZ, recentMaxDate,
+    signalStrength, strengthLabel, strengthColor };
 }
 
 function getZScoreColor(z) {
@@ -1446,7 +1482,8 @@ function renderPairsGrid() {
     const liveA = pairsLivePrices[pair.a];
     const liveB = pairsLivePrices[pair.b];
     const spreads = calcPairSpread(candlesA, candlesB, liveA, liveB);
-    const { zscore, mean, std, current, n } = calcZScore(spreads);
+    const { zscore, mean, std, current, n, direction, zTrend,
+              recentMaxZ, recentMaxDate, signalStrength, strengthLabel, strengthColor } = calcZScore(spreads);
     const hasLive = spreads.length > 0 && spreads[spreads.length-1].isLive;
     const signal = getSignal(pair, zscore);
     const zColor = getZScoreColor(zscore);
@@ -1459,13 +1496,22 @@ function renderPairsGrid() {
       <div style="background:var(--bg2);border-radius:8px;padding:14px;cursor:pointer;border:1px solid ${Math.abs(zscore||0)>=2?zColor:'var(--border)'}"
            onclick="selectPair('${pair.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div>
-            <div style="font-weight:600;font-size:14px">${pair.name}</div>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-weight:600;font-size:14px">${pair.name}</div>
+              ${zscore !== null ? `<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:${strengthColor}22;color:${strengthColor}">${strengthLabel} (${signalStrength}%)</span>` : ''}
+            </div>
             <div style="font-size:11px;color:var(--text2);margin-top:2px">${pair.description}</div>
+            ${zscore !== null && recentMaxZ !== undefined ? `
+            <div style="font-size:11px;margin-top:4px;color:var(--text2)">
+              Recent peak: <span style="color:${Math.abs(recentMaxZ)>=2?'var(--green)':'var(--text1)'}"><strong>${recentMaxZ>0?'+':''}${recentMaxZ.toFixed(2)}σ</strong></span>
+              <span style="color:var(--text2)"> on ${recentMaxDate?.substring(5)||'?'}</span>
+            </div>` : ''}
           </div>
-          <div style="text-align:right">
+          <div style="text-align:right;min-width:90px">
             <div style="font-size:22px;font-weight:700;color:${zColor}">
               ${zscore !== null ? (zscore > 0 ? '+' : '') + zscore.toFixed(2) : 'N/A'}
+              ${zscore !== null ? `<span style="font-size:13px">${direction==='rising'?'↑':direction==='falling'?'↓':'→'}</span>` : ''}
             </div>
             <div style="font-size:10px;color:var(--text2)">Z-score (${n||0} days)</div>
           </div>
