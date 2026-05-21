@@ -458,6 +458,44 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
       </p>
       <div id="pairs-grid" style="display:grid;gap:12px"></div>
     </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin:0 0 12px;font-size:15px">🧮 Pairs Trade Sizing</h3>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 12px">
+        Calculates correct size for each leg so notional exposure is equal. 
+        Select a pair and enter your risk amount.
+      </p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Pair</div>
+          <select id="sizing-pair" onchange="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <option value="ftse_dax">FTSE / DAX</option>
+            <option value="gbpusd_eurusd">GBP/USD vs EUR/USD</option>
+            <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
+            <option value="gold_silver">Gold / Silver</option>
+            <option value="brent_gold">Brent / Gold</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Risk amount (£)</div>
+          <input id="sizing-risk" type="number" value="5" min="1" max="100" step="1"
+            oninput="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px;width:80px">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Stop distance (σ)</div>
+          <select id="sizing-stop" onchange="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <option value="1.0">1.0σ (tight)</option>
+            <option value="1.5" selected>1.5σ (standard)</option>
+            <option value="2.0">2.0σ (wide)</option>
+            <option value="3.0">3.0σ (very wide)</option>
+          </select>
+        </div>
+      </div>
+      <div id="sizing-result" style="background:var(--bg1);border-radius:8px;padding:14px;font-size:13px"></div>
+    </div>
+
     <div class="card">
       <h3 style="margin:0 0 12px;font-size:15px">📊 Spread History</h3>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
@@ -1311,6 +1349,7 @@ async function loadPairsData() {
     });
     pairsLivePrices = livePrices;
     console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
+    setTimeout(calcPairSizing, 100); // Update sizing calculator
     renderPairsGrid();
     renderPairsChart(selectedPair);
     document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' (live prices: ' + Object.keys(livePrices).length + ')';
@@ -1571,6 +1610,117 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+
+// ── PAIRS TRADE SIZING CALCULATOR ─────────────────────────────────────────────
+function calcPairSizing() {
+  const pairId = document.getElementById('sizing-pair')?.value;
+  const riskAmt = parseFloat(document.getElementById('sizing-risk')?.value) || 5;
+  const stopSigma = parseFloat(document.getElementById('sizing-stop')?.value) || 1.5;
+  const result = document.getElementById('sizing-result');
+  if(!result) return;
+
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return;
+
+  // Get live prices
+  const priceA = pairsLivePrices[pair.a];
+  const priceB = pairsLivePrices[pair.b];
+
+  if(!priceA || !priceB) {
+    result.innerHTML = '<span style="color:var(--text2)">Load pairs data first (click Refresh)</span>';
+    return;
+  }
+
+  // Get Z-score stats for this pair
+  const candlesA = pairsData[pair.a] || [];
+  const candlesB = pairsData[pair.b] || [];
+  const spreads = calcPairSpread(candlesA, candlesB, priceA, priceB);
+  const { zscore, mean, std, n } = calcZScore(spreads);
+
+  if(!mean || !std || n < 5) {
+    result.innerHTML = '<span style="color:var(--text2)">Insufficient data for this pair</span>';
+    return;
+  }
+
+  // Direction based on Z-score
+  // Negative Z = A cheap vs B → BUY A, SELL B
+  // Positive Z = A expensive vs B → SELL A, BUY B
+  const dirA = zscore < 0 ? 'BUY' : 'SELL';
+  const dirB = zscore < 0 ? 'SELL' : 'BUY';
+  const absZ = Math.abs(zscore);
+
+  // Stop level: Z-score reverts by stopSigma further (worst case)
+  // Stop ratio = mean ± (absZ + stopSigma) * std
+  const stopRatio = zscore < 0
+    ? mean - (absZ + stopSigma) * std   // if A cheap, stops if ratio falls further
+    : mean + (absZ + stopSigma) * std;  // if A expensive, stops if ratio rises further
+  const currentRatio = priceA / priceB;
+  const stopRatioMove = Math.abs(currentRatio - stopRatio); // ratio move to stop
+
+  // Convert ratio move to price move for each leg
+  // If ratio = priceA / priceB, a ratio move of δ with priceB fixed = priceA moves by δ * priceB
+  const stopPtsA = stopRatioMove * priceB;  // approx price move for A
+  const stopPtsB = stopRatioMove * priceA;  // approx price move for B (inverted)
+
+  // Size each leg so total risk = riskAmt
+  // Total loss if stopped = sizeA * stopPtsA + sizeB * stopPtsB
+  // For delta-neutral: notional A = notional B
+  // notionalA = sizeA * priceA, notionalB = sizeB * priceB
+  // Equal notional: sizeA * priceA = sizeB * priceB → sizeB = sizeA * priceA / priceB
+  
+  // Risk per unit of sizeA = stopPtsA + stopPtsB * (priceA/priceB)
+  const riskPerUnitA = stopPtsA + stopPtsB * (priceA / priceB);
+  const sizeA = riskPerUnitA > 0 ? riskAmt / riskPerUnitA : 0;
+  const sizeB = sizeA * priceA / priceB;
+
+  // Round to sensible precision
+  const fmtSize = (s) => s < 0.01 ? s.toFixed(3) : s < 0.1 ? s.toFixed(2) : s.toFixed(2);
+  const notionalA = (sizeA * priceA).toFixed(0);
+  const notionalB = (sizeB * priceB).toFixed(0);
+  const maxLossA = (sizeA * stopPtsA).toFixed(2);
+  const maxLossB = (sizeB * stopPtsB).toFixed(2);
+
+  // Target: Z reverts to 0 (mean)
+  const targetRatio = mean;
+  const targetMoveA = Math.abs(priceA - (targetRatio * priceB));
+  const profitA = (sizeA * targetMoveA).toFixed(2);
+  const rrRatio = (parseFloat(profitA) / riskAmt).toFixed(1);
+
+  const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
+  const conviction = absZ >= 2 ? 'Strong signal' : absZ >= 1.5 ? 'Watch zone' : 'Weak signal';
+
+  result.innerHTML = `
+    <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <span style="color:${zColor};font-weight:600">${conviction}</span>
+      <span style="color:var(--text2);font-size:12px;margin-left:8px">Z-score ${zscore?.toFixed(2)} | ${n} days data</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+      <div style="background:var(--bg2);border-radius:6px;padding:10px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${pair.a}</div>
+        <div style="font-size:18px;font-weight:700;color:${dirA==='BUY'?'var(--green)':'var(--red)'}">${dirA}</div>
+        <div style="font-size:13px;margin-top:4px">£<strong>${fmtSize(sizeA)}</strong>/pt</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Price: ${priceA.toFixed(1)} | Notional: £${notionalA}</div>
+        <div style="font-size:11px;color:var(--text2)">Stop: ${stopPtsA.toFixed(1)}pts | Max loss: £${maxLossA}</div>
+      </div>
+      <div style="background:var(--bg2);border-radius:6px;padding:10px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${pair.b}</div>
+        <div style="font-size:18px;font-weight:700;color:${dirB==='BUY'?'var(--green)':'var(--red)'}">${dirB}</div>
+        <div style="font-size:13px;margin-top:4px">£<strong>${fmtSize(sizeB)}</strong>/pt</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Price: ${priceB.toFixed(1)} | Notional: £${notionalB}</div>
+        <div style="font-size:11px;color:var(--text2)">Stop: ${stopPtsB.toFixed(1)}pts | Max loss: £${maxLossB}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;font-size:12px;color:var(--text2)">
+      <span>Total risk: <strong style="color:var(--text1)">£${riskAmt}</strong></span>
+      <span>Target profit (Z→0): <strong style="color:var(--green)">£${profitA}</strong></span>
+      <span>R:R ratio: <strong style="color:var(--text1)">${rrRatio}:1</strong></span>
+      <span>Stop at: <strong style="color:var(--text1)">${stopSigma}σ beyond current</strong></span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text2)">
+      ⚡ Enter simultaneously. Stop both legs if either hits its stop level. Close both when Z-score reverts to ±0.5.
+    </div>`;
+}
 
 </script>
 </body>
