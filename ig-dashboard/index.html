@@ -441,6 +441,32 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
       <div id="research-results"></div>
     </div>
 
+
+  <!-- PAIRS TRADING TAB -->
+  <div id="tab-pairs" class="tab-content" style="padding:16px;max-width:900px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">⚖️ Pairs / Spread Monitor</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="pairs-updated" style="font-size:11px;color:var(--text2)"></span>
+          <button onclick="loadPairsData()" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Refresh</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 16px">
+        Z-score measures how many standard deviations the current spread is from its historical mean. 
+        <strong>±2.0</strong> = significant divergence. <strong>±1.5</strong> = watch zone.
+      </p>
+      <div id="pairs-grid" style="display:grid;gap:12px"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 12px;font-size:15px">📊 Spread History</h3>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
+      <canvas id="pairs-chart" height="200"></canvas>
+    </div>
+  </div>
+
+
+
   </div><!-- /content -->
 
   <!-- Health Check Modal -->
@@ -1202,29 +1228,6 @@ async function fetchTdPrices(){
 // ─── INIT ──────────────────────────────────────────────────────────────────────
 document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 </script>
-
-  <!-- PAIRS TRADING TAB -->
-  <div id="tab-pairs" class="tab-content" style="padding:16px;max-width:900px;margin:0 auto">
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 style="margin:0;font-size:15px">⚖️ Pairs / Spread Monitor</h3>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span id="pairs-updated" style="font-size:11px;color:var(--text2)"></span>
-          <button onclick="loadPairsData()" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Refresh</button>
-        </div>
-      </div>
-      <p style="font-size:12px;color:var(--text2);margin:0 0 16px">
-        Z-score measures how many standard deviations the current spread is from its historical mean. 
-        <strong>±2.0</strong> = significant divergence. <strong>±1.5</strong> = watch zone.
-      </p>
-      <div id="pairs-grid" style="display:grid;gap:12px"></div>
-    </div>
-    <div class="card">
-      <h3 style="margin:0 0 12px;font-size:15px">📊 Spread History</h3>
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
-      <canvas id="pairs-chart" height="200"></canvas>
-    </div>
-  </div>
 
 <script>
 // Ensure IG snapshots start even if LS connect event was missed
