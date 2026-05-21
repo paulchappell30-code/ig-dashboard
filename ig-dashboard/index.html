@@ -1248,6 +1248,7 @@ const PAIRS_CONFIG = [
 ];
 
 let pairsData = {};
+let pairsLivePrices = {};
 let selectedPair = 'ftse_dax';
 
 async function loadPairsData() {
@@ -1288,15 +1289,51 @@ async function loadPairsData() {
     }
 
     pairsData = results;
+
+    // Add live intraday prices using already-fetched data (no extra API calls)
+    // Uses TD cache for FX, IG Lightstreamer prices for indices
+    const livePrices = {};
+    try {
+      // Get TD cache from DB (fetched every 10 mins by alert cron)
+      const tdR = await fetch('/api/db?action=tdcache');
+      if(tdR.ok) {
+        const tdD = await tdR.json();
+        const td = tdD.instruments || {};
+        // Map TD instrument names to pairs instrument names
+        const TD_MAP = {
+          'GBP/USD': td['GBP/USD']?.price,
+          'EUR/USD': td['EUR/USD']?.price,
+          'EUR/GBP': td['EUR/GBP']?.price,
+          'USD/JPY': td['USD/JPY']?.price,
+        };
+        Object.entries(TD_MAP).forEach(([k,v]) => { if(v) livePrices[k] = parseFloat(v); });
+      }
+    } catch(e) {}
+
+    // Use IG Lightstreamer prices for indices (already in S.prices)
+    const IG_MAP = {
+      'FTSE 100': 'IX.D.FTSE.DAILY.IP',
+      'DAX 40':   'IX.D.DAX.DAILY.IP',
+      'S&P 500':  'IX.D.SPTRD.DAILY.IP',
+      'Brent Oil':'CC.D.LCO.USS.IP',
+      'Gold':     'CS.D.USCGC.TODAY.IP',
+      'Silver':   'CS.D.USCSI.TODAY.IP',
+    };
+    Object.entries(IG_MAP).forEach(([name, epic]) => {
+      const p = S.prices?.[epic];
+      if(p?.mid) livePrices[name] = parseFloat(p.mid);
+    });
+
+    pairsLivePrices = livePrices;
     renderPairsGrid();
     renderPairsChart(selectedPair);
-    document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB');
+    document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' (live prices: ' + Object.keys(livePrices).length + ')';
   } catch(e) {
     document.getElementById('pairs-updated').textContent = 'Error: ' + e.message;
   }
 }
 
-function calcPairSpread(candlesA, candlesB) {
+function calcPairSpread(candlesA, candlesB, livePriceA, livePriceB) {
   // Align candles by date and calculate ratio
   const mapB = {};
   candlesB.forEach(c => { mapB[c.date?.substring(0,10) || c.candle_time?.substring(0,10)] = c.close_price||c.close; });
@@ -1311,7 +1348,24 @@ function calcPairSpread(candlesA, candlesB) {
     }
   });
 
-  return spreads.sort((a,b) => a.date.localeCompare(b.date));
+  spreads.sort((a,b) => a.date.localeCompare(b.date));
+
+  // Add live intraday price as the most recent point (today)
+  if(livePriceA && livePriceB && livePriceB > 0) {
+    const today = new Date().toISOString().substring(0,10);
+    // Only add if today isn't already in the candles (avoid double-counting)
+    const lastDate = spreads.length ? spreads[spreads.length-1].date : '';
+    if(lastDate !== today) {
+      spreads.push({ date: today, spread: livePriceA / livePriceB,
+        closeA: livePriceA, closeB: livePriceB, isLive: true });
+    } else {
+      // Replace today's candle with live price
+      spreads[spreads.length-1] = { date: today, spread: livePriceA / livePriceB,
+        closeA: livePriceA, closeB: livePriceB, isLive: true };
+    }
+  }
+
+  return spreads;
 }
 
 function calcZScore(spreads) {
@@ -1364,8 +1418,11 @@ function renderPairsGrid() {
   PAIRS_CONFIG.forEach(pair => {
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
-    const spreads = calcPairSpread(candlesA, candlesB);
+    const liveA = pairsLivePrices[pair.a];
+    const liveB = pairsLivePrices[pair.b];
+    const spreads = calcPairSpread(candlesA, candlesB, liveA, liveB);
     const { zscore, mean, std, current, n } = calcZScore(spreads);
+    const hasLive = spreads.length > 0 && spreads[spreads.length-1].isLive;
     const signal = getSignal(pair, zscore);
     const zColor = getZScoreColor(zscore);
 
@@ -1403,7 +1460,7 @@ function renderPairsGrid() {
           ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
         </div>` : ''}
         ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
-          Ratio: ${current?.toFixed(4)} | Mean: ${mean.toFixed(4)} | σ: ${std?.toFixed(4)}
+          Ratio: ${current?.toFixed(4)} ${hasLive ? '<span style="color:var(--green);font-size:10px">● LIVE</span>' : ''}| Mean: ${mean.toFixed(4)} | σ: ${std?.toFixed(4)}
         </div>` : ''}
       </div>`;
 
@@ -1431,7 +1488,7 @@ function renderPairsChart(pairId) {
 
   const candlesA = pairsData[pair.a] || [];
   const candlesB = pairsData[pair.b] || [];
-  const spreads = calcPairSpread(candlesA, candlesB);
+  const spreads = calcPairSpread(candlesA, candlesB, pairsLivePrices[pair.a], pairsLivePrices[pair.b]);
   if(spreads.length < 3) {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = 'var(--text2)';
