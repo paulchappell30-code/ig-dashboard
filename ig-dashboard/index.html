@@ -1126,9 +1126,10 @@ async function startTdPriceFallback(){
                      'CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
     for(const epic of nonStream){
       try{
-        const r=await igFetch('markets/'+epic);
+        // Pass _retry:true to prevent igFetch auto-retrying on 403
+        const r=await igFetch('markets/'+epic,{_retry:true});
         if(r.status===403){
-          // Session expired — pause snapshots for 60s then retry
+          // Session expired — pause snapshots for 60s, let keep-alive handle refresh
           _snapshotPaused=true;
           setTimeout(()=>{_snapshotPaused=false;},60000);
           return;
