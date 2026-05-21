@@ -1271,12 +1271,12 @@ async function loadPairsData() {
 function calcPairSpread(candlesA, candlesB) {
   // Align candles by date and calculate ratio
   const mapB = {};
-  candlesB.forEach(c => { mapB[c.date?.substring(0,10) || c.candle_time?.substring(0,10)] = c.close; });
+  candlesB.forEach(c => { mapB[c.date?.substring(0,10) || c.candle_time?.substring(0,10)] = c.close_price||c.close; });
 
   const spreads = [];
   candlesA.forEach(c => {
     const date = c.date?.substring(0,10) || c.candle_time?.substring(0,10);
-    const closeA = parseFloat(c.close);
+    const closeA = parseFloat(c.close_price||c.close);
     const closeB = parseFloat(mapB[date]);
     if(closeA && closeB && closeB > 0) {
       spreads.push({ date, spread: closeA / closeB, closeA, closeB });
