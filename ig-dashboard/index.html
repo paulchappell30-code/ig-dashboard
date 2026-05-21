@@ -1041,9 +1041,12 @@ function switchTab(id,el){
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   tab.classList.add('active');if(el)el.classList.add('active');
+  // Always scroll to top on tab switch
+  window.scrollTo(0,0);
   if(id==='journal')loadJournal();
   if(id==='log')renderLog();
   if(id==='autotrade'){loadCalendarData();checkAutoTradeStatus();}
+  if(id==='pairs'){if(!Object.keys(pairsData).length)loadPairsData();}
   if(id==='charts'&&S.connected){
     const key=chartState.epic+'_'+chartState.resolution+'_'+chartState.count;
     const cached=S.priceCache[key]&&(Date.now()-S.priceCache[key].ts<30*60*1000);
