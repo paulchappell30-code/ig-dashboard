@@ -1505,7 +1505,7 @@ function renderPairsGrid() {
             ${zscore !== null && recentMaxZ !== undefined ? `
             <div style="font-size:11px;margin-top:4px;color:var(--text2)">
               Recent peak: <span style="color:${Math.abs(recentMaxZ)>=2?'var(--green)':'var(--text1)'}"><strong>${recentMaxZ>0?'+':''}${recentMaxZ.toFixed(2)}σ</strong></span>
-              <span style="color:var(--text2)"> on ${recentMaxDate?.substring(5)||'?'}</span>
+              <span style="color:var(--text2)"> on ${recentMaxDate ? recentMaxDate.substring(8)+'/'+recentMaxDate.substring(5,7) : '?'}</span>
             </div>` : ''}
           </div>
           <div style="text-align:right;min-width:90px">
