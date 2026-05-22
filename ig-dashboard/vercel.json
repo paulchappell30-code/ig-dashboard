@@ -61,7 +61,7 @@
     "api/autotrade.js": {
       "maxDuration": 30
     },
-    "api/backfill.js": {
+    "api/db.js": {
       "maxDuration": 300
     }
   }
