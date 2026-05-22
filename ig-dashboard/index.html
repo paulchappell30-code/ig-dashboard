@@ -472,8 +472,8 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
             <option value="ftse_dax">FTSE / DAX</option>
             <option value="gbpusd_eurusd">GBP/USD vs EUR/USD</option>
             <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
-            <option value="gold_silver">Gold / Silver</option>
-            <option value="brent_gold">Brent / Gold</option>
+
+
           </select>
         </div>
         <div>
@@ -1275,8 +1275,7 @@ setTimeout(()=>{if(!_tdTimer)startTdPriceFallback();},8000);
 const PAIRS_CONFIG = [
   { id:'ftse_dax',   name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40',    type:'ratio',
     description:'European indices — same macro drivers, different compositions' },
-  { id:'gold_silver', name:'Gold / Silver',     a:'Gold',      b:'Silver',    type:'ratio',
-    description:'Precious metals ratio — historically mean-reverts strongly' },
+  // { id:'gold_silver', name:'Gold / Silver', ... } — disabled pending unit validation
   { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio',
     description:'Dollar pairs — divergence often means one is mispriced vs USD' },
   { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio',
@@ -1329,20 +1328,22 @@ async function loadPairsData() {
     pairsData = results;
 
     // Add live intraday prices from S.markets (already fetched by LS + snapshots)
-    // Zero extra API calls — uses prices already on screen in the watchlist
+    // Only use IG live prices for instruments where IG and Yahoo use same units:
+    // - Indices: same units ✅
+    // - FX pairs: same units (both in pips/contract units) ✅  
+    // - Commodities: different units (Yahoo futures vs IG contracts) ❌ excluded
     const livePrices = {};
     const EPIC_TO_INSTR = {
       'IX.D.FTSE.DAILY.IP':'FTSE 100', 'IX.D.DAX.DAILY.IP':'DAX 40',
       'IX.D.SPTRD.DAILY.IP':'S&P 500', 'IX.D.DOW.DAILY.IP':'Dow Jones',
-      'CC.D.LCO.USS.IP':'Brent Oil',   'CS.D.USCGC.TODAY.IP':'Gold',
-      'CS.D.USCSI.TODAY.IP':'Silver',  'CS.D.COPPER.TODAY.IP':'Copper',
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY','CS.D.EURGBP.TODAY.IP':'EUR/GBP',
+      // Commodities excluded — IG contract units differ from Yahoo futures prices
+      // 'CC.D.LCO.USS.IP':'Brent Oil', 'CS.D.USCGC.TODAY.IP':'Gold', etc.
     };
     (S.markets||[]).forEach(m => {
       const instr = EPIC_TO_INSTR[m.epic];
       if(instr && m.price) {
-        // m.price is already formatted — parse back to number
         const raw = parseFloat(m.price.replace(/,/g,''));
         if(!isNaN(raw) && raw > 0) livePrices[instr] = raw;
       }
