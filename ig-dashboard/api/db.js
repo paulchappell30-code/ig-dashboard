@@ -234,6 +234,22 @@ module.exports = async (req, res) => {
         return res.status(200).json({ success:true, totalInserted, totalSkipped, results, log });
       }
 
+      if (type === 'delete_candles') {
+        // Delete candles for an instrument before a given date (cleanup bad backfill data)
+        const { instrument, before } = data || {};
+        if(!instrument) return res.status(400).json({ error: 'instrument required' });
+        try {
+          const cutoff = before || '2026-01-01';
+          const result = await sql`
+            DELETE FROM price_history 
+            WHERE instrument = ${instrument}
+            AND candle_time < ${cutoff}::timestamptz
+            AND resolution = 'DAY'
+          `;
+          return res.status(200).json({ success: true, instrument, before: cutoff });
+        } catch(e) { return res.status(200).json({ error: e.message }); }
+      }
+
       if (type === 'delete_trade') {
         const { dealId } = data || {};
         if (!dealId) return res.status(400).json({ error: 'No dealId' });
