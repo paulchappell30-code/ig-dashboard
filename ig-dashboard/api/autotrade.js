@@ -580,7 +580,7 @@ module.exports = async (req,res) => {
     const eodMins = cfg.eodCloseTime.h * 60 + cfg.eodCloseTime.m - 10;
     const nowMins = utcH * 60 + utcM;
     const isEOD = nowMins >= eodMins && nowMins < eodMins + 60; // window: 10 mins early, up to 1hr after
-    const isFridayEOD = now.getUTCDay() === 5 && utcH >= 14 && utcH < 17; // Friday close 2pm-5pm UTC
+    const isFridayEOD = now.getUTCDay() === 5 && nowMins >= eodMins && nowMins < eodMins + 60; // Friday same as weekdays (20:50 UTC)
 
     if(isEOD || isFridayEOD){
       // Close positions based on trade type:
