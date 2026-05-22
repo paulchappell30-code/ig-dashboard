@@ -234,6 +234,94 @@ module.exports = async (req, res) => {
         return res.status(200).json({ success:true, totalInserted, totalSkipped, results, log });
       }
 
+      if (type === 'backfill_hourly') {
+        // Backfill 60 days of hourly candles from Yahoo Finance
+        const specificInstrument = data?.instrument || null;
+        const log = []; const L = msg => { console.log('[HourlyBackfill]', msg); log.push(msg); };
+
+        const YAHOO_HOURLY = [
+          { name:'FTSE 100',  ticker:'%5EFTSE',     scale:1 },
+          { name:'DAX 40',    ticker:'%5EGDAXI',    scale:1 },
+          { name:'S&P 500',   ticker:'%5EGSPC',     scale:1 },
+          { name:'Dow Jones', ticker:'%5EDJI',      scale:1 },
+          { name:'Nasdaq',    ticker:'%5EIXIC',     scale:1 },
+          { name:'GBP/USD',   ticker:'GBPUSD%3DX',  scale:10000 },
+          { name:'EUR/USD',   ticker:'EURUSD%3DX',  scale:10000 },
+          { name:'USD/JPY',   ticker:'USDJPY%3DX',  scale:100 },
+          { name:'EUR/GBP',   ticker:'EURGBP%3DX',  scale:10000 },
+          { name:'Gold',      ticker:'GC%3DF',      scale:1 },
+          { name:'Silver',    ticker:'SI%3DF',      scale:1 },
+          { name:'Brent Oil', ticker:'BZ%3DF',      scale:1 },
+        ];
+        const EPIC_MAP_H = {
+          'FTSE 100':'IX.D.FTSE.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP',
+          'S&P 500':'IX.D.SPTRD.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
+          'Nasdaq':'IX.D.NASDAQ.CASH.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
+          'EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP',
+          'EUR/GBP':'CS.D.EURGBP.TODAY.IP','Gold':'CS.D.USCGC.TODAY.IP',
+          'Silver':'CS.D.USCSI.TODAY.IP','Brent Oil':'CC.D.LCO.USS.IP',
+        };
+
+        const instruments = specificInstrument
+          ? YAHOO_HOURLY.filter(i => i.name === specificInstrument)
+          : YAHOO_HOURLY;
+
+        let totalInserted = 0; let totalSkipped = 0; const results = {};
+
+        for (const instr of instruments) {
+          try {
+            // Yahoo hourly: interval=1h, range=60d
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${instr.ticker}?interval=1h&range=60d`;
+            const yr = await fetch(url, { headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+            if (!yr.ok) throw new Error(`HTTP ${yr.status}`);
+            const yd = await yr.json();
+            const chart = yd.chart?.result?.[0];
+            if (!chart) throw new Error('no chart data');
+
+            const timestamps = chart.timestamp || [];
+            const closes = chart.indicators?.quote?.[0]?.close || [];
+            const opens = chart.indicators?.quote?.[0]?.open || [];
+            const highs = chart.indicators?.quote?.[0]?.high || [];
+            const lows = chart.indicators?.quote?.[0]?.low || [];
+
+            const candles = timestamps.map((ts, i) => ({
+              time: new Date(ts * 1000).toISOString(),
+              open: opens[i], high: highs[i], low: lows[i], close: closes[i]
+            })).filter(c => c.close != null && !isNaN(c.close));
+
+            // Check existing hourly candles
+            const existing = await sql`
+              SELECT candle_time FROM price_history
+              WHERE instrument=${instr.name} AND resolution='HOUR'`;
+            const existingTimes = new Set(existing.rows.map(r =>
+              new Date(r.candle_time).toISOString().substring(0,16)
+            ));
+
+            let inserted = 0; let skipped = 0;
+            const scale = instr.scale || 1;
+            for (const c of candles) {
+              const timeKey = c.time.substring(0,16);
+              if (existingTimes.has(timeKey)) { skipped++; continue; }
+              await sql`INSERT INTO price_history
+                (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+                VALUES (${EPIC_MAP_H[instr.name]||''},${instr.name},'HOUR',${c.time}::timestamptz,
+                ${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})
+                ON CONFLICT DO NOTHING`;
+              inserted++;
+            }
+            L(`${instr.name}: ${inserted} inserted, ${skipped} skipped (${candles.length} total)`);
+            totalInserted += inserted; totalSkipped += skipped;
+            results[instr.name] = { inserted, skipped, total: candles.length };
+            await new Promise(r => setTimeout(r, 300));
+          } catch(e) {
+            L(`${instr.name}: ERROR ${e.message}`);
+            results[instr.name] = { error: e.message };
+          }
+        }
+        L(`Hourly backfill done — ${totalInserted} inserted, ${totalSkipped} skipped`);
+        return res.status(200).json({ success:true, totalInserted, totalSkipped, results, log });
+      }
+
       if (type === 'delete_candles') {
         // Delete candles for an instrument in a date range
         const { instrument, before, after } = data || {};
