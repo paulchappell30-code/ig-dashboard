@@ -12,8 +12,225 @@ module.exports = async (req, res) => {
 
   const action = req.query.action || req.body?.action || 'weekly';
   if (action === 'optimize') return await runOptimization(req, res);
+  if (action === 'backtest') return await runBacktest(req, res);
   return await sendWeeklyReview(req, res);
 };
+
+// ─── BACKTEST ENGINE ──────────────────────────────────────────────────────────
+async function runBacktest(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const epic = req.query.epic || 'IX.D.FTSE.DAILY.IP';
+  const days = parseInt(req.query.days || '500');
+  const rsiEntry = parseFloat(req.query.rsiEntry || '33');
+  const holdDays = parseInt(req.query.holdDays || '5');
+  const log = [];
+  const L = msg => log.push(msg);
+
+  // Instrument name map
+  const INSTR_MAP = {
+    'IX.D.FTSE.DAILY.IP':'FTSE 100','IX.D.SPTRD.DAILY.IP':'S&P 500',
+    'IX.D.DAX.DAILY.IP':'DAX 40','IX.D.DOW.DAILY.IP':'Dow Jones',
+    'CC.D.LCO.USS.IP':'Brent Oil','CS.D.USCGC.TODAY.IP':'Gold',
+    'CS.D.USCSI.TODAY.IP':'Silver','CS.D.GBPUSD.TODAY.IP':'GBP/USD',
+    'CS.D.EURUSD.TODAY.IP':'EUR/USD','CS.D.EURGBP.TODAY.IP':'EUR/GBP',
+    'CS.D.USDJPY.TODAY.IP':'USD/JPY','CS.D.COPPER.TODAY.IP':'Copper',
+    'IX.D.CAC.DAILY.IP':'CAC 40','IX.D.NASDAQ.CASH.IP':'Nasdaq',
+    'IX.D.NIKKEI.DAILY.IP':'Nikkei 225',
+  };
+  const instrName = INSTR_MAP[epic] || epic;
+
+  try {
+    // Fetch candles
+    const rows = await sql`
+      SELECT close_price, candle_time::date as dt
+      FROM price_history
+      WHERE (epic = ${epic} OR instrument = ${instrName})
+      AND resolution = 'DAY' AND close_price > 0
+      ORDER BY candle_time ASC
+      LIMIT ${days + 50}`;
+
+    if (rows.rows.length < 30) {
+      return res.status(200).json({ error: 'Insufficient data', rows: rows.rows.length });
+    }
+
+    const closes = rows.rows.map(r => parseFloat(r.close_price));
+    const dates = rows.rows.map(r => r.dt);
+    L(`Backtest: ${instrName} — ${closes.length} candles from ${dates[0]} to ${dates[dates.length-1]}`);
+
+    // Helper functions
+    function calcRSI(prices, period=14) {
+      if(prices.length < period+1) return 50;
+      let gains=0, losses=0;
+      for(let i=1;i<=period;i++){
+        const d=prices[i]-prices[i-1];
+        if(d>0)gains+=d; else losses-=d;
+      }
+      let avgGain=gains/period, avgLoss=losses/period;
+      for(let i=period+1;i<prices.length;i++){
+        const d=prices[i]-prices[i-1];
+        avgGain=(avgGain*(period-1)+(d>0?d:0))/period;
+        avgLoss=(avgLoss*(period-1)+(d<0?-d:0))/period;
+      }
+      return avgLoss===0 ? 100 : 100-(100/(1+avgGain/avgLoss));
+    }
+
+    function calcSMA(prices, period) {
+      if(prices.length < period) return null;
+      return prices.slice(-period).reduce((a,b)=>a+b,0)/period;
+    }
+
+    function calcATR(prices, period=14) {
+      if(prices.length < period+1) return 0;
+      let sum=0;
+      for(let i=prices.length-period;i<prices.length;i++){
+        sum+=Math.abs(prices[i]-prices[i-1]);
+      }
+      return sum/period;
+    }
+
+    // Run simulation
+    const trades = [];
+    const minCandles = 30;
+
+    for(let i=minCandles; i<closes.length-holdDays; i++) {
+      const slice = closes.slice(0, i+1);
+      const rsi = calcRSI(slice);
+      const sma10 = calcSMA(slice, 10);
+      const sma20 = calcSMA(slice, 20);
+      const sma50 = calcSMA(slice, 50);
+      const atr = calcATR(slice);
+      const price = closes[i];
+
+      // Score calculation (simplified)
+      let score = 0;
+      if(sma10 && sma20) score += sma10 > sma20 ? 1 : -1;
+      const mom = i>5 ? (price - closes[i-5]) / closes[i-5] * 100 : 0;
+      score += mom > 1 ? 1 : mom < -1 ? -1 : 0;
+
+      // Trend filter
+      const inDowntrend = sma10 && sma20 && sma10 < sma20 * 0.998;
+      const inUptrend = sma10 && sma20 && sma10 > sma20 * 1.002;
+
+      // Check for signals
+      let direction = null;
+      let signalType = null;
+
+      // Mean reversion BUY — oversold
+      if(rsi <= rsiEntry && !inDowntrend) {
+        direction = 'BUY';
+        signalType = 'MR_BUY';
+      }
+      // Mean reversion SELL — overbought  
+      else if(rsi >= (100 - rsiEntry) && !inUptrend) {
+        direction = 'SELL';
+        signalType = 'MR_SELL';
+      }
+
+      if(!direction) continue;
+
+      // Score filter — require score ≥ 0 (relaxed for backtest analysis)
+      // Run with different thresholds to show impact
+      const passesScore0 = Math.abs(score) >= 0;
+      const passesScore1 = Math.abs(score) >= 1;
+      const passesScore2 = Math.abs(score) >= 2;
+
+      // Calculate outcome — hold for holdDays or until opposite RSI extreme
+      const entryPrice = closes[i];
+      let exitPrice = closes[Math.min(i+holdDays, closes.length-1)];
+      let exitDay = holdDays;
+      let exitReason = 'time';
+
+      // Check for early exit (RSI reversal)
+      for(let j=1;j<=holdDays && i+j<closes.length;j++){
+        const futureSlice = closes.slice(0, i+j+1);
+        const futureRsi = calcRSI(futureSlice);
+        if(direction==='BUY' && futureRsi >= 55) {
+          exitPrice = closes[i+j]; exitDay=j; exitReason='rsi_exit'; break;
+        }
+        if(direction==='SELL' && futureRsi <= 45) {
+          exitPrice = closes[i+j]; exitDay=j; exitReason='rsi_exit'; break;
+        }
+      }
+
+      // ATR-based stop (1.5× ATR)
+      const stopDist = atr * 1.5;
+      let stopped = false;
+      for(let j=1;j<=exitDay;j++){
+        const p = closes[i+j];
+        if(direction==='BUY' && p < entryPrice - stopDist) {
+          exitPrice=p; exitDay=j; exitReason='stop'; stopped=true; break;
+        }
+        if(direction==='SELL' && p > entryPrice + stopDist) {
+          exitPrice=p; exitDay=j; exitReason='stop'; stopped=true; break;
+        }
+      }
+
+      const pnlPct = direction==='BUY'
+        ? (exitPrice-entryPrice)/entryPrice*100
+        : (entryPrice-exitPrice)/entryPrice*100;
+      const won = pnlPct > 0;
+
+      trades.push({
+        date: dates[i], direction, signalType,
+        entryPrice: entryPrice.toFixed(2),
+        exitPrice: exitPrice.toFixed(2),
+        rsi: rsi.toFixed(1), score,
+        pnlPct: pnlPct.toFixed(2),
+        exitDay, exitReason, won,
+        passesScore0, passesScore1, passesScore2,
+        trendOK: !inDowntrend && !inUptrend,
+      });
+
+      // Skip ahead to avoid overlapping trades
+      i += Math.max(2, exitDay);
+    }
+
+    // Calculate statistics
+    const calcStats = (filtered) => {
+      if(!filtered.length) return { trades:0, winRate:0, avgWin:0, avgLoss:0, expectancy:0, totalPnl:0 };
+      const wins = filtered.filter(t=>t.won);
+      const losses = filtered.filter(t=>!t.won);
+      const avgWin = wins.length ? wins.reduce((s,t)=>s+parseFloat(t.pnlPct),0)/wins.length : 0;
+      const avgLoss = losses.length ? losses.reduce((s,t)=>s+parseFloat(t.pnlPct),0)/losses.length : 0;
+      const winRate = wins.length/filtered.length*100;
+      const expectancy = (winRate/100)*avgWin + (1-winRate/100)*avgLoss;
+      const totalPnl = filtered.reduce((s,t)=>s+parseFloat(t.pnlPct),0);
+      return { trades:filtered.length, winRate:winRate.toFixed(1), avgWin:avgWin.toFixed(2),
+               avgLoss:avgLoss.toFixed(2), expectancy:expectancy.toFixed(2), totalPnl:totalPnl.toFixed(2) };
+    };
+
+    // Stats at different filter levels
+    const allTrades = trades;
+    const withScore1 = trades.filter(t=>t.passesScore1);
+    const withScore2 = trades.filter(t=>t.passesScore2);
+    const withTrendFilter = trades.filter(t=>t.trendOK);
+    const fullFilter = trades.filter(t=>t.passesScore2 && t.trendOK);
+
+    const stats = {
+      noFilter: calcStats(allTrades),
+      scoreGte1: calcStats(withScore1),
+      scoreGte2: calcStats(withScore2),
+      trendFilter: calcStats(withTrendFilter),
+      fullFilter: calcStats(fullFilter),
+    };
+
+    L(`Total signals: ${allTrades.length}`);
+    L(`With score≥1: ${withScore1.length} (win rate: ${stats.scoreGte1.winRate}%)`);
+    L(`With score≥2: ${withScore2.length} (win rate: ${stats.scoreGte2.winRate}%)`);
+    L(`With trend filter: ${withTrendFilter.length} (win rate: ${stats.trendFilter.winRate}%)`);
+    L(`Full filter (score≥2+trend): ${fullFilter.length} (win rate: ${stats.fullFilter.winRate}%)`);
+
+    return res.status(200).json({
+      instrument: instrName, epic, days: closes.length,
+      rsiEntry, holdDays, stats,
+      trades: allTrades.slice(-100), // Last 100 trades for display
+      log
+    });
+
+  } catch(e) {
+    return res.status(200).json({ error: e.message, log });
+  }
+}
 
 
 // ─── POSITION SIZING ANALYSIS ────────────────────────────────────────────────
