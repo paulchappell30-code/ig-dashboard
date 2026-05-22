@@ -24,8 +24,9 @@ async function runBacktest(req, res) {
   // threshold param from UI doubles as rsiEntry override (1-7 maps to 28-40)
   const thresholdParam = parseInt(req.query.threshold || '0');
   const rsiEntry = req.query.rsiEntry ? parseFloat(req.query.rsiEntry)
-    : thresholdParam >= 1 ? 28 + (thresholdParam - 1) * 2  // 1→28, 2→30, 3→32, 4→34, 5→36, 6→38, 7→40
+    : thresholdParam >= 1 ? 28 + (thresholdParam - 1) * 2
     : 33;
+  const resolution = req.query.resolution || 'DAY'; // DAY or HOUR
   const holdDays = parseInt(req.query.holdDays || '5');
   const log = [];
   const L = msg => log.push(msg);
@@ -46,19 +47,24 @@ async function runBacktest(req, res) {
   try {
     // Fetch candles
     const rows = await sql`
-      SELECT close_price, candle_time::date as dt
+      SELECT close_price, candle_time as dt
       FROM price_history
       WHERE (epic = ${epic} OR instrument = ${instrName})
-      AND resolution = 'DAY' AND close_price > 0
+      AND resolution = ${resolution} AND close_price > 0
       ORDER BY candle_time ASC
-      LIMIT ${days + 50}`;
+      LIMIT ${resolution === 'HOUR' ? days * 24 : days + 50}`;
 
-    if (rows.rows.length < 30) {
-      return res.status(200).json({ error: 'Insufficient data', rows: rows.rows.length });
+    if (rows.rows.length < 10) {
+      return res.status(200).json({ error: `Insufficient ${resolution} data — only ${rows.rows.length} candles. Run hourly backfill first.` });
     }
 
     const closes = rows.rows.map(r => parseFloat(r.close_price));
-    const dates = rows.rows.map(r => r.dt);
+    const dates = rows.rows.map(r => {
+      const d = new Date(r.dt);
+      return resolution === 'HOUR'
+        ? d.toISOString().substring(0,16).replace('T',' ')
+        : d.toISOString().substring(0,10);
+    });
     L(`Backtest: ${instrName} — ${closes.length} candles from ${dates[0]} to ${dates[dates.length-1]}`);
 
     // Helper functions
