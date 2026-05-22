@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
       if (action === 'candles') {
         // Return historical candles for an instrument (for pairs analysis)
         const instrument = req.query.instrument;
-        const limit = parseInt(req.query.limit || '60');
+        const limit = parseInt(req.query.limit || '600');
         if(!instrument) return res.status(400).json({ error: 'instrument required' });
         try {
           const rows = await sql`
@@ -235,18 +235,31 @@ module.exports = async (req, res) => {
       }
 
       if (type === 'delete_candles') {
-        // Delete candles for an instrument before a given date (cleanup bad backfill data)
-        const { instrument, before } = data || {};
+        // Delete candles for an instrument in a date range
+        const { instrument, before, after } = data || {};
         if(!instrument) return res.status(400).json({ error: 'instrument required' });
         try {
-          const cutoff = before || '2026-01-01';
-          const result = await sql`
-            DELETE FROM price_history 
-            WHERE instrument = ${instrument}
-            AND candle_time < ${cutoff}::timestamptz
-            AND resolution = 'DAY'
-          `;
-          return res.status(200).json({ success: true, instrument, before: cutoff });
+          let result;
+          if(after) {
+            // Delete between after and before dates
+            const from = after || '2000-01-01';
+            const to = before || '2030-01-01';
+            result = await sql`
+              DELETE FROM price_history 
+              WHERE instrument = ${instrument}
+              AND candle_time >= ${from}::timestamptz
+              AND candle_time <= ${to}::timestamptz
+              AND resolution = 'DAY'
+            `;
+          } else {
+            result = await sql`
+              DELETE FROM price_history 
+              WHERE instrument = ${instrument}
+              AND candle_time < ${before||'2026-01-01'}::timestamptz
+              AND resolution = 'DAY'
+            `;
+          }
+          return res.status(200).json({ success: true, instrument });
         } catch(e) { return res.status(200).json({ error: e.message }); }
       }
 
