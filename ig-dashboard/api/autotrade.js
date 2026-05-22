@@ -358,6 +358,7 @@ module.exports = async (req,res) => {
   res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers','Content-Type,Authorization');
   if(req.method==='OPTIONS') return res.status(200).end();
+  try { // Top-level catch to ensure JSON error response always
 
   const cronSecret=process.env.CRON_SECRET||'';
   if(req.method==='POST'&&cronSecret){
@@ -1369,6 +1370,10 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
   L('No trades placed');
   return res.status(200).json({action:'no_trades',signals:signals.length,log});
+  } catch(topErr) {
+    console.error('[Autotrade top-level error]', topErr.message, topErr.stack);
+    return res.status(500).json({error:topErr.message, stack:topErr.stack?.split('\n')[1]||'', log:[]});
+  }
 };
 
 // ── PRICE DATA ────────────────────────────────────────────────────────────────
