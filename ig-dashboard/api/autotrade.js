@@ -387,6 +387,8 @@ module.exports = async (req,res) => {
     pairsZEntry:parseFloat(process.env.PAIRS_Z_ENTRY||DEFAULT_CONFIG.pairsZEntry),
     pairsZStop:parseFloat(process.env.PAIRS_Z_STOP||DEFAULT_CONFIG.pairsZStop),
     pairsZTarget:parseFloat(process.env.PAIRS_Z_TARGET||DEFAULT_CONFIG.pairsZTarget),
+    pairsMaxSlots:parseInt(process.env.PAIRS_MAX_SLOTS||DEFAULT_CONFIG.pairsMaxSlots),
+    pairsRiskPct:parseFloat(process.env.PAIRS_RISK_PCT||DEFAULT_CONFIG.pairsRiskPct),
   };
 
   // Load optimised params from DB if available
@@ -1189,6 +1191,15 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const {sql: pSql} = require('@vercel/postgres');
 
       // Check existing pairs trades
+      // Create table if not exists (safe to run every time)
+      await pSql`CREATE TABLE IF NOT EXISTS pairs_trades (
+        id SERIAL PRIMARY KEY, pair_id VARCHAR(50), instr_a VARCHAR(50), instr_b VARCHAR(50),
+        epic_a VARCHAR(100), epic_b VARCHAR(100), direction_a VARCHAR(10), direction_b VARCHAR(10),
+        size_a DECIMAL(10,4), size_b DECIMAL(10,4), deal_id_a VARCHAR(50), deal_id_b VARCHAR(50),
+        entry_z DECIMAL(8,4), stop_z DECIMAL(8,4), target_z DECIMAL(8,4), close_z DECIMAL(8,4),
+        close_reason VARCHAR(30), ai_confidence INTEGER, status VARCHAR(20) DEFAULT 'open',
+        opened_at TIMESTAMPTZ DEFAULT NOW(), closed_at TIMESTAMPTZ
+      )`.catch(()=>{});
       const openPairs = await pSql`SELECT pair_id, instr_a, instr_b, direction_a, deal_id_a, deal_id_b,
         entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
