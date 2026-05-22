@@ -53,16 +53,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "functions": {
-    "api/alert.js": {
-      "maxDuration": 30
-    },
-    "api/autotrade.js": {
-      "maxDuration": 30
-    },
-    "api/db.js": {
-      "maxDuration": 300
-    }
-  }
+  ]
 }
