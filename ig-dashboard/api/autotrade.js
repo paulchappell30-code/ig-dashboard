@@ -686,11 +686,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const rowsA = await pairSql`
           SELECT close_price FROM price_history
           WHERE instrument = ${pair.instrA} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT 60`;
+          ORDER BY candle_time DESC LIMIT 600`;
         const rowsB = await pairSql`
           SELECT close_price, candle_time::date as dt FROM price_history
           WHERE instrument = ${pair.instrB} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT 60`;
+          ORDER BY candle_time DESC LIMIT 600`;
         
         if(rowsA.rows.length < 10 || rowsB.rows.length < 10) continue;
         
