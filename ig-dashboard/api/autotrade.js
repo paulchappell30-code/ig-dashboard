@@ -675,14 +675,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   // ── PAIRS Z-SCORE CALCULATION ─────────────────────────────────────────────
   // Calculate live Z-scores for instrument pairs using DB candle history
   // Used to add confluence/contradiction context to AI signal evaluation
-  const PAIRS_DEFINITIONS = [
-    { instrA:'GBP/USD', instrB:'EUR/USD', epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP' },
-    { instrA:'EUR/USD', instrB:'EUR/GBP', epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP' },
-    { instrA:'FTSE 100', instrB:'DAX 40', epicA:'IX.D.FTSE.DAILY.IP',   epicB:'IX.D.DAX.DAILY.IP' },
-    { instrA:'Gold',    instrB:'Silver',  epicA:'CS.D.USCGC.TODAY.IP',  epicB:'CS.D.USCSI.TODAY.IP' },
-    { instrA:'Brent Oil', instrB:'Gold',  epicA:'CC.D.LCO.USS.IP',      epicB:'CS.D.USCGC.TODAY.IP' },
-  ];
-  const pairsZScores = {}; // keyed by instrA → { zscore, instrB, direction }
+  // PAIRS_DEFINITIONS defined at module level above
+    const pairsZScores = {}; // keyed by instrA → { zscore, instrB, direction }
 
   try {
     const {sql: pairSql} = require('@vercel/postgres');
