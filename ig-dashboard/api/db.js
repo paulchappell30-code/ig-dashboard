@@ -431,6 +431,25 @@ async function initTables() {
     )
   `;
 
+  // Pairs trades table
+  await sql`
+    CREATE TABLE IF NOT EXISTS pairs_trades (
+      id SERIAL PRIMARY KEY,
+      pair_id VARCHAR(50) NOT NULL,
+      instr_a VARCHAR(50), instr_b VARCHAR(50),
+      epic_a VARCHAR(100), epic_b VARCHAR(100),
+      direction_a VARCHAR(10), direction_b VARCHAR(10),
+      size_a DECIMAL(10,4), size_b DECIMAL(10,4),
+      deal_id_a VARCHAR(50), deal_id_b VARCHAR(50),
+      entry_z DECIMAL(8,4), stop_z DECIMAL(8,4), target_z DECIMAL(8,4),
+      close_z DECIMAL(8,4), close_reason VARCHAR(30),
+      ai_confidence INTEGER,
+      status VARCHAR(20) DEFAULT 'open',
+      opened_at TIMESTAMPTZ DEFAULT NOW(),
+      closed_at TIMESTAMPTZ
+    )
+  `;
+
   // Add missing columns to existing tables (migration)
   const cols = [
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ai_reasoning TEXT",
