@@ -1308,14 +1308,14 @@ async function loadPairsData() {
       try {
         // Try by instrument name first, then by epic
         let candles = [];
-        const r = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(instr)}&limit=60`);
+        const r = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(instr)}&limit=600`);
         if(r.ok) {
           const d = await r.json();
           candles = d.candles || [];
         }
         // If no results, try by epic
         if(candles.length === 0 && EPIC_MAP_PAIRS[instr]) {
-          const r2 = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(EPIC_MAP_PAIRS[instr])}&limit=60`);
+          const r2 = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(EPIC_MAP_PAIRS[instr])}&limit=600`);
           if(r2.ok) {
             const d2 = await r2.json();
             candles = d2.candles || [];
