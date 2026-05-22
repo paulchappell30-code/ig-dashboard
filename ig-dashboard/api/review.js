@@ -21,7 +21,11 @@ async function runBacktest(req, res) {
   const { sql } = require('@vercel/postgres');
   const epic = req.query.epic || 'IX.D.FTSE.DAILY.IP';
   const days = parseInt(req.query.days || '500');
-  const rsiEntry = parseFloat(req.query.rsiEntry || '33');
+  // threshold param from UI doubles as rsiEntry override (1-7 maps to 28-40)
+  const thresholdParam = parseInt(req.query.threshold || '0');
+  const rsiEntry = req.query.rsiEntry ? parseFloat(req.query.rsiEntry)
+    : thresholdParam >= 1 ? 28 + (thresholdParam - 1) * 2  // 1→28, 2→30, 3→32, 4→34, 5→36, 6→38, 7→40
+    : 33;
   const holdDays = parseInt(req.query.holdDays || '5');
   const log = [];
   const L = msg => log.push(msg);
