@@ -1339,10 +1339,8 @@ async function loadPairsData() {
       'IX.D.SPTRD.DAILY.IP':'S&P 500', 'IX.D.DOW.DAILY.IP':'Dow Jones',
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY','CS.D.EURGBP.TODAY.IP':'EUR/GBP',
-      // Gold/Silver: IG prices have same RATIO as Yahoo so safe to include for pairs
-      'CS.D.USCGC.TODAY.IP':'Gold',    'CS.D.USCSI.TODAY.IP':'Silver',
-      // Brent excluded — IG units genuinely different from Yahoo (pence/barrel vs $/barrel)
-      // 'CC.D.LCO.USS.IP':'Brent Oil',
+      // Commodities excluded — IG and Yahoo use different price scales
+      // Historical Z-scores use Yahoo units; live IG prices would corrupt the ratio
     };
     (S.markets||[]).forEach(m => {
       const instr = EPIC_TO_INSTR[m.epic];
@@ -1745,9 +1743,11 @@ function calcPairSizing() {
   const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
   const conviction = absZ >= 2 ? 'Strong signal' : absZ >= 1.5 ? 'Watch zone' : 'Weak signal';
 
+  const usingHistorical = !pairsLivePrices[pair.a] || !pairsLivePrices[pair.b];
   result.innerHTML = `
     <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
       <span style="color:${zColor};font-weight:600">${conviction}</span>
+      ${usingHistorical ? '<span style="font-size:11px;color:#f39c12;margin-left:8px">⚠️ Using historical prices — sizes indicative</span>' : ''}
       <span style="color:var(--text2);font-size:12px;margin-left:8px">Z-score ${zscore?.toFixed(2)} | ${n} days data</span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
