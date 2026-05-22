@@ -220,10 +220,42 @@ async function runBacktest(req, res) {
     L(`With trend filter: ${withTrendFilter.length} (win rate: ${stats.trendFilter.winRate}%)`);
     L(`Full filter (score≥2+trend): ${fullFilter.length} (win rate: ${stats.fullFilter.winRate}%)`);
 
+    // Build summary in format expected by existing UI
+    const fs = stats.fullFilter;
+    const summary = {
+      totalTrades: fs.trades,
+      winRate: parseFloat(fs.winRate),
+      totalPnL: parseFloat(fs.totalPnl),
+      profitFactor: fs.avgWin > 0 && Math.abs(parseFloat(fs.avgLoss)) > 0
+        ? Math.abs(parseFloat(fs.avgWin) / parseFloat(fs.avgLoss))
+        : parseFloat(fs.avgWin) > 0 ? 2 : 0,
+      expectancy: parseFloat(fs.expectancy),
+      avgWin: parseFloat(fs.avgWin),
+      avgLoss: parseFloat(fs.avgLoss),
+    };
+
+    // Build byRegime from full filter trades
+    const byRegime = {};
+    fullFilter.forEach(t => {
+      const r = 'ranging'; // simplified — all daily signals are ranging
+      if(!byRegime[r]) byRegime[r] = { trades:0, pnl:0 };
+      byRegime[r].trades++;
+      byRegime[r].pnl += parseFloat(t.pnlPct);
+    });
+
+    // Recent trades for display
+    const recentTrades = fullFilter.slice(-10).map(t => ({
+      direction: t.direction,
+      openPrice: t.entryPrice,
+      closePrice: t.exitPrice,
+      pnl: parseFloat(t.pnlPct),
+      regime: 'ranging',
+    }));
+
     return res.status(200).json({
       instrument: instrName, epic, days: closes.length,
-      rsiEntry, holdDays, stats,
-      trades: allTrades.slice(-100), // Last 100 trades for display
+      rsiEntry, holdDays, stats, summary, byRegime, recentTrades,
+      trades: allTrades.slice(-100),
       log
     });
 
