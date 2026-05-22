@@ -1339,8 +1339,10 @@ async function loadPairsData() {
       'IX.D.SPTRD.DAILY.IP':'S&P 500', 'IX.D.DOW.DAILY.IP':'Dow Jones',
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY','CS.D.EURGBP.TODAY.IP':'EUR/GBP',
-      // Commodities excluded — IG contract units differ from Yahoo futures prices
-      // 'CC.D.LCO.USS.IP':'Brent Oil', 'CS.D.USCGC.TODAY.IP':'Gold', etc.
+      // Gold/Silver: IG prices have same RATIO as Yahoo so safe to include for pairs
+      'CS.D.USCGC.TODAY.IP':'Gold',    'CS.D.USCSI.TODAY.IP':'Silver',
+      // Brent excluded — IG units genuinely different from Yahoo (pence/barrel vs $/barrel)
+      // 'CC.D.LCO.USS.IP':'Brent Oil',
     };
     (S.markets||[]).forEach(m => {
       const instr = EPIC_TO_INSTR[m.epic];
@@ -1671,10 +1673,15 @@ function calcPairSizing() {
   const pair = PAIRS_CONFIG.find(p => p.id === pairId);
   if(!pair) return;
 
-  // Get live prices
-  const priceA = pairsLivePrices[pair.a];
-  const priceB = pairsLivePrices[pair.b];
-
+  // Fall back to last historical candle price if no live price available
+  let priceA = pairsLivePrices[pair.a];
+  let priceB = pairsLivePrices[pair.b];
+  if(!priceA || !priceB) {
+    const candlesA = pairsData[pair.a] || [];
+    const candlesB = pairsData[pair.b] || [];
+    if(!priceA && candlesA.length) priceA = parseFloat(candlesA[candlesA.length-1]?.close_price || 0);
+    if(!priceB && candlesB.length) priceB = parseFloat(candlesB[candlesB.length-1]?.close_price || 0);
+  }
   if(!priceA || !priceB) {
     result.innerHTML = '<span style="color:var(--text2)">Load pairs data first (click Refresh)</span>';
     return;
