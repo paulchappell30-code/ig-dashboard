@@ -11,10 +11,12 @@ const IG_BASES = {
 
 // Maps trading epic -> DB stored epic (candles stored under old MINI epics)
 const DB_EPIC_MAP = {
-  'CS.D.GBPUSD.TODAY.IP': 'CS.D.GBPUSD.MINI.IP',
-  'CS.D.EURUSD.TODAY.IP': 'CS.D.EURUSD.MINI.IP',
-  'CS.D.USDJPY.TODAY.IP': 'CS.D.USDJPY.MINI.IP',
-  'CS.D.EURGBP.TODAY.IP': 'CS.D.EURGBP.MINI.IP',
+  // MINI epics used for historical DB storage — Yahoo backfill uses TODAY epics directly
+  // so these mappings only apply if MINI candles exist (older data)
+  // 'CS.D.GBPUSD.TODAY.IP': 'CS.D.GBPUSD.MINI.IP',
+  // 'CS.D.EURUSD.TODAY.IP': 'CS.D.EURUSD.MINI.IP',
+  // 'CS.D.USDJPY.TODAY.IP': 'CS.D.USDJPY.MINI.IP',
+  // 'CS.D.EURGBP.TODAY.IP': 'CS.D.EURGBP.MINI.IP',
 };
 
 // TODAY FX contracts are priced in pips*10000 not decimal
@@ -759,7 +761,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     try{
       // Try DB first, fall back to IG, then Twelve Data
       const dbEpic = DB_EPIC_MAP[epic] || epic;
-      let closes=await getDbPrices(dbEpic,60,L);
+      let closes=await getDbPrices(dbEpic,500,L);
       let src='DB';
       if(!closes||closes.length<5){
         // Only hit IG historical if not blocked — avoids burning allowance
@@ -1381,7 +1383,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 async function getDbPrices(epic,limit,L){
   try{
     const {sql}=require('@vercel/postgres');
-    const r=await sql`SELECT close_price FROM price_history WHERE epic=${epic} AND resolution='DAY' AND close_price>0 ORDER BY candle_time DESC LIMIT ${limit}`;
+    const r=await sql`SELECT close_price FROM price_history WHERE (epic=${epic} OR instrument=${epic}) AND resolution='DAY' AND close_price>0 ORDER BY candle_time DESC LIMIT ${limit}`;
     if(r.rows.length<5)return null;
     return r.rows.map(row=>parseFloat(row.close_price)).reverse();
   }catch(e){return null;}
