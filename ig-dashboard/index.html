@@ -1671,17 +1671,57 @@ function calcPairSizing() {
   const pair = PAIRS_CONFIG.find(p => p.id === pairId);
   if(!pair) return;
 
-  // Fall back to last historical candle price if no live price available
-  let priceA = pairsLivePrices[pair.a];
-  let priceB = pairsLivePrices[pair.b];
-  if(!priceA || !priceB) {
+  const priceA = pairsLivePrices[pair.a];
+  const priceB = pairsLivePrices[pair.b];
+  const hasLivePrices = priceA && priceB;
+
+  if(!hasLivePrices) {
+    // For commodity pairs without live prices, show signal-only guidance
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
-    if(!priceA && candlesA.length) priceA = parseFloat(candlesA[candlesA.length-1]?.close_price || 0);
-    if(!priceB && candlesB.length) priceB = parseFloat(candlesB[candlesB.length-1]?.close_price || 0);
-  }
-  if(!priceA || !priceB) {
-    result.innerHTML = '<span style="color:var(--text2)">Load pairs data first (click Refresh)</span>';
+    if(!candlesA.length || !candlesB.length) {
+      result.innerHTML = '<span style="color:var(--text2)">Load pairs data first (click Refresh)</span>';
+      return;
+    }
+    const spreads = calcPairSpread(candlesA, candlesB);
+    const { zscore, mean, std, n } = calcZScore(spreads);
+    if(!zscore) { result.innerHTML = '<span style="color:var(--text2)">Insufficient data</span>'; return; }
+    const absZ = Math.abs(zscore);
+    const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
+    const dirA = zscore < 0 ? 'BUY' : 'SELL';
+    const dirB = zscore < 0 ? 'SELL' : 'BUY';
+    const conviction = absZ >= 2 ? 'Strong signal' : absZ >= 1.5 ? 'Watch zone' : 'Weak signal';
+    const targetZ = 0;
+    const zToTarget = Math.abs(zscore - targetZ);
+    const zToStop = absZ + stopSigma;
+    const rrRatio = (zToTarget / stopSigma).toFixed(1);
+    result.innerHTML = `
+      <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <span style="color:${zColor};font-weight:600">${conviction}</span>
+        <span style="color:var(--text2);font-size:12px;margin-left:8px">Z=${zscore.toFixed(2)} | ${n} days | σ=${std.toFixed(4)}</span>
+        <span style="font-size:11px;color:#f39c12;margin-left:8px">⚠️ Historical prices only — trade manually on IG</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+        <div style="background:var(--bg2);border-radius:6px;padding:10px">
+          <div style="font-size:11px;color:var(--text2)">${pair.a}</div>
+          <div style="font-size:18px;font-weight:700;color:${dirA==='BUY'?'var(--green)':'var(--red)'}">${dirA}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Size proportional to notional</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:10px">
+          <div style="font-size:11px;color:var(--text2)">${pair.b}</div>
+          <div style="font-size:18px;font-weight:700;color:${dirB==='BUY'?'var(--green)':'var(--red)'}">${dirB}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Equal notional to ${pair.a}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2)">
+        Stop at Z=${zscore < 0 ? '-' : '+'}${(absZ+stopSigma).toFixed(1)}σ &nbsp;|&nbsp;
+        Target Z=0 &nbsp;|&nbsp; R:R <strong style="color:var(--text1)">${rrRatio}:1</strong>
+        &nbsp;|&nbsp; Risk £${riskAmt}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text2)">
+        💡 To trade on IG: use equal £ notional for each leg. 
+        For £${riskAmt} risk at ${stopSigma}σ stop: allocate £${(riskAmt/stopSigma*zToTarget).toFixed(0)} per leg.
+      </div>`;
     return;
   }
 
