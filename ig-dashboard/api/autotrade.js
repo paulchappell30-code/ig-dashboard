@@ -54,6 +54,19 @@ const CORRELATION_GROUPS = {
   'CS.D.GBPUSD.TODAY.IP':'fx','CS.D.EURUSD.TODAY.IP':'fx','CS.D.USDJPY.TODAY.IP':'fx',
 };
 
+// Pairs trading definitions — FX and indices only (live prices available)
+const PAIRS_DEFINITIONS = [
+  { id:'gbpusd_eurusd', instrA:'GBP/USD', instrB:'EUR/USD',
+    epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP',
+    minDays:60, description:'GBP/USD vs EUR/USD dollar pairs' },
+  { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
+    epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
+    minDays:60, description:'EUR/USD vs EUR/GBP crosses' },
+  { id:'ftse_dax', instrA:'FTSE 100', instrB:'DAX 40',
+    epicA:'IX.D.FTSE.DAILY.IP', epicB:'IX.D.DAX.DAILY.IP',
+    minDays:100, description:'FTSE vs DAX European indices' },
+];
+
 const TRADING_HOURS = {
   indices:{open:7,close:21},    // Extended to 9pm UTC (10pm BST) — covers US session
   us_indices:{open:13,close:21}, // US markets only: 2:30pm-9pm BST
@@ -71,6 +84,13 @@ const DEFAULT_CONFIG = {
   trailingStopPct:1.5,signalThreshold:2,useNewsFilter:true,
   usePreferredWindow:false,useKellyCriterion:true,winRateLookback:20,
   eodClose:true,eodCloseTime:{h:21,m:0},
+  // Pairs trading config
+  pairsEnabled:true,
+  pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
+  pairsZStop:3.5,       // Z-score stop loss level
+  pairsZTarget:0.5,     // Z-score target (close when reverts to this)
+  pairsMaxSlots:1,      // Max simultaneous pairs trades
+  pairsRiskPct:0.01,    // 1% risk per pairs trade
 };
 
 const priceCache = {};
@@ -363,6 +383,10 @@ module.exports = async (req,res) => {
     usePreferredWindow:process.env.USE_PREFERRED_WINDOW==='true',
     useKellyCriterion:process.env.USE_KELLY!=='false',
     eodClose:process.env.EOD_CLOSE!=='false',
+    pairsEnabled:process.env.PAIRS_ENABLED!=='false',
+    pairsZEntry:parseFloat(process.env.PAIRS_Z_ENTRY||DEFAULT_CONFIG.pairsZEntry),
+    pairsZStop:parseFloat(process.env.PAIRS_Z_STOP||DEFAULT_CONFIG.pairsZStop),
+    pairsZTarget:parseFloat(process.env.PAIRS_Z_TARGET||DEFAULT_CONFIG.pairsZTarget),
   };
 
   // Load optimised params from DB if available
@@ -1157,6 +1181,185 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         await sendNotify('error',`❌ Order Rejected: ${sig.instr}`,`Reason: ${cd.reason||cd.dealStatus}`);
       }
     }catch(e){L('Trade error: '+e.message);}
+  }
+
+  // ── PAIRS TRADING ────────────────────────────────────────────────────────────
+  if(cfg.pairsEnabled && openCount < cfg.maxPositions) {
+    try {
+      const {sql: pSql} = require('@vercel/postgres');
+
+      // Check existing pairs trades
+      const openPairs = await pSql`SELECT pair_id, instr_a, instr_b, direction_a, deal_id_a, deal_id_b,
+        entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
+      const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
+      L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
+
+      // Check if any open pairs need closing (Z-score reverted or stopped)
+      for(const pt of openPairs.rows) {
+        const pairDef = PAIRS_DEFINITIONS.find(p=>p.id===pt.pair_id);
+        if(!pairDef) continue;
+        const pz = pairsZScores[pt.instr_a];
+        if(!pz) continue;
+        const currentZ = pz.zscore;
+        const shouldClose =
+          (pt.direction_a==='BUY' && (currentZ >= -cfg.pairsZTarget || currentZ <= -cfg.pairsZStop)) ||
+          (pt.direction_a==='SELL' && (currentZ <= cfg.pairsZTarget || currentZ >= cfg.pairsZStop));
+        if(shouldClose) {
+          const reason = Math.abs(currentZ) <= cfg.pairsZTarget ? 'target_reached' : 'stop_loss';
+          L(`Pairs close: ${pt.instr_a}/${pt.instr_b} Z=${currentZ.toFixed(2)} (${reason})`);
+          // Close both legs
+          for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
+            const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+            const posD = await posR.json();
+            const pos = (posD.positions||[]).find(p=>p.position.dealId===dealId);
+            if(pos) {
+              const closeBody={epic:pos.market.epic,direction:pos.position.direction==='BUY'?'SELL':'BUY',
+                size:pos.position.size,orderType:'MARKET',expiry:'DFB',
+                guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
+              await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
+            }
+          }
+          await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ}, close_reason=${reason}, closed_at=NOW() WHERE pair_id=${pt.pair_id} AND status='open'`.catch(()=>{});
+          L(`Pairs closed: ${pt.instr_a}/${pt.instr_b} reason:${reason}`);
+        }
+      }
+
+      // Look for new pairs signals
+      if(openPairs.rows.length < cfg.pairsMaxSlots) {
+        for(const pair of PAIRS_DEFINITIONS) {
+          if(openPairIds.has(pair.id)) continue; // already open
+          const pz = pairsZScores[pair.instrA];
+          if(!pz || pz.n < pair.minDays) continue;
+          const absZ = Math.abs(pz.zscore);
+          if(absZ < cfg.pairsZEntry) continue;
+
+          // Direction: negative Z = A cheap vs B → BUY A, SELL B
+          const dirA = pz.zscore < 0 ? 'BUY' : 'SELL';
+          const dirB = pz.zscore < 0 ? 'SELL' : 'BUY';
+          L(`Pairs signal: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)} ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}`);
+
+          // AI confirmation
+          const pairsPrompt = `Trading risk manager. Approve this PAIRS trade?
+PAIR: ${pair.instrA} vs ${pair.instrB}
+STRATEGY: Statistical arbitrage — Z-score divergence from ${pz.n}-day mean
+Z-SCORE: ${pz.zscore.toFixed(2)} (entry threshold: ±${cfg.pairsZEntry})
+DIRECTION: ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}
+DESCRIPTION: ${pair.description}
+RATIO: Current ${(pairsZScores[pair.instrA]?.current||0).toFixed(4)} vs Mean ${(pairsZScores[pair.instrA]?.mean||0).toFixed(4)}
+STOP: Z=${pz.zscore<0?'-':'+'}${cfg.pairsZStop} (${(cfg.pairsZStop-absZ).toFixed(1)}σ away)
+TARGET: Z=0 (${absZ.toFixed(1)}σ reversion needed)
+DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
+APPROVAL RULES: Approve if (1) |Z| ≥ ${cfg.pairsZEntry}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence.
+Account P&L: ${plPct.toFixed(2)}% | Open positions: ${openCount}/${cfg.maxPositions}
+Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
+
+          let pairsApproved = false; let pairsConfidence = 0; let pairsReasoning = '';
+          try {
+            const base2 = process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
+            const aiR = await fetch(`${base2}/api/claude`,{method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:150,
+                messages:[{role:'user',content:pairsPrompt}]})});
+            if(aiR.ok){
+              const aiD = await aiR.json();
+              const txt = aiD.content?.[0]?.text||'';
+              const clean = txt.replace(/```json|```/g,'').trim();
+              const parsed = JSON.parse(clean);
+              pairsApproved = parsed.approved===true;
+              pairsConfidence = parsed.confidence||0;
+              pairsReasoning = parsed.reasoning||'';
+            }
+          } catch(e){ L(`Pairs AI error: ${e.message}`); }
+
+          L(`Pairs AI: ${pairsApproved?'✅':'❌'}(${pairsConfidence}%) ${pairsReasoning}`);
+          if(!pairsApproved || pairsConfidence < cfg.aiConfidenceMin) continue;
+
+          // Size both legs — equal notional, risk = pairsRiskPct of balance
+          const riskAmt = balance * cfg.pairsRiskPct;
+          const zStopDist = cfg.pairsZStop - absZ; // σ distance to stop
+          // Get current prices for sizing
+          const [priceFeedA, priceFeedB] = await Promise.all([
+            fetch(`${igBase}/markets/${pair.epicA}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
+            fetch(`${igBase}/markets/${pair.epicB}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
+          ]);
+          const priceA = priceFeedA?.snapshot?.bid || 0;
+          const priceB = priceFeedB?.snapshot?.bid || 0;
+          const minStopA = priceFeedA?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
+          const minStopB = priceFeedB?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
+          if(!priceA || !priceB){ L('Pairs: could not get prices'); continue; }
+
+          // Stop distance in points = zStopDist * σ * priceB (approx)
+          const pzStats = pairsZScores[pair.instrA];
+          const stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * (pzStats?.std||0.01) * priceB * 3));
+          const stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * (pzStats?.std||0.01) * priceA * 3));
+          const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
+          const sizeB = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsB).toFixed(2)), cfg.maxSizePerTrade));
+
+          L(`Pairs sizing: ${pair.instrA} £${sizeA}/pt stop ${stopPtsA}pts | ${pair.instrB} £${sizeB}/pt stop ${stopPtsB}pts`);
+
+          // Open leg A
+          let dealIdA = null, dealIdB = null;
+          try {
+            const bodyA = {epic:pair.epicA,direction:dirA,size:sizeA,orderType:'MARKET',
+              expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
+              dealType:'SPREADBET',stopDistance:stopPtsA*3}; // 3× safety stop on IG
+            const rA = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyA)});
+            const dA = await rA.json();
+            if(dA.dealReference){
+              await new Promise(r=>setTimeout(r,500));
+              const cA = await fetch(`${igBase}/confirms/${dA.dealReference}`,{headers:{...igH,'Version':'1'}});
+              const cdA = await cA.json();
+              if(cdA.dealStatus==='ACCEPTED'){ dealIdA=cdA.dealId; L(`Pairs leg A: ✅ ${pair.instrA} ${dirA} at ${cdA.level}`); }
+              else { L(`Pairs leg A rejected: ${cdA.reason}`); continue; }
+            }
+          } catch(e){ L(`Pairs leg A error: ${e.message}`); continue; }
+
+          // Open leg B — if this fails, close leg A immediately
+          try {
+            const bodyB = {epic:pair.epicB,direction:dirB,size:sizeB,orderType:'MARKET',
+              expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
+              dealType:'SPREADBET',stopDistance:stopPtsB*3};
+            const rB = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyB)});
+            const dB = await rB.json();
+            if(dB.dealReference){
+              await new Promise(r=>setTimeout(r,500));
+              const cB = await fetch(`${igBase}/confirms/${dB.dealReference}`,{headers:{...igH,'Version':'1'}});
+              const cdB = await cB.json();
+              if(cdB.dealStatus==='ACCEPTED'){ dealIdB=cdB.dealId; L(`Pairs leg B: ✅ ${pair.instrB} ${dirB} at ${cdB.level}`); }
+              else {
+                L(`Pairs leg B rejected: ${cdB.reason} — closing leg A`);
+                // Close leg A since leg B failed
+                const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+                const posD = await posR.json();
+                const posA = (posD.positions||[]).find(p=>p.position.dealId===dealIdA);
+                if(posA){ const cbA={epic:pair.epicA,direction:dirA==='BUY'?'SELL':'BUY',size:sizeA,orderType:'MARKET',expiry:'DFB',guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
+                  await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(cbA)}); }
+                continue;
+              }
+            }
+          } catch(e){
+            L(`Pairs leg B error: ${e.message} — closing leg A`);
+            continue;
+          }
+
+          // Both legs open — save to DB
+          try {
+            await pSql`INSERT INTO pairs_trades (pair_id, instr_a, instr_b, epic_a, epic_b,
+              direction_a, direction_b, size_a, size_b, deal_id_a, deal_id_b,
+              entry_z, stop_z, target_z, ai_confidence, status, opened_at)
+              VALUES (${pair.id},${pair.instrA},${pair.instrB},${pair.epicA},${pair.epicB},
+              ${dirA},${dirB},${sizeA},${sizeB},${dealIdA},${dealIdB},
+              ${pz.zscore},${pz.zscore<0?-cfg.pairsZStop:cfg.pairsZStop},${pz.zscore<0?-cfg.pairsZTarget:cfg.pairsZTarget},
+              ${pairsConfidence},'open',NOW())`;
+            L(`Pairs trade saved: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)}`);
+          } catch(e){ L(`Pairs DB save error: ${e.message}`); }
+
+          await sendNotify('trade',`⚖️ Pairs Trade: ${pair.instrA}/${pair.instrB}`,
+            `${dirA} ${pair.instrA} £${sizeA}/pt | ${dirB} ${pair.instrB} £${sizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${cfg.pairsZEntry} | Stop: ±${cfg.pairsZStop}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
+          break; // One pairs trade per run
+        }
+      }
+    } catch(e){ L(`Pairs trading error: ${e.message}`); }
   }
 
   L('No trades placed');
