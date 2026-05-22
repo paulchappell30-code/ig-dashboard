@@ -60,6 +60,9 @@
     },
     "api/autotrade.js": {
       "maxDuration": 30
+    },
+    "api/backfill.js": {
+      "maxDuration": 300
     }
   }
 }
