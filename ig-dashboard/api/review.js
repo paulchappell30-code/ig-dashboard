@@ -14,6 +14,8 @@ module.exports = async (req, res) => {
   if (action === 'optimize') return await runOptimization(req, res);
   if (action === 'backtest') return await runBacktest(req, res);
   if (action === 'discover') return await runDiscovery(req, res);
+  if (action === 'novel') return await runNovelDiscovery(req, res);
+  if (action === 'aipatterns') return await runAIPatterns(req, res);
   return await sendWeeklyReview(req, res);
 };
 
@@ -980,6 +982,450 @@ async function runDiscovery(req, res) {
     return res.status(200).json({ success:true, results, rankings: rankings.slice(0,20), log });
 
   } catch(e) {
+    return res.status(500).json({ error: e.message, log });
+  }
+}
+
+// ─── NOVEL PATTERN DISCOVERY ──────────────────────────────────────────────────
+async function runNovelDiscovery(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const log = [];
+  const L = msg => { console.log('[Novel]', msg); log.push(msg); };
+
+  const INSTRUMENTS = [
+    { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP' },
+    { name:'S&P 500',  epic:'IX.D.SPTRD.DAILY.IP' },
+    { name:'DAX 40',   epic:'IX.D.DAX.DAILY.IP' },
+    { name:'Nasdaq',   epic:'IX.D.NASDAQ.CASH.IP' },
+    { name:'Brent Oil',epic:'CC.D.LCO.USS.IP' },
+    { name:'Gold',     epic:'CS.D.USCGC.TODAY.IP' },
+    { name:'GBP/USD',  epic:'CS.D.GBPUSD.TODAY.IP' },
+    { name:'EUR/USD',  epic:'CS.D.EURUSD.TODAY.IP' },
+    { name:'EUR/GBP',  epic:'CS.D.EURGBP.TODAY.IP' },
+    { name:'USD/JPY',  epic:'CS.D.USDJPY.TODAY.IP' },
+  ];
+
+  const allData = {};
+
+  // Load all instrument data
+  for(const instr of INSTRUMENTS) {
+    const rows = await sql`
+      SELECT close_price, high_price, low_price, open_price, candle_time
+      FROM price_history
+      WHERE (epic=${instr.epic} OR instrument=${instr.name})
+      AND resolution='DAY' AND close_price>0
+      ORDER BY candle_time ASC LIMIT 520`;
+    if(rows.rows.length < 60) continue;
+    allData[instr.name] = {
+      closes: rows.rows.map(r=>parseFloat(r.close_price)),
+      highs:  rows.rows.map(r=>parseFloat(r.high_price||r.close_price)),
+      lows:   rows.rows.map(r=>parseFloat(r.low_price||r.close_price)),
+      opens:  rows.rows.map(r=>parseFloat(r.open_price||r.close_price)),
+      dates:  rows.rows.map(r=>new Date(r.candle_time)),
+    };
+  }
+  L(`Loaded ${Object.keys(allData).length} instruments`);
+
+  const findings = [];
+
+  // ── PATTERN 1: DAY-OF-WEEK BIAS ──────────────────────────────────────────
+  // Does each instrument reliably go up or down on specific days?
+  L('Testing day-of-week bias...');
+  const dowResults = {};
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  Object.entries(allData).forEach(([name, d]) => {
+    const byDay = {1:[],2:[],3:[],4:[],5:[]};
+    d.closes.forEach((close, i) => {
+      if(i===0) return;
+      const day = d.dates[i].getDay();
+      if(day >= 1 && day <= 5) {
+        const ret = (close - d.closes[i-1]) / d.closes[i-1] * 100;
+        byDay[day].push(ret);
+      }
+    });
+    const dayStats = {};
+    Object.entries(byDay).forEach(([day, rets]) => {
+      if(!rets.length) return;
+      const avg = rets.reduce((a,b)=>a+b,0)/rets.length;
+      const positive = rets.filter(r=>r>0).length/rets.length*100;
+      dayStats[dayNames[day]] = { avg:parseFloat(avg.toFixed(3)), positive:parseFloat(positive.toFixed(1)), n:rets.length };
+    });
+    dowResults[name] = dayStats;
+    // Flag strong day biases
+    Object.entries(dayStats).forEach(([day, stats]) => {
+      if(Math.abs(stats.avg) > 0.15 || stats.positive > 60 || stats.positive < 40) {
+        findings.push({
+          type: 'day_of_week',
+          instrument: name,
+          detail: `${day}: avg ${stats.avg>0?'+':''}${stats.avg}% | ${stats.positive}% positive days (n=${stats.n})`,
+          strength: Math.abs(stats.avg) * (Math.abs(stats.positive-50)/10),
+          tradeable: Math.abs(stats.avg) > 0.2 && (stats.positive > 62 || stats.positive < 38)
+        });
+      }
+    });
+  });
+
+  // ── PATTERN 2: AFTER-LARGE-MOVE BEHAVIOUR ────────────────────────────────
+  // After a day moves >1.5%, does it continue or reverse the next day?
+  L('Testing post-large-move behaviour...');
+  Object.entries(allData).forEach(([name, d]) => {
+    const continueAfterUp = [], reverseAfterUp = [];
+    const continueAfterDown = [], reverseAfterDown = [];
+    d.closes.forEach((close, i) => {
+      if(i < 2 || i >= d.closes.length-1) return;
+      const todayRet = (close - d.closes[i-1]) / d.closes[i-1] * 100;
+      const nextRet = (d.closes[i+1] - close) / close * 100;
+      if(todayRet > 1.5) {
+        if(nextRet > 0) continueAfterUp.push(nextRet);
+        else reverseAfterUp.push(nextRet);
+      }
+      if(todayRet < -1.5) {
+        if(nextRet < 0) continueAfterDown.push(nextRet);
+        else reverseAfterDown.push(nextRet);
+      }
+    });
+    const totalUp = continueAfterUp.length + reverseAfterUp.length;
+    const totalDown = continueAfterDown.length + reverseAfterDown.length;
+    if(totalUp >= 5) {
+      const contPct = continueAfterUp.length/totalUp*100;
+      if(contPct > 60 || contPct < 40) {
+        findings.push({
+          type: 'post_large_move',
+          instrument: name,
+          detail: `After big UP day: ${contPct.toFixed(0)}% continue, ${(100-contPct).toFixed(0)}% reverse (n=${totalUp})`,
+          strength: Math.abs(contPct-50)/10,
+          tradeable: contPct > 62 || contPct < 38
+        });
+      }
+    }
+    if(totalDown >= 5) {
+      const contPct = continueAfterDown.length/totalDown*100;
+      if(contPct > 60 || contPct < 40) {
+        findings.push({
+          type: 'post_large_move',
+          instrument: name,
+          detail: `After big DOWN day: ${contPct.toFixed(0)}% continue, ${(100-contPct).toFixed(0)}% reverse (n=${totalDown})`,
+          strength: Math.abs(contPct-50)/10,
+          tradeable: contPct > 62 || contPct < 38
+        });
+      }
+    }
+  });
+
+  // ── PATTERN 3: OPEN-TO-CLOSE vs CLOSE-TO-CLOSE ───────────────────────────
+  // Gap up at open — does it fill or extend?
+  L('Testing gap behaviour...');
+  Object.entries(allData).forEach(([name, d]) => {
+    const gapFills = [], gapExtends = [];
+    d.closes.forEach((close, i) => {
+      if(i===0) return;
+      const prevClose = d.closes[i-1];
+      const open = d.opens[i];
+      const gapPct = (open - prevClose) / prevClose * 100;
+      if(Math.abs(gapPct) < 0.3) return; // ignore tiny gaps
+      const closedGap = gapPct > 0 ? close < open : close > open;
+      if(closedGap) gapFills.push(gapPct);
+      else gapExtends.push(gapPct);
+    });
+    const total = gapFills.length + gapExtends.length;
+    if(total >= 10) {
+      const fillPct = gapFills.length/total*100;
+      findings.push({
+        type: 'gap_behaviour',
+        instrument: name,
+        detail: `Gaps fill intraday: ${fillPct.toFixed(0)}% of time (n=${total})`,
+        strength: Math.abs(fillPct-50)/10,
+        tradeable: fillPct > 65 || fillPct < 35
+      });
+    }
+  });
+
+  // ── PATTERN 4: CROSS-INSTRUMENT LEAD/LAG ─────────────────────────────────
+  // Does one instrument reliably lead another by 1 day?
+  L('Testing cross-instrument lead/lag...');
+  const instrNames = Object.keys(allData);
+  for(let a=0; a<instrNames.length; a++) {
+    for(let b=a+1; b<instrNames.length; b++) {
+      const nameA = instrNames[a], nameB = instrNames[b];
+      const closesA = allData[nameA].closes;
+      const closesB = allData[nameB].closes;
+      const minLen = Math.min(closesA.length, closesB.length);
+      if(minLen < 60) continue;
+
+      // Correlation: A today vs B tomorrow
+      let sumXY=0, sumX=0, sumY=0, sumX2=0, sumY2=0, n=0;
+      for(let i=1; i<minLen-1; i++) {
+        const retA = (closesA[i]-closesA[i-1])/closesA[i-1];
+        const retB = (closesB[i+1]-closesB[i])/closesB[i];
+        sumXY+=retA*retB; sumX+=retA; sumY+=retB;
+        sumX2+=retA*retA; sumY2+=retB*retB; n++;
+      }
+      const corr = (n*sumXY-sumX*sumY)/Math.sqrt((n*sumX2-sumX*sumX)*(n*sumY2-sumY*sumY));
+      if(!isNaN(corr) && Math.abs(corr) > 0.25) {
+        findings.push({
+          type: 'lead_lag',
+          instrument: `${nameA} → ${nameB}`,
+          detail: `${nameA} today predicts ${nameB} tomorrow: correlation ${corr.toFixed(3)} (n=${n})`,
+          strength: Math.abs(corr),
+          tradeable: Math.abs(corr) > 0.3
+        });
+      }
+    }
+  }
+
+  // ── PATTERN 5: CONSECUTIVE DAYS BIAS ─────────────────────────────────────
+  // After N consecutive up/down days, what happens next?
+  L('Testing consecutive day bias...');
+  Object.entries(allData).forEach(([name, d]) => {
+    let streak = 0;
+    const afterStreak3 = { up:[], down:[] };
+    d.closes.forEach((close, i) => {
+      if(i===0||i>=d.closes.length-1) return;
+      const ret = (close-d.closes[i-1])/d.closes[i-1]*100;
+      if(ret > 0) streak = streak > 0 ? streak+1 : 1;
+      else streak = streak < 0 ? streak-1 : -1;
+      const nextRet = (d.closes[i+1]-close)/close*100;
+      if(streak >= 3) afterStreak3.up.push(nextRet);
+      if(streak <= -3) afterStreak3.down.push(nextRet);
+    });
+    if(afterStreak3.up.length >= 5) {
+      const avgNext = afterStreak3.up.reduce((a,b)=>a+b,0)/afterStreak3.up.length;
+      const pctDown = afterStreak3.up.filter(r=>r<0).length/afterStreak3.up.length*100;
+      if(pctDown > 55 || pctDown < 45) {
+        findings.push({
+          type: 'streak_reversal',
+          instrument: name,
+          detail: `After 3+ UP days: ${pctDown.toFixed(0)}% reverse next day, avg next ${avgNext.toFixed(3)}% (n=${afterStreak3.up.length})`,
+          strength: Math.abs(pctDown-50)/10,
+          tradeable: pctDown > 60
+        });
+      }
+    }
+    if(afterStreak3.down.length >= 5) {
+      const avgNext = afterStreak3.down.reduce((a,b)=>a+b,0)/afterStreak3.down.length;
+      const pctUp = afterStreak3.down.filter(r=>r>0).length/afterStreak3.down.length*100;
+      if(pctUp > 55 || pctUp < 45) {
+        findings.push({
+          type: 'streak_reversal',
+          instrument: name,
+          detail: `After 3+ DOWN days: ${pctUp.toFixed(0)}% reverse next day, avg next ${avgNext.toFixed(3)}% (n=${afterStreak3.down.length})`,
+          strength: Math.abs(pctUp-50)/10,
+          tradeable: pctUp > 60
+        });
+      }
+    }
+  });
+
+  // ── PATTERN 6: RANGE COMPRESSION BEFORE BREAKOUT ─────────────────────────
+  // Narrow range days (inside days) — do they predict direction?
+  L('Testing range compression...');
+  Object.entries(allData).forEach(([name, d]) => {
+    const insideDayUp = [], insideDayDown = [];
+    d.closes.forEach((close, i) => {
+      if(i < 2 || i >= d.closes.length-1) return;
+      const todayHigh = d.highs[i], todayLow = d.lows[i];
+      const prevHigh = d.highs[i-1], prevLow = d.lows[i-1];
+      const isInsideDay = todayHigh <= prevHigh && todayLow >= prevLow;
+      if(!isInsideDay) return;
+      const nextRet = (d.closes[i+1]-close)/close*100;
+      const prevRet = (close-d.closes[i-1])/d.closes[i-1]*100;
+      if(prevRet > 0) insideDayUp.push(nextRet);
+      else insideDayDown.push(nextRet);
+    });
+    const total = insideDayUp.length + insideDayDown.length;
+    if(total >= 10) {
+      const upCont = insideDayUp.filter(r=>r>0).length/(insideDayUp.length||1)*100;
+      const downCont = insideDayDown.filter(r=>r<0).length/(insideDayDown.length||1)*100;
+      if(upCont > 60 || upCont < 40 || downCont > 60 || downCont < 40) {
+        findings.push({
+          type: 'inside_day',
+          instrument: name,
+          detail: `Inside day after UP: ${upCont.toFixed(0)}% continue up. After DOWN: ${downCont.toFixed(0)}% continue down (n=${total})`,
+          strength: (Math.abs(upCont-50)+Math.abs(downCont-50))/20,
+          tradeable: upCont > 62 || downCont > 62
+        });
+      }
+    }
+  });
+
+  // Sort findings by strength
+  findings.sort((a,b) => b.strength - a.strength);
+  const tradeable = findings.filter(f=>f.tradeable);
+
+  L(`Found ${findings.length} patterns, ${tradeable.length} potentially tradeable`);
+
+  return res.status(200).json({ success:true, findings, tradeable, dowResults, log });
+}
+
+// ─── AI FRESH EYES PATTERN ANALYSIS ──────────────────────────────────────────
+async function runAIPatterns(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const log = [];
+  const L = msg => { console.log('[AIPatterns]', msg); log.push(msg); };
+
+  try {
+    // Build a rich multi-instrument dataset for Claude to analyse
+    const INSTRUMENTS = [
+      { name:'S&P 500',  epic:'IX.D.SPTRD.DAILY.IP' },
+      { name:'Nasdaq',   epic:'IX.D.NASDAQ.CASH.IP' },
+      { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP' },
+      { name:'DAX 40',   epic:'IX.D.DAX.DAILY.IP' },
+      { name:'Gold',     epic:'CS.D.USCGC.TODAY.IP' },
+      { name:'Brent Oil',epic:'CC.D.LCO.USS.IP' },
+      { name:'GBP/USD',  epic:'CS.D.GBPUSD.TODAY.IP' },
+      { name:'EUR/USD',  epic:'CS.D.EURUSD.TODAY.IP' },
+      { name:'USD/JPY',  epic:'CS.D.USDJPY.TODAY.IP' },
+    ];
+
+    // Get last 120 days of daily returns for all instruments
+    const matrixData = {};
+    const dateSet = new Set();
+
+    for(const instr of INSTRUMENTS) {
+      const rows = await sql`
+        SELECT close_price, candle_time::date as dt
+        FROM price_history
+        WHERE (epic=${instr.epic} OR instrument=${instr.name})
+        AND resolution='DAY' AND close_price>0
+        ORDER BY candle_time DESC LIMIT 125`;
+      const data = rows.rows.reverse();
+      if(data.length < 60) continue;
+
+      const closes = data.map(r=>parseFloat(r.close_price));
+      const dates = data.map(r=>new Date(r.dt).toISOString().substring(0,10));
+
+      matrixData[instr.name] = {};
+      dates.forEach((date, i) => {
+        if(i===0) return;
+        const ret = ((closes[i]-closes[i-1])/closes[i-1]*100).toFixed(2);
+        matrixData[instr.name][date] = parseFloat(ret);
+        dateSet.add(date);
+      });
+    }
+
+    // Build aligned date series (last 90 trading days)
+    const sortedDates = [...dateSet].sort().slice(-90);
+
+    // Build compact return matrix string for Claude
+    // Format: DATE | SP500 | NAS | FTSE | DAX | GOLD | OIL | GBPUSD | EURUSD | USDJPY
+    const instrNames = Object.keys(matrixData);
+    let matrix = 'DATE,' + instrNames.join(',') + '\n';
+    sortedDates.forEach(date => {
+      const row = instrNames.map(name => {
+        const val = matrixData[name][date];
+        return val !== undefined ? val : '0';
+      });
+      matrix += date + ',' + row.join(',') + '\n';
+    });
+
+    // Also compute some derived series
+    // Rolling 5-day volatility per instrument
+    const volSeries = {};
+    instrNames.forEach(name => {
+      const rets = sortedDates.map(d => matrixData[name][d] || 0);
+      volSeries[name] = rets.map((_, i) => {
+        if(i < 5) return 0;
+        const slice = rets.slice(i-5, i);
+        const mean = slice.reduce((a,b)=>a+b,0)/5;
+        const std = Math.sqrt(slice.reduce((a,b)=>a+Math.pow(b-mean,2),0)/5);
+        return parseFloat(std.toFixed(3));
+      });
+    });
+
+    // Cross-instrument same-day correlations (rolling 20-day)
+    const correlations = {};
+    instrNames.forEach((a, ai) => {
+      instrNames.slice(ai+1).forEach(b => {
+        const retsA = sortedDates.map(d => matrixData[a][d] || 0);
+        const retsB = sortedDates.map(d => matrixData[b][d] || 0);
+        // Last 20 days correlation
+        const n = 20;
+        const sliceA = retsA.slice(-n), sliceB = retsB.slice(-n);
+        const meanA = sliceA.reduce((x,y)=>x+y,0)/n;
+        const meanB = sliceB.reduce((x,y)=>x+y,0)/n;
+        let num=0, denA=0, denB=0;
+        for(let i=0;i<n;i++){
+          num+=(sliceA[i]-meanA)*(sliceB[i]-meanB);
+          denA+=Math.pow(sliceA[i]-meanA,2);
+          denB+=Math.pow(sliceB[i]-meanB,2);
+        }
+        const corr = (denA*denB)>0 ? num/Math.sqrt(denA*denB) : 0;
+        correlations[`${a}/${b}`] = parseFloat(corr.toFixed(3));
+      });
+    });
+
+    // Identify any unusual recent behaviour vs historical
+    const anomalies = [];
+    instrNames.forEach(name => {
+      const allRets = sortedDates.map(d => matrixData[name][d] || 0);
+      const mean = allRets.reduce((a,b)=>a+b,0)/allRets.length;
+      const std = Math.sqrt(allRets.reduce((a,b)=>a+Math.pow(b-mean,2),0)/allRets.length);
+      // Last 5 days vs historical
+      const recent5 = allRets.slice(-5);
+      const recentMean = recent5.reduce((a,b)=>a+b,0)/5;
+      if(Math.abs(recentMean - mean) > std * 1.5) {
+        anomalies.push(`${name}: recent 5-day avg ${recentMean.toFixed(2)}% vs historical ${mean.toFixed(2)}% (${recentMean>mean?'unusually strong':'unusually weak'})`);
+      }
+    });
+
+    L(`Matrix built: ${sortedDates.length} days × ${instrNames.length} instruments`);
+    L(`Anomalies detected: ${anomalies.length}`);
+
+    // Send to Claude with genuinely open-ended prompt
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const prompt = `You are a quantitative researcher with no preconceptions about trading strategies. 
+I'm giving you 90 days of daily return data across 9 financial instruments. 
+
+Your job: look at this data with completely fresh eyes and identify ANY patterns, relationships, or behaviours that are unusual, unexpected, or potentially predictive — regardless of whether they match any known trading strategy.
+
+Do NOT just list standard strategies (RSI, MACD, moving averages etc). I want genuinely novel observations about what this specific dataset shows.
+
+RETURN MATRIX (% daily returns):
+${matrix}
+
+RECENT 20-DAY CORRELATIONS:
+${Object.entries(correlations).map(([k,v])=>`${k}: ${v}`).join('\n')}
+
+RECENT ANOMALIES (instruments behaving unusually vs their own history):
+${anomalies.join('\n') || 'None detected'}
+
+Analyse this data and report:
+1. Any unexpected correlation patterns or correlation breakdowns
+2. Any instruments showing unusual sequential behaviour (specific multi-day sequences)
+3. Any lead/lag relationships you notice between instruments
+4. Any clustering of volatility or calm periods across multiple instruments simultaneously  
+5. Any patterns in WHEN the relationships between instruments change
+6. Anything else genuinely surprising or non-obvious in this data
+
+Be specific — cite actual dates and numbers from the data. Think like a data scientist finding signal in noise, not a trader looking for textbook setups. Maximum 600 words.`;
+
+    const aiRes = await fetch(`${base}/api/claude`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const aiData = await aiRes.json();
+    const analysis = aiData.content?.[0]?.text || 'No analysis returned';
+    L('AI analysis complete');
+
+    return res.status(200).json({
+      success: true,
+      analysis,
+      correlations,
+      anomalies,
+      daysAnalysed: sortedDates.length,
+      instruments: instrNames,
+      dateRange: { from: sortedDates[0], to: sortedDates[sortedDates.length-1] },
+      log
+    });
+
+  } catch(e) {
+    L('Error: ' + e.message);
     return res.status(500).json({ error: e.message, log });
   }
 }
