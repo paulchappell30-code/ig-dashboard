@@ -808,6 +808,25 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           }
         }
 
+        // Gold-specific 20-day breakout — works in ALL regimes (57% WR in backtest)
+        // Gold trends strongly after breakouts regardless of regime
+        if(epic.includes('USCGC') || instr === 'Gold') {
+          const n = closes.length;
+          if(n >= 22) {
+            const high20 = Math.max(...closes.slice(-21,-1));
+            const low20  = Math.min(...closes.slice(-21,-1));
+            const price  = closes[n-1];
+            const prev   = closes[n-2];
+            if(prev < high20 && price > high20) {
+              sc = Math.max(sc, 3); dir = 'BUY'; tradeType = 'breakout';
+              L(`${instr}: 🥇 Gold 20-day high breakout at ${price.toFixed(0)} (score:${sc})`);
+            } else if(prev > low20 && price < low20) {
+              sc = Math.max(sc, 3); dir = 'SELL'; tradeType = 'breakout';
+              L(`${instr}: 🥇 Gold 20-day low breakout at ${price.toFixed(0)} (score:${sc})`);
+            }
+          }
+        }
+
         // SMA Crossover signal — trend following, works in any regime
         // Backtest shows 88.9% WR on Nasdaq, 62.5% on S&P 500 over 2 years
         const smaCross = calcSmaCrossover(closes);
@@ -837,6 +856,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         if(divergence.type==='bearish' && divergence.strength>0){
           sc -= divergence.strength; // Bearish divergence reduces score (supports SELL)
           L(`${instr}: ⚠️ Bearish RSI divergence (${divergence.description}) adj -${divergence.strength}`);
+          // For GBP/USD: standalone signal (75% WR in backtest)
+          if(epic.includes('GBPUSD') && divergence.strength >= 1 && !dir) {
+            sc = Math.max(sc, 2); dir = 'SELL'; tradeType = 'trend';
+            L(`${instr}: 📉 RSI divergence standalone SELL signal`);
+          }
         } else if(divergence.type==='bullish' && divergence.strength>0){
           sc += divergence.strength; // Bullish divergence increases score (supports BUY)
           L(`${instr}: ⚠️ Bullish RSI divergence (${divergence.description}) adj +${divergence.strength}`);
