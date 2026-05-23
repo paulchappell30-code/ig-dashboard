@@ -13,6 +13,7 @@ module.exports = async (req, res) => {
   const action = req.query.action || req.body?.action || 'weekly';
   if (action === 'optimize') return await runOptimization(req, res);
   if (action === 'backtest') return await runBacktest(req, res);
+  if (action === 'discover') return await runDiscovery(req, res);
   return await sendWeeklyReview(req, res);
 };
 
@@ -744,5 +745,241 @@ Keep it concise — this is a weekly briefing, not a full report. Focus on actio
   } catch(e) {
     console.error('[Weekly Price Analysis]', e.message);
     return null;
+  }
+}
+
+// ─── PATTERN DISCOVERY ENGINE ─────────────────────────────────────────────────
+async function runDiscovery(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const log = [];
+  const L = msg => { console.log('[Discovery]', msg); log.push(msg); };
+
+  const INSTRUMENTS = [
+    { name:'FTSE 100',  epic:'IX.D.FTSE.DAILY.IP' },
+    { name:'S&P 500',   epic:'IX.D.SPTRD.DAILY.IP' },
+    { name:'DAX 40',    epic:'IX.D.DAX.DAILY.IP' },
+    { name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP' },
+    { name:'Nasdaq',    epic:'IX.D.NASDAQ.CASH.IP' },
+    { name:'Brent Oil', epic:'CC.D.LCO.USS.IP' },
+    { name:'Gold',      epic:'CS.D.USCGC.TODAY.IP' },
+    { name:'GBP/USD',   epic:'CS.D.GBPUSD.TODAY.IP' },
+    { name:'EUR/USD',   epic:'CS.D.EURUSD.TODAY.IP' },
+    { name:'EUR/GBP',   epic:'CS.D.EURGBP.TODAY.IP' },
+    { name:'USD/JPY',   epic:'CS.D.USDJPY.TODAY.IP' },
+  ];
+
+  function calcRSI(closes, period=14) {
+    if(closes.length < period+1) return 50;
+    let gains=0, losses=0;
+    for(let i=1; i<=period; i++) {
+      const d = closes[i]-closes[i-1];
+      if(d>0) gains+=d; else losses-=d;
+    }
+    let ag=gains/period, al=losses/period;
+    for(let i=period+1; i<closes.length; i++) {
+      const d = closes[i]-closes[i-1];
+      ag=(ag*(period-1)+(d>0?d:0))/period;
+      al=(al*(period-1)+(d<0?-d:0))/period;
+    }
+    return al===0 ? 100 : 100-(100/(1+ag/al));
+  }
+
+  function calcSMA(prices, period) {
+    if(prices.length < period) return null;
+    return prices.slice(-period).reduce((a,b)=>a+b,0)/period;
+  }
+
+  function calcATR(prices, period=14) {
+    if(prices.length < period+1) return 0;
+    let sum=0;
+    for(let i=prices.length-period; i<prices.length; i++)
+      sum += Math.abs(prices[i]-prices[i-1]);
+    return sum/period;
+  }
+
+  function testStrategy(closes, dates, entryFn, exitFn, holdDays=10) {
+    const trades = [];
+    let i = 30;
+    while(i < closes.length - holdDays) {
+      const slice = closes.slice(0, i+1);
+      const signal = entryFn(slice, i, closes, dates);
+      if(!signal) { i++; continue; }
+
+      const entry = closes[i];
+      let exitPrice = closes[Math.min(i+holdDays, closes.length-1)];
+      let exitDay = holdDays;
+      let exitReason = 'time';
+
+      // Check exit condition each day
+      for(let j=1; j<=holdDays && i+j<closes.length; j++) {
+        const futureSlice = closes.slice(0, i+j+1);
+        if(exitFn && exitFn(futureSlice, signal.direction)) {
+          exitPrice = closes[i+j]; exitDay=j; exitReason='signal'; break;
+        }
+      }
+
+      const pnlPct = signal.direction==='BUY'
+        ? (exitPrice-entry)/entry*100
+        : (entry-exitPrice)/entry*100;
+
+      trades.push({ date:dates[i], direction:signal.direction,
+        entry, exitPrice, pnlPct, exitDay, exitReason, won:pnlPct>0 });
+      i += Math.max(3, exitDay);
+    }
+    return trades;
+  }
+
+  function summarise(trades) {
+    if(!trades.length) return { trades:0, winRate:0, expectancy:0, avgWin:0, avgLoss:0 };
+    const wins = trades.filter(t=>t.won);
+    const losses = trades.filter(t=>!t.won);
+    const wr = wins.length/trades.length*100;
+    const avgWin = wins.length ? wins.reduce((s,t)=>s+t.pnlPct,0)/wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((s,t)=>s+t.pnlPct,0)/losses.length : 0;
+    const exp = (wr/100)*avgWin + (1-wr/100)*avgLoss;
+    return { trades:trades.length, winRate:parseFloat(wr.toFixed(1)),
+      expectancy:parseFloat(exp.toFixed(3)),
+      avgWin:parseFloat(avgWin.toFixed(2)), avgLoss:parseFloat(avgLoss.toFixed(2)) };
+  }
+
+  const results = {};
+
+  try {
+    for(const instr of INSTRUMENTS) {
+      // Fetch 500 days of daily closes
+      const rows = await sql`
+        SELECT close_price, high_price, low_price, candle_time::date as dt
+        FROM price_history
+        WHERE (epic=${instr.epic} OR instrument=${instr.name})
+        AND resolution='DAY' AND close_price>0
+        ORDER BY candle_time ASC LIMIT 520`;
+
+      if(rows.rows.length < 60) { L(`${instr.name}: insufficient data (${rows.rows.length})`); continue; }
+
+      const closes = rows.rows.map(r=>parseFloat(r.close_price));
+      const highs = rows.rows.map(r=>parseFloat(r.high_price)||parseFloat(r.close_price));
+      const lows = rows.rows.map(r=>parseFloat(r.low_price)||parseFloat(r.close_price));
+      const dates = rows.rows.map(r=>new Date(r.dt).toISOString().substring(0,10));
+      L(`${instr.name}: ${closes.length} candles`);
+
+      const instrResults = {};
+
+      // ── STRATEGY 1: SMA CROSSOVER (trend following) ──────────────────────
+      const smaCross = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 55) return null;
+          const sma20now = calcSMA(slice, 20);
+          const sma50now = calcSMA(slice, 50);
+          const sma20prev = calcSMA(slice.slice(0,-1), 20);
+          const sma50prev = calcSMA(slice.slice(0,-1), 50);
+          if(!sma20now||!sma50now||!sma20prev||!sma50prev) return null;
+          if(sma20prev <= sma50prev && sma20now > sma50now) return { direction:'BUY' };
+          if(sma20prev >= sma50prev && sma20now < sma50now) return { direction:'SELL' };
+          return null;
+        },
+        (slice, dir) => {
+          const sma20 = calcSMA(slice, 20);
+          const sma50 = calcSMA(slice, 50);
+          if(!sma20||!sma50) return false;
+          return dir==='BUY' ? sma20 < sma50 : sma20 > sma50;
+        }, 20);
+      instrResults.smaCrossover = summarise(smaCross);
+
+      // ── STRATEGY 2: MOMENTUM (price momentum) ────────────────────────────
+      const momentum = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 10) return null;
+          const ret5 = (slice[slice.length-1]-slice[slice.length-6])/slice[slice.length-6]*100;
+          if(ret5 > 3) return { direction:'BUY' };   // momentum continuation
+          if(ret5 < -3) return { direction:'SELL' };
+          return null;
+        }, null, 10);
+      instrResults.momentum = summarise(momentum);
+
+      // ── STRATEGY 3: VOLATILITY BREAKOUT ──────────────────────────────────
+      const volBreakout = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 20) return null;
+          const todayRange = Math.abs(slice[slice.length-1]-slice[slice.length-2]);
+          const atr = calcATR(slice, 14);
+          if(atr === 0) return null;
+          if(todayRange > 2*atr) {
+            const dir = slice[slice.length-1] > slice[slice.length-2] ? 'BUY' : 'SELL';
+            return { direction:dir };
+          }
+          return null;
+        }, null, 5);
+      instrResults.volBreakout = summarise(volBreakout);
+
+      // ── STRATEGY 4: 20-DAY BREAKOUT ──────────────────────────────────────
+      const breakout20 = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 22) return null;
+          const high20 = Math.max(...slice.slice(-21,-1));
+          const low20 = Math.min(...slice.slice(-21,-1));
+          const price = slice[slice.length-1];
+          const prev = slice[slice.length-2];
+          if(prev < high20 && price > high20) return { direction:'BUY' };
+          if(prev > low20 && price < low20) return { direction:'SELL' };
+          return null;
+        }, null, 15);
+      instrResults.breakout20d = summarise(breakout20);
+
+      // ── STRATEGY 5: RSI DIVERGENCE ────────────────────────────────────────
+      const rsiDiv = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 20) return null;
+          const rsiNow = calcRSI(slice);
+          const rsi5ago = calcRSI(slice.slice(0,-5));
+          const priceNow = slice[slice.length-1];
+          const price5ago = slice[slice.length-6];
+          // Bearish div: price higher but RSI lower
+          if(priceNow > price5ago && rsiNow < rsi5ago - 5 && rsiNow > 60)
+            return { direction:'SELL' };
+          // Bullish div: price lower but RSI higher
+          if(priceNow < price5ago && rsiNow > rsi5ago + 5 && rsiNow < 40)
+            return { direction:'BUY' };
+          return null;
+        }, null, 10);
+      instrResults.rsiDivergence = summarise(rsiDiv);
+
+      // ── STRATEGY 6: MEAN REVERSION (current system baseline) ─────────────
+      const mrBaseline = testStrategy(closes, dates,
+        (slice) => {
+          if(slice.length < 20) return null;
+          const rsi = calcRSI(slice);
+          const sma10 = calcSMA(slice, 10);
+          const sma20 = calcSMA(slice, 20);
+          if(!sma10||!sma20) return null;
+          const inDowntrend = sma10 < sma20 * 0.998;
+          const inUptrend = sma10 > sma20 * 1.002;
+          if(rsi <= 33 && !inDowntrend) return { direction:'BUY' };
+          if(rsi >= 67 && !inUptrend) return { direction:'SELL' };
+          return null;
+        }, null, 5);
+      instrResults.mrBaseline = summarise(mrBaseline);
+
+      results[instr.name] = instrResults;
+    }
+
+    // Find the best strategies across all instruments
+    const rankings = [];
+    Object.entries(results).forEach(([instr, strats]) => {
+      Object.entries(strats).forEach(([strat, stats]) => {
+        if(stats.trades >= 3) {
+          rankings.push({ instr, strat, ...stats,
+            score: stats.expectancy * Math.sqrt(stats.trades) // quality-adjusted
+          });
+        }
+      });
+    });
+    rankings.sort((a,b) => b.score - a.score);
+
+    L(`Discovery complete — ${Object.keys(results).length} instruments, ${rankings.length} strategies tested`);
+
+    return res.status(200).json({ success:true, results, rankings: rankings.slice(0,20), log });
+
+  } catch(e) {
+    return res.status(500).json({ error: e.message, log });
   }
 }
