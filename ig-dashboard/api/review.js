@@ -49,7 +49,8 @@ async function runBacktest(req, res) {
     const rows = await sql`
       SELECT close_price, candle_time as dt
       FROM price_history
-      WHERE (epic = ${epic} OR instrument = ${instrName})
+      WHERE (epic = ${epic} OR instrument = ${instrName}
+             OR instrument ILIKE ${'%' + instrName + '%'})
       AND resolution = ${resolution} AND close_price > 0
       ORDER BY candle_time ASC
       LIMIT ${resolution === 'HOUR' ? days * 24 : days + 50}`;
