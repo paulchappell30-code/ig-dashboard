@@ -53,6 +53,7 @@ module.exports = async (req, res) => {
             FROM price_history
             WHERE (instrument = ${instrument} OR epic ILIKE ${instrument} OR instrument ILIKE ${'%' + instrument + '%'})
             AND resolution = ${resolution}
+            AND close_price > 0.0001
             ORDER BY candle_time DESC
             LIMIT ${limit}
           `;
