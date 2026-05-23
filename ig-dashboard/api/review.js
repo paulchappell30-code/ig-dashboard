@@ -232,10 +232,12 @@ async function runBacktest(req, res) {
     L(`Full filter (score≥2+trend): ${fullFilter.length} (win rate: ${stats.fullFilter.winRate}%)`);
 
     // Build summary in format expected by existing UI
-    const fs = stats.fullFilter;
+    // For hourly, fall back to trendFilter if fullFilter has no trades
+    const fs = stats.fullFilter.trades > 0 ? stats.fullFilter : stats.trendFilter;
     const summary = {
       totalTrades: fs.trades,
       winRate: parseFloat(fs.winRate),
+      filterUsed: stats.fullFilter.trades > 0 ? 'score≥2+trend' : 'trend only',
       totalPnL: parseFloat(fs.totalPnl),
       profitFactor: fs.avgWin > 0 && Math.abs(parseFloat(fs.avgLoss)) > 0
         ? Math.abs(parseFloat(fs.avgWin) / parseFloat(fs.avgLoss))
@@ -255,7 +257,8 @@ async function runBacktest(req, res) {
     });
 
     // Recent trades for display
-    const recentTrades = fullFilter.slice(-10).map(t => ({
+    const activeFilter = stats.fullFilter.trades > 0 ? fullFilter : withTrendFilter;
+    const recentTrades = activeFilter.slice(-10).map(t => ({
       direction: t.direction,
       openPrice: t.entryPrice,
       closePrice: t.exitPrice,
@@ -264,7 +267,7 @@ async function runBacktest(req, res) {
     }));
 
     return res.status(200).json({
-      instrument: instrName, epic, days: closes.length,
+      instrument: instrName, epic, days: closes.length, resolution,
       rsiEntry, holdDays, stats, summary, byRegime, recentTrades,
       trades: allTrades.slice(-100),
       log
