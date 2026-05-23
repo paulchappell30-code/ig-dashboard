@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
 
   const action = req.query.action || req.body?.action || 'research';
 
-  if (req.method === 'GET') {
+  if (req.method === 'GET' || req.method === 'POST') {
     // Return last research findings
     try {
       const result = await sql`
