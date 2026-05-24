@@ -167,11 +167,14 @@ async function runBacktest(req, res) {
 
       if(!direction) continue;
 
-      // Score filter — require score ≥ 0 (relaxed for backtest analysis)
-      // Run with different thresholds to show impact
-      const passesScore0 = Math.abs(score) >= 0;
-      const passesScore1 = Math.abs(score) >= 1;
-      const passesScore2 = Math.abs(score) >= 2;
+      // Score and trend filters
+      // For trend strategies: trend filter CONFIRMS (same direction = good)
+      // For mean reversion: trend filter BLOCKS (opposite direction = good)
+      const isTrendStrategy = ['sma','momentum','breakout'].includes(strategy);
+      
+      const passesScore0 = true;
+      const passesScore1 = isTrendStrategy ? Math.abs(score) >= 0 : Math.abs(score) >= 1;
+      const passesScore2 = isTrendStrategy ? Math.abs(score) >= 0 : Math.abs(score) >= 2;
 
       // Calculate outcome — hold for holdDays or until opposite RSI extreme
       const entryPrice = closes[i];
@@ -217,7 +220,9 @@ async function runBacktest(req, res) {
         pnlPct: pnlPct.toFixed(2),
         exitDay, exitReason, won,
         passesScore0, passesScore1, passesScore2,
-        trendOK: !inDowntrend && !inUptrend,
+        trendOK: isTrendStrategy
+          ? (direction==='BUY' ? !inDowntrend : !inUptrend)  // trend: need clear direction
+          : (!inDowntrend && !inUptrend),  // mean rev: need neutral regime
       });
 
       // Skip ahead to avoid overlapping trades
