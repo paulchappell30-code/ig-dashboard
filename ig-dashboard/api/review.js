@@ -30,6 +30,7 @@ async function runBacktest(req, res) {
     : thresholdParam >= 1 ? 28 + (thresholdParam - 1) * 2
     : 33;
   const resolution = req.query.resolution || 'DAY'; // DAY or HOUR
+  const strategy = req.query.strategy || 'mr'; // mr, sma, momentum, breakout, all
   const holdDays = parseInt(req.query.holdDays || '5');
   const log = [];
   const L = msg => log.push(msg);
@@ -125,19 +126,43 @@ async function runBacktest(req, res) {
       const inDowntrend = sma10 && sma20 && sma10 < sma20 * 0.998;
       const inUptrend = sma10 && sma20 && sma10 > sma20 * 1.002;
 
-      // Check for signals
+      // Check for signals based on strategy
       let direction = null;
       let signalType = null;
 
-      // Mean reversion BUY — oversold
-      if(rsi <= rsiEntry && !inDowntrend) {
-        direction = 'BUY';
-        signalType = 'MR_BUY';
+      if(strategy === 'mr' || strategy === 'all') {
+        // Mean reversion BUY — oversold
+        if(rsi <= rsiEntry && !inDowntrend) {
+          direction = 'BUY'; signalType = 'MR_BUY';
+        } else if(rsi >= (100 - rsiEntry) && !inUptrend) {
+          direction = 'SELL'; signalType = 'MR_SELL';
+        }
       }
-      // Mean reversion SELL — overbought  
-      else if(rsi >= (100 - rsiEntry) && !inUptrend) {
-        direction = 'SELL';
-        signalType = 'MR_SELL';
+
+      if((strategy === 'sma' || strategy === 'all') && !direction && i >= 55) {
+        // SMA crossover
+        const sma20now = closes.slice(Math.max(0,i-19), i+1).reduce((a,b)=>a+b,0)/Math.min(20,i+1);
+        const sma50now = closes.slice(Math.max(0,i-49), i+1).reduce((a,b)=>a+b,0)/Math.min(50,i+1);
+        const sma20prev = closes.slice(Math.max(0,i-20), i).reduce((a,b)=>a+b,0)/Math.min(20,i);
+        const sma50prev = closes.slice(Math.max(0,i-50), i).reduce((a,b)=>a+b,0)/Math.min(50,i);
+        if(sma20prev <= sma50prev && sma20now > sma50now) { direction='BUY'; signalType='SMA_CROSS'; }
+        else if(sma20prev >= sma50prev && sma20now < sma50now) { direction='SELL'; signalType='SMA_CROSS'; }
+      }
+
+      if((strategy === 'momentum' || strategy === 'all') && !direction && i >= 5) {
+        // 5-day momentum
+        const ret5 = (closes[i]-closes[i-5])/closes[i-5]*100;
+        if(ret5 > 3.5) { direction='BUY'; signalType='MOMENTUM'; }
+        else if(ret5 < -3.5) { direction='SELL'; signalType='MOMENTUM'; }
+      }
+
+      if((strategy === 'breakout' || strategy === 'all') && !direction && i >= 21) {
+        // 20-day breakout
+        const high20 = Math.max(...closes.slice(i-20, i));
+        const low20 = Math.min(...closes.slice(i-20, i));
+        const price = closes[i], prev = closes[i-1];
+        if(prev < high20 && price > high20) { direction='BUY'; signalType='BREAKOUT'; }
+        else if(prev > low20 && price < low20) { direction='SELL'; signalType='BREAKOUT'; }
       }
 
       if(!direction) continue;
