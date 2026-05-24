@@ -139,25 +139,25 @@ async function runBacktest(req, res) {
         }
       }
 
-      if((strategy === 'sma' || strategy === 'all') && !direction && i >= 55) {
-        // SMA crossover
-        const sma20now = closes.slice(Math.max(0,i-19), i+1).reduce((a,b)=>a+b,0)/Math.min(20,i+1);
-        const sma50now = closes.slice(Math.max(0,i-49), i+1).reduce((a,b)=>a+b,0)/Math.min(50,i+1);
-        const sma20prev = closes.slice(Math.max(0,i-20), i).reduce((a,b)=>a+b,0)/Math.min(20,i);
-        const sma50prev = closes.slice(Math.max(0,i-50), i).reduce((a,b)=>a+b,0)/Math.min(50,i);
+      if((strategy === 'sma' || strategy === 'all') && i >= 55) {
+        // SMA crossover — only fires on crossover day
+        const sma20now = closes.slice(i-19, i+1).reduce((a,b)=>a+b,0)/20;
+        const sma50now = closes.slice(i-49, i+1).reduce((a,b)=>a+b,0)/50;
+        const sma20prev = closes.slice(i-20, i).reduce((a,b)=>a+b,0)/20;
+        const sma50prev = closes.slice(i-50, i).reduce((a,b)=>a+b,0)/50;
         if(sma20prev <= sma50prev && sma20now > sma50now) { direction='BUY'; signalType='SMA_CROSS'; }
         else if(sma20prev >= sma50prev && sma20now < sma50now) { direction='SELL'; signalType='SMA_CROSS'; }
       }
 
       if((strategy === 'momentum' || strategy === 'all') && !direction && i >= 5) {
-        // 5-day momentum
+        // 5-day momentum — only if no SMA signal
         const ret5 = (closes[i]-closes[i-5])/closes[i-5]*100;
         if(ret5 > 3.5) { direction='BUY'; signalType='MOMENTUM'; }
         else if(ret5 < -3.5) { direction='SELL'; signalType='MOMENTUM'; }
       }
 
       if((strategy === 'breakout' || strategy === 'all') && !direction && i >= 21) {
-        // 20-day breakout
+        // 20-day breakout — only if no other signal
         const high20 = Math.max(...closes.slice(i-20, i));
         const low20 = Math.min(...closes.slice(i-20, i));
         const price = closes[i], prev = closes[i-1];
