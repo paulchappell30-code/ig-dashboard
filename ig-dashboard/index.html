@@ -349,25 +349,100 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <!-- BACKTEST -->
     <div class="tab-content" id="tab-backtest">
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title" style="margin-bottom:14px">Backtest Configuration</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
-          <div class="form-row"><label>Instrument</label><select id="bt-instrument"><option value="IX.D.FTSE.DAILY.IP">FTSE 100</option><option value="IX.D.SPTRD.DAILY.IP">S&P 500</option><option value="IX.D.DAX.DAILY.IP">DAX 40</option><option value="CC.D.LCO.USS.IP">Brent Oil</option><option value="CS.D.GBPUSD.TODAY.IP">GBP/USD</option><option value="CS.D.USCGC.TODAY.IP">Gold</option><option value="CS.D.USCSI.TODAY.IP">Silver</option><option value="CS.D.COPPER.TODAY.IP">Copper</option><option value="CS.D.EURGBP.TODAY.IP">EUR/GBP</option></select></div>
-          <div class="form-row"><label>Days</label><input type="number" id="bt-days" value="30" min="10" max="365"></div>
-          <div class="form-row"><label>Signal Threshold</label><input type="number" id="bt-threshold" value="2" min="1" max="7"></div>
+        <div class="card-title" style="margin-bottom:14px">🔬 Strategy Backtest</div>
+        <p style="font-size:12px;color:var(--text2);margin:0 0 14px">
+          Simulates strategy rules on historical data. Compares results across filter levels to validate signal quality.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
+          <div class="form-row"><label>Instrument</label>
+            <select id="bt-instrument" style="width:100%">
+              <option value="IX.D.FTSE.DAILY.IP">FTSE 100</option>
+              <option value="IX.D.SPTRD.DAILY.IP">S&P 500</option>
+              <option value="IX.D.DAX.DAILY.IP">DAX 40</option>
+              <option value="IX.D.DOW.DAILY.IP">Dow Jones</option>
+              <option value="IX.D.NASDAQ.CASH.IP">Nasdaq</option>
+              <option value="CC.D.LCO.USS.IP">Brent Oil</option>
+              <option value="CS.D.USCGC.TODAY.IP">Gold</option>
+              <option value="CS.D.USCSI.TODAY.IP">Silver</option>
+              <option value="CS.D.GBPUSD.TODAY.IP">GBP/USD</option>
+              <option value="CS.D.EURUSD.TODAY.IP">EUR/USD</option>
+              <option value="CS.D.EURGBP.TODAY.IP">EUR/GBP</option>
+              <option value="CS.D.USDJPY.TODAY.IP">USD/JPY</option>
+              <option value="CS.D.COPPER.TODAY.IP">Copper</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Resolution</label>
+            <select id="bt-resolution" onchange="btResolutionChanged()" style="width:100%">
+              <option value="DAY">Daily (500 days)</option>
+              <option value="HOUR">Hourly (60 days)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>History</label>
+            <select id="bt-days" style="width:100%">
+              <option value="100">100 days</option>
+              <option value="250">250 days (1 year)</option>
+              <option value="500" selected>500 days (2 years)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>RSI Entry Threshold</label>
+            <select id="bt-threshold" style="width:100%">
+              <option value="1">28 — Very strict</option>
+              <option value="2">30 — Strict</option>
+              <option value="3" selected>32 — Current system</option>
+              <option value="4">34 — Moderate</option>
+              <option value="5">36 — Lenient</option>
+              <option value="6">38 — Very lenient</option>
+              <option value="7">40 — Maximum</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Hold (days)</label>
+            <select id="bt-hold" style="width:100%">
+              <option value="3">3 days</option>
+              <option value="5" selected>5 days</option>
+              <option value="10">10 days</option>
+              <option value="20">20 days</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Strategy</label>
+            <select id="bt-strategy" style="width:100%">
+              <option value="mr">Mean Reversion (RSI)</option>
+              <option value="sma">SMA Crossover (trend)</option>
+              <option value="momentum">Momentum (5-day)</option>
+              <option value="breakout">20-day Breakout</option>
+              <option value="all">All strategies</option>
+            </select>
+          </div>
         </div>
         <button class="btn btn-primary" onclick="runBacktest()">▶ Run Backtest</button>
-        <span style="font-size:12px;color:var(--text2);margin-left:12px">Uses stored price history</span>
+        <span id="bt-loading" style="display:none;font-size:12px;color:var(--text2);margin-left:12px">Running simulation...</span>
       </div>
       <div id="bt-results" style="display:none">
         <div class="metric-grid" style="margin-bottom:16px">
-          <div class="metric"><div class="label">Trades</div><div class="value" id="bt-trades">—</div></div>
+          <div class="metric"><div class="label">Trades</div><div class="value" id="bt-trades">—</div><div class="sub" id="bt-filter-used">full filter</div></div>
           <div class="metric"><div class="label">Win Rate</div><div class="value" id="bt-winrate">—</div></div>
-          <div class="metric"><div class="label">P&L</div><div class="value" id="bt-pnl">—</div></div>
+          <div class="metric"><div class="label">Expectancy</div><div class="value" id="bt-pnl">—</div></div>
           <div class="metric"><div class="label">Profit Factor</div><div class="value" id="bt-pf">—</div></div>
+        </div>
+        <!-- Filter comparison table -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title" style="margin-bottom:12px">Filter Comparison</div>
+          <div style="overflow-x:auto">
+            <table class="data-table" id="bt-filter-table">
+              <thead><tr>
+                <th>Filter</th><th style="text-align:center">Trades</th>
+                <th style="text-align:center">Win Rate</th><th style="text-align:center">Avg Win</th>
+                <th style="text-align:center">Avg Loss</th><th style="text-align:center">Expectancy</th>
+              </tr></thead>
+              <tbody id="bt-filter-body"></tbody>
+            </table>
+          </div>
         </div>
         <div class="two-col">
           <div class="card"><div class="card-title" style="margin-bottom:12px">By Regime</div><div id="bt-regime"></div></div>
-          <div class="card"><div class="card-title" style="margin-bottom:12px">Recent Trades</div><table class="data-table"><thead><tr><th>Dir</th><th>Open</th><th>Close</th><th>P&L</th><th>Regime</th></tr></thead><tbody id="bt-trade-list"></tbody></table></div>
+          <div class="card"><div class="card-title" style="margin-bottom:12px">Recent Trades</div>
+            <table class="data-table"><thead><tr><th>Date</th><th>Dir</th><th>RSI</th><th>Entry</th><th>Exit</th><th>P&L%</th><th>Exit</th></tr></thead>
+            <tbody id="bt-trade-list"></tbody></table>
+          </div>
         </div>
         <div class="card"><div class="card-title" style="margin-bottom:10px">Interpretation</div><div id="bt-interpretation" style="font-size:13px;line-height:1.7;color:var(--text2)"></div></div>
       </div>
@@ -991,21 +1066,105 @@ async function sendWeeklyReport(){
 }
 
 // ─── BACKTEST ─────────────────────────────────────────────────────────────────
+function btResolutionChanged() {
+  const res = document.getElementById('bt-resolution')?.value;
+  const daysEl = document.getElementById('bt-days');
+  if(!daysEl) return;
+  if(res === 'HOUR') {
+    daysEl.innerHTML = '<option value="30">30 days</option><option value="60" selected>60 days</option>';
+  } else {
+    daysEl.innerHTML = '<option value="100">100 days</option><option value="250">250 days (1 year)</option><option value="500" selected>500 days (2 years)</option>';
+  }
+}
+
 async function runBacktest(){
-  document.getElementById('bt-results').style.display='none';document.getElementById('bt-error').style.display='none';
+  document.getElementById('bt-results').style.display='none';
+  document.getElementById('bt-error').style.display='none';
+  document.getElementById('bt-loading').style.display='inline';
   try{
-    const res=await fetch(`/api/review?action=backtest&epic=${document.getElementById('bt-instrument').value}&days=${document.getElementById('bt-days').value}&threshold=${document.getElementById('bt-threshold').value}`);
-    const data=await res.json();
-    if(data.error){document.getElementById('bt-error-msg').textContent=data.error;document.getElementById('bt-error').style.display='block';return;}
-    const s=data.summary;
-    setText('bt-trades',s.totalTrades);const wr=document.getElementById('bt-winrate');if(wr){wr.textContent=s.winRate+'%';wr.className='value '+(s.winRate>=50?'pos':'neg');}
-    const pnl=document.getElementById('bt-pnl');if(pnl){pnl.textContent=(s.totalPnL>=0?'+':'')+s.totalPnL.toFixed(2)+' pts';pnl.className='value '+(s.totalPnL>=0?'pos':'neg');}
-    const pf=document.getElementById('bt-pf');if(pf){pf.textContent=s.profitFactor.toFixed(2)+'x';pf.className='value '+(s.profitFactor>=1?'pos':'neg');}
-    document.getElementById('bt-regime').innerHTML=Object.entries(data.byRegime||{}).map(([r,d])=>`<div class="signal-item"><div><div style="font-weight:500">${r}</div><div style="font-size:12px;color:var(--text2)">${d.trades} trades</div></div><div class="${d.pnl>=0?'pos':'neg'}">${d.pnl>=0?'+':''}${d.pnl.toFixed(2)} pts</div></div>`).join('')||'<div class="empty">No trades</div>';
-    document.getElementById('bt-trade-list').innerHTML=(data.recentTrades||[]).map(t=>`<tr><td><span class="badge ${t.direction==='BUY'?'badge-buy':'badge-sell'}">${t.direction}</span></td><td>${Number(t.openPrice).toFixed(0)}</td><td>${Number(t.closePrice).toFixed(0)}</td><td class="${t.pnl>=0?'pos':'neg'}">${t.pnl>=0?'+':''}${Number(t.pnl).toFixed(2)}</td><td style="font-size:10px">${t.regime}</td></tr>`).join('');
-    document.getElementById('bt-interpretation').innerHTML=`<p><strong>Expectancy:</strong> ${s.expectancy>=0?'+':''}${(s.expectancy||0).toFixed(3)} pts/trade</p><p><strong>Profit Factor:</strong> ${s.profitFactor>=1.5?'Good (≥1.5)':s.profitFactor>=1?'Marginal (1-1.5)':'Poor (<1)'}</p>`;
+    const epic = document.getElementById('bt-instrument').value;
+    const resolution = document.getElementById('bt-resolution').value;
+    const days = document.getElementById('bt-days').value;
+    const threshold = document.getElementById('bt-threshold').value;
+    const hold = document.getElementById('bt-hold').value;
+
+    const res = await fetch(`/api/review?action=backtest&epic=${epic}&days=${days}&threshold=${threshold}&resolution=${resolution}&holdDays=${hold}`);
+    const data = await res.json();
+    document.getElementById('bt-loading').style.display='none';
+
+    if(data.error){
+      document.getElementById('bt-error-msg').textContent = data.error;
+      document.getElementById('bt-error').style.display='block';
+      return;
+    }
+
+    const s = data.summary;
+    setText('bt-trades', s.totalTrades);
+    setText('bt-filter-used', data.summary.filterUsed || 'full filter');
+    const wr = document.getElementById('bt-winrate');
+    if(wr){wr.textContent=s.winRate+'%'; wr.className='value '+(s.winRate>=50?'pos':'neg');}
+    const pnl = document.getElementById('bt-pnl');
+    if(pnl){pnl.textContent=(s.expectancy>=0?'+':'')+s.expectancy+'%'; pnl.className='value '+(s.expectancy>=0?'pos':'neg');}
+    const pf = document.getElementById('bt-pf');
+    if(pf){pf.textContent=s.profitFactor?.toFixed(2)+'x'; pf.className='value '+(s.profitFactor>=1?'pos':'neg');}
+
+    // Filter comparison table
+    const filterRows = {
+      'No filter (RSI only)': data.stats?.noFilter,
+      'Score ≥1': data.stats?.scoreGte1,
+      'Score ≥2': data.stats?.scoreGte2,
+      'Trend filter': data.stats?.trendFilter,
+      '<strong>Full filter (current)</strong>': data.stats?.fullFilter,
+    };
+    const tbody = document.getElementById('bt-filter-body');
+    if(tbody) tbody.innerHTML = Object.entries(filterRows).map(([label, st]) => {
+      if(!st) return '';
+      const col = parseFloat(st.winRate)>=55?'var(--green)':parseFloat(st.winRate)>=45?'var(--text1)':'var(--red)';
+      const ecol = parseFloat(st.expectancy)>0?'var(--green)':'var(--red)';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td>${label}</td>
+        <td style="text-align:center">${st.trades}</td>
+        <td style="text-align:center;color:${col}">${st.winRate}%</td>
+        <td style="text-align:center;color:var(--green)">+${st.avgWin}%</td>
+        <td style="text-align:center;color:var(--red)">${st.avgLoss}%</td>
+        <td style="text-align:center;color:${ecol}">${st.expectancy}%</td>
+      </tr>`;
+    }).join('');
+
+    // By regime
+    document.getElementById('bt-regime').innerHTML = Object.entries(data.byRegime||{})
+      .map(([r,d])=>`<div class="signal-item"><div><div style="font-weight:500">${r}</div><div style="font-size:12px;color:var(--text2)">${d.trades} trades</div></div><div class="${d.pnl>=0?'pos':'neg'}">${d.pnl>=0?'+':''}${Number(d.pnl).toFixed(2)}%</div></div>`)
+      .join('')||'<div class="empty">No trades</div>';
+
+    // Recent trades
+    document.getElementById('bt-trade-list').innerHTML = (data.recentTrades||[]).map(t=>`
+      <tr style="opacity:${t.passesScore2&&t.trendOK!==false?1:0.5}">
+        <td style="font-size:11px">${String(t.date||'').substring(5)}</td>
+        <td><span class="badge ${t.direction==='BUY'?'badge-buy':'badge-sell'}">${t.direction}</span></td>
+        <td style="font-size:11px">${t.rsi||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${Number(t.openPrice).toFixed(0)}</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${Number(t.closePrice).toFixed(0)}</td>
+        <td class="${t.pnl>=0?'pos':'neg'}" style="font-size:11px">${t.pnl>=0?'+':''}${Number(t.pnl).toFixed(2)}%</td>
+        <td style="font-size:10px;color:var(--text2)">${t.exitReason||''}</td>
+      </tr>`).join('');
+
+    document.getElementById('bt-interpretation').innerHTML = `
+      <p><strong>Expectancy:</strong> ${s.expectancy>=0?'+':''}${s.expectancy}% per trade
+        ${s.expectancy>0.5?' — <span style="color:var(--green)">Positive edge</span>':s.expectancy>0?' — Marginal edge':' — <span style="color:var(--red)">No edge</span>'}</p>
+      <p><strong>Profit Factor:</strong> ${s.profitFactor?.toFixed(2)}x
+        ${s.profitFactor>=1.5?' — Good':s.profitFactor>=1?' — Marginal':' — Poor'}</p>
+      <p><strong>Sample size:</strong> ${s.totalTrades} trades
+        ${s.totalTrades>=20?' — Statistically meaningful':s.totalTrades>=10?' — Low confidence':' — Too few to conclude'}</p>
+      <p style="margin-top:8px;color:var(--text2)">
+        ${data.log?.slice(-3).join(' · ')}
+      </p>`;
+
     document.getElementById('bt-results').style.display='block';
-  }catch(e){document.getElementById('bt-error-msg').textContent='Error: '+e.message;document.getElementById('bt-error').style.display='block';}
+  }catch(e){
+    document.getElementById('bt-loading').style.display='none';
+    document.getElementById('bt-error-msg').textContent='Error: '+e.message;
+    document.getElementById('bt-error').style.display='block';
+  }
 }
 
 // ─── AI ANALYST ───────────────────────────────────────────────────────────────
