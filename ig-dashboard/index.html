@@ -1088,7 +1088,8 @@ async function runBacktest(){
     const threshold = document.getElementById('bt-threshold').value;
     const hold = document.getElementById('bt-hold').value;
 
-    const res = await fetch(`/api/review?action=backtest&epic=${epic}&days=${days}&threshold=${threshold}&resolution=${resolution}&holdDays=${hold}`);
+    const strategy = document.getElementById('bt-strategy')?.value || 'mr';
+    const res = await fetch(`/api/review?action=backtest&epic=${epic}&days=${days}&threshold=${threshold}&resolution=${resolution}&holdDays=${hold}&strategy=${strategy}`);
     const data = await res.json();
     document.getElementById('bt-loading').style.display='none';
 
