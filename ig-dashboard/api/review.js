@@ -207,15 +207,35 @@ async function runBacktest(req, res) {
         }
       }
 
+      // Track peak profit during hold period
+      let peakPrice = entryPrice;
+      let peakDay = 0;
+      for(let j=1; j<=exitDay && i+j<closes.length; j++) {
+        const p = closes[i+j];
+        if(direction==='BUY' && p > peakPrice) { peakPrice=p; peakDay=j; }
+        if(direction==='SELL' && p < peakPrice) { peakPrice=p; peakDay=j; }
+      }
+      const peakPnlPct = direction==='BUY'
+        ? (peakPrice-entryPrice)/entryPrice*100
+        : (entryPrice-peakPrice)/entryPrice*100;
+
       const pnlPct = direction==='BUY'
         ? (exitPrice-entryPrice)/entryPrice*100
         : (entryPrice-exitPrice)/entryPrice*100;
       const won = pnlPct > 0;
+      // Was trade in profit at any point?
+      const everProfitable = peakPnlPct > 0.1;
+      // Did we leave money on table? (exited below peak)
+      const leftOnTable = peakPnlPct - pnlPct;
 
       trades.push({
         date: dates[i], direction, signalType,
         entryPrice: entryPrice.toFixed(2),
         exitPrice: exitPrice.toFixed(2),
+        peakPrice: peakPrice.toFixed(2),
+        peakPnlPct: peakPnlPct.toFixed(2),
+        peakDay, leftOnTable: leftOnTable.toFixed(2),
+        everProfitable,
         rsi: rsi.toFixed(1), score,
         pnlPct: pnlPct.toFixed(2),
         exitDay, exitReason, won,
@@ -258,6 +278,15 @@ async function runBacktest(req, res) {
       fullFilter: calcStats(fullFilter),
     };
 
+    // Peak profit analysis
+    const everProfTrades = allTrades.filter(t=>t.everProfitable);
+    const avgLeftOnTable = allTrades.filter(t=>t.won||t.everProfitable)
+      .reduce((s,t)=>s+parseFloat(t.leftOnTable),0) / Math.max(1, allTrades.filter(t=>t.won||t.everProfitable).length);
+    const couldHaveWon = allTrades.filter(t=>!t.won && t.everProfitable).length;
+    L(`Peak analysis: ${everProfTrades.length}/${allTrades.length} trades were profitable at some point`);
+    L(`Trades that went positive but closed negative: ${couldHaveWon}`);
+    L(`Avg profit left on table (winning+ever-profitable trades): ${avgLeftOnTable.toFixed(2)}%`);
+
     L(`Total signals: ${allTrades.length}`);
     L(`With score≥1: ${withScore1.length} (win rate: ${stats.scoreGte1.winRate}%)`);
     L(`With score≥2: ${withScore2.length} (win rate: ${stats.scoreGte2.winRate}%)`);
@@ -299,9 +328,21 @@ async function runBacktest(req, res) {
       regime: 'ranging',
     }));
 
+    const peakAnalysis = {
+      everProfitable: allTrades.filter(t=>t.everProfitable).length,
+      totalTrades: allTrades.length,
+      couldHaveWon: allTrades.filter(t=>!t.won && t.everProfitable).length,
+      avgLeftOnTable: parseFloat((allTrades.filter(t=>t.won||t.everProfitable)
+        .reduce((s,t)=>s+parseFloat(t.leftOnTable),0) / 
+        Math.max(1,allTrades.filter(t=>t.won||t.everProfitable).length)).toFixed(2)),
+      avgPeakPnl: parseFloat((allTrades.reduce((s,t)=>s+parseFloat(t.peakPnlPct),0)/Math.max(1,allTrades.length)).toFixed(2)),
+      avgExitPnl: parseFloat((allTrades.reduce((s,t)=>s+parseFloat(t.pnlPct),0)/Math.max(1,allTrades.length)).toFixed(2)),
+    };
+
     return res.status(200).json({
       instrument: instrName, epic, days: closes.length, resolution,
       rsiEntry, holdDays, stats, summary, byRegime, recentTrades,
+      peakAnalysis,
       trades: allTrades.slice(-100),
       log
     });
