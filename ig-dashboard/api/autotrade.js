@@ -612,10 +612,19 @@ module.exports = async (req,res) => {
           const daysHeld = (Date.now() - openTime.getTime()) / (1000*60*60*24);
 
           let shouldClose = false;
-          if(tradeType === 'hourly_mr') shouldClose = true; // always close intraday
-          else if(tradeType === 'daily_mr') shouldClose = daysHeld >= 3 || isFriday;
+          // ── OVERNIGHT / WEEKEND CLOSE RULES ────────────────────────────────
+          // hourly_mr  → always close EOD (intraday scalp)
+          // daily_mr   → hold overnight, close after 5 days OR Friday
+          // trend      → hold overnight, close after 20 days OR Friday
+          // breakout   → hold overnight, close after 15 days OR Friday
+          // directional→ hold overnight, close Friday only
+          // default    → always close EOD
+          if(tradeType === 'hourly_mr')   shouldClose = true;
+          else if(tradeType === 'daily_mr')  shouldClose = daysHeld >= 5 || isFriday;
+          else if(tradeType === 'trend')     shouldClose = daysHeld >= 20 || isFriday;
+          else if(tradeType === 'breakout')  shouldClose = daysHeld >= 15 || isFriday;
           else if(tradeType === 'directional') shouldClose = isFriday;
-          else shouldClose = true; // default: close
+          else shouldClose = true; // unknown type: close to be safe
 
           if(shouldClose){
             L(`EOD close: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d)`);
@@ -1100,18 +1109,25 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       (sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY') ||
       (sig.pairsCtx.signal === 'cheap' && sig.direction === 'SELL')
     );
+    // ── DYNAMIC SIZING — scales with signal conviction ──────────────────────
+    // Base risk by signal type
     let baseRiskPct;
-    if(isDailyMR && pairsConfirms)  baseRiskPct = 0.025; // 2.5% — daily MR + pairs confluence
-    else if(isDailyMR)              baseRiskPct = 0.02;   // 2% — daily RSI extreme
-    else if(isHourlyMR && pairsConfirms) baseRiskPct = 0.02; // 2% — hourly MR + pairs confluence
-    else if(isHourlyMR)             baseRiskPct = 0.015;  // 1.5% — hourly MR
-    else if(isTrendTrade)           baseRiskPct = 0.015;  // 1.5% — with-trend entry
-    else if(isBreakoutTrade)        baseRiskPct = 0.01;   // 1% — breakout
-    else                            baseRiskPct = 0.01;   // 1% — default
+    if(isDailyMR && pairsConfirms)       baseRiskPct = 0.025; // 2.5% daily MR + pairs
+    else if(isDailyMR)                   baseRiskPct = 0.02;  // 2.0% daily MR
+    else if(isHourlyMR && pairsConfirms) baseRiskPct = 0.02;  // 2.0% hourly MR + pairs
+    else if(isHourlyMR)                  baseRiskPct = 0.015; // 1.5% hourly MR
+    else if(isTrendTrade)                baseRiskPct = 0.025; // 2.5% trend (SMA cross — 71% WR)
+    else if(isBreakoutTrade)             baseRiskPct = 0.02;  // 2.0% breakout (57% WR on Gold)
+    else                                 baseRiskPct = 0.01;  // 1.0% default
     if(pairsContradicts) baseRiskPct = Math.min(baseRiskPct, 0.01); // Cap at 1% if pairs contradicts
     if(pairsConfirms) L(`${sig.instr}: ✅ Pairs confluence — risk boosted to ${(baseRiskPct*100).toFixed(1)}%`);
     if(pairsContradicts) L(`${sig.instr}: ⚠️ Pairs contradiction — risk capped at ${(baseRiskPct*100).toFixed(1)}%`);
-    const riskPct = profitLockActive ? 0.005 : baseRiskPct;
+    // Boost size based on AI confidence (60%=1x, 80%=1.3x, 95%=1.5x)
+    const aiBoost = sig.aiConfidence >= 90 ? 1.5
+      : sig.aiConfidence >= 80 ? 1.3
+      : sig.aiConfidence >= 70 ? 1.1
+      : 1.0;
+    const riskPct = profitLockActive ? 0.005 : Math.min(baseRiskPct * aiBoost, 0.04);
     const tradeRiskAmt = balance * riskPct;
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
     const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
