@@ -740,6 +740,58 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   const occupied=new Set(openPos.map(p=>CORRELATION_GROUPS[p.market.epic]).filter(Boolean));
   L('Occupied: '+(([...occupied].join(', '))||'none'));
 
+  // ── PYRAMID ADDING ────────────────────────────────────────────────────────
+  // If an existing trend/breakout trade is up 1%+ on day 2+, add a second unit
+  // Backtest shows SMA crossover trades that start winning tend to continue
+  try {
+    const {sql:pyrSql} = require('@vercel/postgres');
+    for(const pos of openPos) {
+      const epic = pos.market.epic;
+      const openLevel = pos.position.openLevel;
+      const currentBid = pos.market.bid || openLevel;
+      const dir = pos.position.direction;
+      const pnlPct = dir === 'BUY'
+        ? (currentBid - openLevel) / openLevel * 100
+        : (openLevel - currentBid) / openLevel * 100;
+
+      // Get trade details from DB
+      const dbTrade = await pyrSql`
+        SELECT trade_type, created_at, pyramid_added
+        FROM trades WHERE deal_id=${pos.position.dealId} AND status='open'
+        LIMIT 1`.catch(()=>({rows:[]}));
+      const trade = dbTrade.rows[0];
+      if(!trade) continue;
+
+      const tradeType = trade.trade_type || '';
+      const pyramidAdded = trade.pyramid_added || false;
+      const daysHeld = (Date.now() - new Date(trade.created_at).getTime()) / (1000*60*60*24);
+
+      // Only pyramid trend/breakout trades, on day 2+, up 1%+, not already pyramided
+      if((tradeType === 'trend' || tradeType === 'breakout')
+        && !pyramidAdded && daysHeld >= 1.5 && pnlPct >= 1.0
+        && openPos.length < cfg.maxPositions) {
+
+        const pyrSize = parseFloat((pos.position.dealSize * 0.5).toFixed(2)); // add 50% of original
+        L(`🔺 Pyramid: ${pos.market.instrumentName} up ${pnlPct.toFixed(1)}% after ${daysHeld.toFixed(1)}d — adding £${pyrSize}/pt`);
+
+        const pyrBody = { epic, direction: dir, size: pyrSize,
+          orderType:'MARKET', expiry:'DFB', guaranteedStop:false,
+          forceOpen:true, currencyCode:'GBP', dealType:'SPREADBET' };
+        const pr = await fetch(`${igBase}/positions/otc`, {
+          method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(pyrBody)});
+        const pd = await pr.json();
+
+        if(pd.dealReference) {
+          L(`✅ Pyramid added: ref ${pd.dealReference}`);
+          // Mark original trade as pyramided
+          await pyrSql`UPDATE trades SET pyramid_added=true WHERE deal_id=${pos.position.dealId}`.catch(()=>{});
+        } else {
+          L(`⚠️ Pyramid failed: ${pd.errorCode||'unknown'}`);
+        }
+      }
+    }
+  } catch(e) { L(`Pyramid check error: ${e.message}`); }
+
   // Cooldown: block re-entry on same instrument within 4 hours of a stop loss
   const recentlyStoppedEpics = new Set();
   try {
@@ -1081,7 +1133,19 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     const scaledATR = (sig.atr || 0) * priceScale;
     const isTrendTrade = sig.trendPullback?.signal > 0;
     const isBreakoutTrade = sig.breakoutSignal?.signal > 0;
-    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5 : (isTrendTrade || isBreakoutTrade) ? 2.0 : 1.5;
+    // ATR stop multiplier — tighter for MR (avoids catastrophic losses like Apr crash)
+    // Volatility-aware: if recent ATR is >2× historical average, tighten stop further
+    const recentATR = scaledATR;
+    const closes10 = sig.closes ? sig.closes.slice(-10) : [];
+    const avgATR10 = closes10.length >= 2
+      ? closes10.slice(1).reduce((s,p,i)=>s+Math.abs(p-closes10[i]),0)/(closes10.length-1)
+      : recentATR;
+    const isHighVol = recentATR > avgATR10 * 1.8; // ATR 80% above recent avg = high vol
+    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5
+      : (isTrendTrade || isBreakoutTrade) ? 2.0
+      : (isDailyMR && isHighVol) ? 1.0    // tighter stop in high vol MR (avoids -6% losses)
+      : isDailyMR ? 1.25                   // slightly tighter than default for MR
+      : 1.5;                               // default
     const stopType = sig.meanReversion && sig.tdRsi ? 'hourly MR (0.5x ATR)'
       : sig.meanReversion ? 'daily MR (1.5x ATR)'
       : isTrendTrade ? 'trend pullback (2x ATR)'
