@@ -249,7 +249,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
   const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
   const r = await fetch(`${base}/api/claude`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 150,
+    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150,
       messages: [{ role: 'user', content: prompt }] }),
   });
   if(!r.ok){ throw new Error(`Claude API ${r.status}`); }
