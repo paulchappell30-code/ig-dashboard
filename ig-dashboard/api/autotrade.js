@@ -733,7 +733,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           WHERE instrument = ${pair.instrA} AND resolution = 'DAY'
           ORDER BY candle_time DESC LIMIT 600`;
         const rowsB = await pairSql`
-          SELECT close_price, candle_time::date as dt FROM price_history
+          SELECT close_price, volume, candle_time::date as dt FROM price_history
           WHERE instrument = ${pair.instrB} AND resolution = 'DAY'
           ORDER BY candle_time DESC LIMIT 600`;
         
@@ -742,6 +742,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // Build ratio series (most recent last)
         const closesA = rowsA.rows.map(r => parseFloat(r.close_price)).reverse();
         const closesB = rowsB.rows.map(r => parseFloat(r.close_price)).reverse();
+        const volsA = rowsA.rows.map(r => parseInt(r.volume||0)).reverse();
+        const volsB = rowsB.rows.map(r => parseInt(r.volume||0)).reverse();
         const n = Math.min(closesA.length, closesB.length);
         const ratios = [];
         for(let i = 0; i < n; i++) {
@@ -757,7 +759,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // Store for both instruments in the pair
         // Positive Z = instrA expensive vs instrB
         // Negative Z = instrA cheap vs instrB
+        const volRatioA = calcVolumeRatio(volsA, 20);
+        const volRatioB = calcVolumeRatio(volsB, 20);
         pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
+          _volumesA: volsA, _volumesB: volsB,
+          volRatioA, volRatioB,
           signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
         // From instrB perspective, Z is inverted
         pairsZScores[pair.instrB] = { zscore: -zscore, partner: pair.instrA, n: ratios.length,
@@ -900,6 +906,18 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
             sc = Math.max(sc, breakoutSignal.signal);
             dir = breakoutSignal.direction;
             L(`${instr}: 💥 ${breakoutSignal.reason} (score:${sc})`);
+          }
+        }
+
+        // Volume confirmation for Brent Oil — only trade high-volume moves
+        // Low volume Brent moves (0.64x avg) are unreliable — filter them out
+        if((epic.includes('LCO') || instr === 'Brent Oil') && sig.volumeRatio > 0) {
+          if(sig.volumeRatio < 0.8 && sc > 0) {
+            L(`${instr}: ⚠️ Low volume (${sig.volumeRatio}x avg) — reducing conviction`);
+            sc = Math.max(0, sc - 1); // reduce score on low volume
+          } else if(sig.volumeRatio > 1.5) {
+            L(`${instr}: 📊 High volume (${sig.volumeRatio}x avg) — boosting conviction`);
+            sc = Math.min(sc + 1, 6); // boost score on high volume
           }
         }
 
@@ -1486,6 +1504,17 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
       if(absZ < pairEntryZ) continue;
 
+      // Volume confirmation for pairs — check if divergence driven by volume
+      const pairVolRatioA = pz?.volRatioA || 1.0;
+      const pairVolRatioB = pz?.volRatioB || 1.0;
+      const pairVolConfirmed = pairVolRatioA > 1.2 || pairVolRatioB > 1.2;
+      const pairVolWeak = pairVolRatioA < 0.6 && pairVolRatioB < 0.6;
+      if(pairVolWeak) {
+        L(`Pairs ${pair.instrA}/${pair.instrB}: ⚠️ Low volume on both legs (${pairVolRatioA}x, ${pairVolRatioB}x) — divergence may not revert`);
+      } else if(pairVolConfirmed) {
+        L(`Pairs ${pair.instrA}/${pair.instrB}: ✅ Volume confirmed (${pairVolRatioA}x, ${pairVolRatioB}x) — institutional divergence`);
+      }
+
           // Direction: negative Z = A cheap vs B → BUY A, SELL B
           const dirA = pz.zscore < 0 ? 'BUY' : 'SELL';
           const dirB = pz.zscore < 0 ? 'SELL' : 'BUY';
@@ -1497,6 +1526,7 @@ PAIR: ${pair.instrA} vs ${pair.instrB}
 STRATEGY: Statistical arbitrage — Z-score divergence from ${pz.n}-day mean
 Z-SCORE: ${pz.zscore.toFixed(2)} (entry threshold: ±${cfg.pairsZEntry})
 DIRECTION: ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}
+VOLUME: ${pair.instrA} ${pairVolRatioA}x avg | ${pair.instrB} ${pairVolRatioB}x avg${pairVolConfirmed?' — HIGH VOLUME (institutional)':pairVolWeak?' — LOW VOLUME (retail noise)':' — normal'}
 DESCRIPTION: ${pair.description}
 RATIO: Current ${(pairsZScores[pair.instrA]?.current||0).toFixed(4)} vs Mean ${(pairsZScores[pair.instrA]?.mean||0).toFixed(4)}
 STOP: Z=${pz.zscore<0?'-':'+'}${cfg.pairsZStop} (${(cfg.pairsZStop-absZ).toFixed(1)}σ away)
@@ -1624,12 +1654,22 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 };
 
 // ── PRICE DATA ────────────────────────────────────────────────────────────────
+function calcVolumeRatio(volumes, lookback=20) {
+  // Returns ratio of recent volume vs average — >1.5 = high vol, <0.7 = low vol
+  if(!volumes || volumes.length < 5) return 1.0;
+  const recent = volumes[volumes.length-1] || 0;
+  const avg = volumes.slice(-lookback).reduce((a,b)=>a+b,0) / Math.min(lookback, volumes.length);
+  return avg > 0 ? parseFloat((recent/avg).toFixed(2)) : 1.0;
+}
+
 async function getDbPrices(epic,limit,L){
   try{
     const {sql}=require('@vercel/postgres');
-    const r=await sql`SELECT close_price FROM price_history WHERE (epic=${epic} OR instrument=${epic}) AND resolution='DAY' AND close_price>0 ORDER BY candle_time DESC LIMIT ${limit}`;
+    const r=await sql`SELECT close_price, volume FROM price_history WHERE (epic=${epic} OR instrument=${epic}) AND resolution='DAY' AND close_price>0 ORDER BY candle_time DESC LIMIT ${limit}`;
     if(r.rows.length<5)return null;
-    return r.rows.map(row=>parseFloat(row.close_price)).reverse();
+    const closes = r.rows.map(row=>parseFloat(row.close_price)).reverse();
+    closes._volumes = r.rows.map(row=>parseInt(row.volume||0)).reverse();
+    return closes;
   }catch(e){return null;}
 }
 
