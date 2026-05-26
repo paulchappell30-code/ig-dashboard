@@ -1161,8 +1161,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // Tiered stop: hourly RSI MR uses tight 0.5x ATR, daily uses 1.5x ATR
     // Price scale only applies to DB candles (stored in decimal e.g. 1.3350)
     // IG candles are already in contract units (e.g. 13350) — no scaling needed
-    const priceScale = sig.src === 'DB' ? (CONTRACT_PRICE_SCALE[sig.epic] || 1) : 1;
-    const scaledATR = (sig.atr || 0) * priceScale;
+    // DB candles for FX are stored pre-scaled (e.g. GBPUSD*10000, USDJPY*100)
+    // ATR from DB candles is already in contract units — do NOT scale again
+    // IG live prices are also in contract units — no scaling needed
+    const priceScale = 1; // scaling already applied during backfill
+    const scaledATR = (sig.atr || 0);
     const isTrendTrade = sig.trendPullback?.signal > 0;
     const isBreakoutTrade = sig.breakoutSignal?.signal > 0;
     // ATR stop multiplier — tighter for MR (avoids catastrophic losses like Apr crash)
