@@ -58,15 +58,20 @@ const CORRELATION_GROUPS = {
 
 // Pairs trading definitions — FX and indices only (live prices available)
 const PAIRS_DEFINITIONS = [
+  // Backtest: 83.3% WR, PF 10.41, +0.71% exp at 2σ entry — BEST PAIR
   { id:'gbpusd_eurusd', instrA:'GBP/USD', instrB:'EUR/USD',
     epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP',
-    minDays:60, description:'GBP/USD vs EUR/USD dollar pairs' },
-  { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
-    epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
-    minDays:60, description:'EUR/USD vs EUR/GBP crosses' },
-  { id:'ftse_dax', instrA:'FTSE 100', instrB:'DAX 40',
-    epicA:'IX.D.FTSE.DAILY.IP', epicB:'IX.D.DAX.DAILY.IP',
-    minDays:100, description:'FTSE vs DAX European indices' },
+    minDays:60, entryZ:2.0, exitZ:0.25, stopZ:3.5,
+    description:'GBP/USD vs EUR/USD — dollar pairs, very high WR' },
+  // Backtest: 70% WR, PF 1.48, +1.8% exp — optimal at 1.5σ entry
+  { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
+    epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
+    minDays:60, entryZ:1.5, exitZ:0.5, stopZ:2.5,
+    description:'Brent vs Gold — regime-driven, avoid 2σ+ entries' },
+  // Backtest: 27.3% WR — DISABLED, no edge
+  // { id:'ftse_dax' ... }
+  // Backtest: 66.7% WR but negative expectancy — DISABLED
+  // { id:'eurusd_eurgbp' ... }
 ];
 
 const TRADING_HOURS = {
@@ -1338,9 +1343,12 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const pz = pairsZScores[pt.instr_a];
         if(!pz) continue;
         const currentZ = pz.zscore;
+        // Use per-pair thresholds from backtest optimisation
+        const pairExitZ = pairDef.exitZ || cfg.pairsZTarget;
+        const pairStopZ = pairDef.stopZ || cfg.pairsZStop;
         const shouldClose =
-          (pt.direction_a==='BUY' && (currentZ >= -cfg.pairsZTarget || currentZ <= -cfg.pairsZStop)) ||
-          (pt.direction_a==='SELL' && (currentZ <= cfg.pairsZTarget || currentZ >= cfg.pairsZStop));
+          (pt.direction_a==='BUY' && (currentZ >= -pairExitZ || currentZ <= -pairStopZ)) ||
+          (pt.direction_a==='SELL' && (currentZ <= pairExitZ || currentZ >= pairStopZ));
         if(shouldClose) {
           const reason = Math.abs(currentZ) <= cfg.pairsZTarget ? 'target_reached' : 'stop_loss';
           L(`Pairs close: ${pt.instr_a}/${pt.instr_b} Z=${currentZ.toFixed(2)} (${reason})`);
@@ -1368,7 +1376,9 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           const pz = pairsZScores[pair.instrA];
           if(!pz || pz.n < pair.minDays) continue;
           const absZ = Math.abs(pz.zscore);
-          if(absZ < cfg.pairsZEntry) continue;
+          // Use per-pair entry threshold from backtest optimisation
+      const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
+      if(absZ < pairEntryZ) continue;
 
           // Direction: negative Z = A cheap vs B → BUY A, SELL B
           const dirA = pz.zscore < 0 ? 'BUY' : 'SELL';
