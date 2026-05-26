@@ -1764,18 +1764,23 @@ async function runDeepAnalysis(req, res) {
       // Minute — last 24 hours, 5-minute buckets (average to reduce noise)
       const minute = await sql`
         SELECT AVG(close_price) as close_price,
+               SUM(volume) as volume,
                date_trunc('hour', candle_time) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM candle_time)/5) as bucket
         FROM price_history
         WHERE (epic=${instr.epic} OR instrument=${instr.name})
         AND resolution='MINUTE' AND close_price>0.0001
-        AND candle_time > NOW() - INTERVAL '24 hours'
-        GROUP BY bucket ORDER BY bucket ASC`;
+        AND candle_time > NOW() - INTERVAL '72 hours'
+        GROUP BY bucket ORDER BY bucket ASC LIMIT 200`;
 
       const minRows = minute.rows;
       data[instr.name].minute5 = minRows.map((r,i) => {
         if(i===0) return null;
         const ret = ((parseFloat(r.close_price)-parseFloat(minRows[i-1].close_price))/parseFloat(minRows[i-1].close_price)*100).toFixed(4);
-        return { time: new Date(r.bucket).toISOString().substring(11,16), ret: parseFloat(ret) };
+        return {
+          time: new Date(r.bucket).toISOString().substring(0,16).replace('T',' '),
+          ret: parseFloat(ret),
+          vol: parseInt(r.volume||0)
+        };
       }).filter(Boolean);
     }
 
@@ -1808,14 +1813,21 @@ async function runDeepAnalysis(req, res) {
     }
 
     // Minute: today only — show pattern of intraday moves
-    let minuteSummary = '\n5-MINUTE RETURNS TODAY (%):\n';
+    let minuteSummary = '\n5-MINUTE DATA (last 48-72 hours, 5min buckets):\n';
     instrNames.forEach(n => {
       const m5 = data[n].minute5;
       if(m5.length > 0) {
         const cumRet = m5.reduce((s,r) => s + r.ret, 0).toFixed(3);
         const volatility = Math.sqrt(m5.reduce((s,r) => s + r.ret*r.ret, 0)/m5.length).toFixed(4);
-        const trend = m5.slice(-6).reduce((s,r) => s + r.ret, 0).toFixed(3); // last 30min
-        minuteSummary += `${n}: cumulative ${cumRet>0?'+':''}${cumRet}% | volatility ${volatility}%/5min | last 30min ${trend>0?'+':''}${trend}%\n`;
+        const trend = m5.slice(-6).reduce((s,r) => s + r.ret, 0).toFixed(3);
+        const totalVol = m5.reduce((s,r) => s + (r.vol||0), 0);
+        const recentVol = m5.slice(-12).reduce((s,r) => s + (r.vol||0), 0);
+        const volRatio = totalVol > 0 ? (recentVol / (totalVol/m5.length * 12)).toFixed(2) : '?';
+        // Find highest volume 5min candle
+        const maxVolCandle = m5.reduce((a,b) => (b.vol||0)>(a.vol||0)?b:a, m5[0]);
+        minuteSummary += `${n}: cum ${cumRet>0?'+':''}${cumRet}% | vol/5min ${volatility}% | last 30min ${trend>0?'+':''}${trend}% | recent vol ratio ${volRatio}x avg | peak vol at ${maxVolCandle.time}\n`;
+      } else {
+        minuteSummary += `${n}: no 5-min data\n`;
       }
     });
 
@@ -1857,6 +1869,8 @@ Your task: find ANY patterns, behaviours, or anomalies that could be predictive 
 
 DO NOT mention RSI, MACD, moving averages, Bollinger bands, or any standard technical indicator. I want observations about the RAW DATA only.
 
+Volume data is available in the 5-minute summary (recent vol ratio = recent volume vs average). High volume ratio (>2x) on a price move suggests institutional activity. Low volume on a move suggests it may not sustain.
+
 ${dailySummary}
 ${hourlySummary}
 ${minuteSummary}
@@ -1873,7 +1887,8 @@ Find:
 3. Cross-instrument relationships that appear or disappear between timeframes
 4. Any sequential patterns (e.g. instrument A moves, then B follows hours later)
 5. Volatility clustering — periods where multiple instruments simultaneously calm or spike
-6. Anything genuinely surprising that a human analyst might miss
+6. Volume anomalies — candles with unusually high or low volume vs the instrument's own average, and what price did around those times
+7. Anything genuinely surprising that a human analyst might miss
 
 Be specific. Cite actual numbers and times. Max 700 words.`;
 
