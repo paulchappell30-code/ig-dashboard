@@ -626,6 +626,19 @@ async function initTables() {
     )
   `;
 
+  // Pending entries table (pullback entry timing)
+  await sql`
+    CREATE TABLE IF NOT EXISTS pending_entries (
+      id SERIAL PRIMARY KEY,
+      epic VARCHAR(100), instrument VARCHAR(100),
+      direction VARCHAR(10), signal_price NUMERIC, target_entry NUMERIC,
+      size NUMERIC, stop_dist NUMERIC, trade_type VARCHAR(50),
+      score INTEGER, ai_confidence INTEGER, ai_reasoning TEXT,
+      expiry_time TIMESTAMPTZ, status VARCHAR(20) DEFAULT 'waiting',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `.catch(()=>{});
+
   // Pairs trades table
   await sql`
     CREATE TABLE IF NOT EXISTS pairs_trades (
