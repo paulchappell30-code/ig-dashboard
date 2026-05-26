@@ -282,9 +282,11 @@ module.exports = async (req, res) => {
             const highs = chart.indicators?.quote?.[0]?.high || [];
             const lows = chart.indicators?.quote?.[0]?.low || [];
 
+            const volumes = chart.indicators?.quote?.[0]?.volume || [];
             const candles = timestamps.map((ts, i) => ({
               time: new Date(ts * 1000).toISOString(),
-              open: opens[i], high: highs[i], low: lows[i], close: closes[i]
+              open: opens[i], high: highs[i], low: lows[i], close: closes[i],
+              volume: volumes[i] || 0
             })).filter(c => c.close != null && !isNaN(c.close) && c.close > 0);
 
             const existing = await sql`
@@ -298,22 +300,20 @@ module.exports = async (req, res) => {
             const scale = instr.scale || 1;
             const epic = EPIC_MAP_M[instr.name] || '';
 
-            // Filter to new candles only
             const newCandles = candles.filter(c => {
               const timeKey = c.time.substring(0,16);
               return !existingTimes.has(timeKey);
             });
             skipped = candles.length - newCandles.length;
 
-            // Batch insert in chunks of 100 to avoid timeout
             const BATCH = 100;
             for(let b = 0; b < newCandles.length; b += BATCH) {
               const chunk = newCandles.slice(b, b + BATCH);
               const vals = chunk.map(c =>
-                `('${epic}','${instr.name}','MINUTE','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})`
+                `('${epic}','${instr.name}','MINUTE','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale},${Math.round(c.volume||0)})`
               ).join(',');
               await sql.query(
-                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price,volume)
                  VALUES ${vals} ON CONFLICT DO NOTHING`
               );
               inserted += chunk.length;
@@ -404,14 +404,15 @@ module.exports = async (req, res) => {
             });
             skipped = candles.length - newCandlesH.length;
 
+            const volumesH = chart.indicators?.quote?.[0]?.volume || [];
             const BATCH_H = 100;
             for(let b = 0; b < newCandlesH.length; b += BATCH_H) {
               const chunk = newCandlesH.slice(b, b + BATCH_H);
-              const vals = chunk.map(c =>
-                `('${epicH}','${instr.name}','HOUR','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})`
+              const vals = chunk.map((c,ci) =>
+                `('${epicH}','${instr.name}','HOUR','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale},${Math.round(volumesH[b+ci]||0)})`
               ).join(',');
               await sql.query(
-                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price,volume)
                  VALUES ${vals} ON CONFLICT DO NOTHING`
               );
               inserted += chunk.length;
