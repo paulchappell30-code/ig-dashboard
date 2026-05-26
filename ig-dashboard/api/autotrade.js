@@ -96,8 +96,10 @@ const DEFAULT_CONFIG = {
   pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
   pairsZStop:3.5,       // Z-score stop loss level
   pairsZTarget:0.5,     // Z-score target (close when reverts to this)
-  pairsMaxSlots:1,      // Max simultaneous pairs trades
-  pairsRiskPct:0.01,    // 1% risk per pairs trade
+  pairsMaxSlots:2,      // Max simultaneous pairs trades (increased — strong edge)
+  pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
+  // Note: pairs risk is split across two legs so effective single-leg risk is 2%
+  // At 4% with £526 balance = £21 risk per pairs trade
 };
 
 const priceCache = {};
@@ -1442,11 +1444,19 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // Use per-pair thresholds from backtest optimisation
         const pairExitZ = pairDef.exitZ || cfg.pairsZTarget;
         const pairStopZ = pairDef.stopZ || cfg.pairsZStop;
+        // Days held for this pairs trade
+        const pairDaysHeld = pt.opened_at
+          ? (Date.now() - new Date(pt.opened_at).getTime()) / (1000*60*60*24) : 0;
+        const pairMaxHold = 90; // safety limit — backtest shows 56d was still a winner
+
         const shouldClose =
           (pt.direction_a==='BUY' && (currentZ >= -pairExitZ || currentZ <= -pairStopZ)) ||
-          (pt.direction_a==='SELL' && (currentZ <= pairExitZ || currentZ >= pairStopZ));
+          (pt.direction_a==='SELL' && (currentZ <= pairExitZ || currentZ >= pairStopZ)) ||
+          pairDaysHeld >= pairMaxHold; // 90-day safety limit
+
         if(shouldClose) {
-          const reason = Math.abs(currentZ) <= cfg.pairsZTarget ? 'target_reached' : 'stop_loss';
+          const reason = pairDaysHeld >= pairMaxHold ? 'max_hold'
+            : Math.abs(currentZ) <= pairExitZ ? 'mean_revert' : 'stop_loss';
           L(`Pairs close: ${pt.instr_a}/${pt.instr_b} Z=${currentZ.toFixed(2)} (${reason})`);
           // Close both legs
           for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
