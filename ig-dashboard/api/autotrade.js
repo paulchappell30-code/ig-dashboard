@@ -618,18 +618,45 @@ module.exports = async (req,res) => {
 
           let shouldClose = false;
           // ── OVERNIGHT / WEEKEND CLOSE RULES ────────────────────────────────
-          // hourly_mr  → always close EOD (intraday scalp)
-          // daily_mr   → hold overnight, close after 5 days OR Friday
-          // trend      → hold overnight, close after 20 days OR Friday
-          // breakout   → hold overnight, close after 15 days OR Friday
-          // directional→ hold overnight, close Friday only
-          // default    → always close EOD
-          if(tradeType === 'hourly_mr')   shouldClose = true;
-          else if(tradeType === 'daily_mr')  shouldClose = daysHeld >= 5 || isFriday;
-          else if(tradeType === 'trend')     shouldClose = daysHeld >= 20 || isFriday;
-          else if(tradeType === 'breakout')  shouldClose = daysHeld >= 15 || isFriday;
-          else if(tradeType === 'directional') shouldClose = isFriday;
-          else shouldClose = true; // unknown type: close to be safe
+          // Calculate current P&L % for this position
+          const posOpenLevel = p.position.openLevel;
+          const posBid = p.market.bid || posOpenLevel;
+          const posDir = p.position.direction;
+          const posPnlPct = posDir === 'BUY'
+            ? (posBid - posOpenLevel) / posOpenLevel * 100
+            : (posOpenLevel - posBid) / posOpenLevel * 100;
+          const isProfitable = posPnlPct > 0;
+          const isWellProfitable = posPnlPct >= 1.0; // up 1%+ = hold over weekend
+
+          // hourly_mr  → always close EOD (intraday scalp, never hold overnight)
+          // daily_mr   → hold overnight, always close Friday (short-term bounce)
+          // trend      → hold up to 20 days; hold weekends ONLY if profitable
+          // breakout   → hold up to 15 days; hold weekends ONLY if profitable
+          // directional→ hold indefinitely; hold weekends if profitable
+          if(tradeType === 'hourly_mr') {
+            shouldClose = true;
+          } else if(tradeType === 'daily_mr') {
+            shouldClose = daysHeld >= 5 || isFriday; // always close MR on Friday
+          } else if(tradeType === 'trend') {
+            if(daysHeld >= 20) shouldClose = true;          // max hold reached
+            else if(isFriday && !isProfitable) shouldClose = true;  // losing — cut Friday
+            else if(isFriday && isProfitable) {
+              L(`${p.market.instrumentName}: trend trade profitable (+${posPnlPct.toFixed(2)}%) — holding over weekend`);
+              shouldClose = false; // winning trend — hold the weekend
+            }
+          } else if(tradeType === 'breakout') {
+            if(daysHeld >= 15) shouldClose = true;
+            else if(isFriday && !isProfitable) shouldClose = true;
+            else if(isFriday && isProfitable) {
+              L(`${p.market.instrumentName}: breakout trade profitable (+${posPnlPct.toFixed(2)}%) — holding over weekend`);
+              shouldClose = false;
+            }
+          } else if(tradeType === 'directional') {
+            shouldClose = isFriday && !isProfitable;
+          } else {
+            shouldClose = true;
+          }
+          if(shouldClose) L(`${p.market.instrumentName}: closing (${tradeType}, ${daysHeld.toFixed(1)}d held, P&L ${posPnlPct.toFixed(2)}%)`);
 
           if(shouldClose){
             L(`EOD close: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d)`);
