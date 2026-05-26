@@ -17,6 +17,7 @@ module.exports = async (req, res) => {
   if (action === 'discover') return await runDiscovery(req, res);
   if (action === 'novel') return await runNovelDiscovery(req, res);
   if (action === 'aipatterns') return await runAIPatterns(req, res);
+  if (action === 'deepanalysis') return await runDeepAnalysis(req, res);
   return await sendWeeklyReview(req, res);
 };
 
@@ -1696,6 +1697,211 @@ async function runPairsBacktest(req, res) {
       },
       byExit,
       recentTrades: trades.slice(-15),
+      log
+    });
+
+  } catch(e) {
+    L('Error: ' + e.message);
+    return res.status(500).json({ error: e.message, log });
+  }
+}
+
+// ─── DEEP ANALYSIS — ALL RESOLUTIONS ─────────────────────────────────────────
+async function runDeepAnalysis(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const log = [];
+  const L = msg => { console.log('[DeepAnalysis]', msg); log.push(msg); };
+
+  const INSTRUMENTS = [
+    { name:'S&P 500',  epic:'IX.D.SPTRD.DAILY.IP' },
+    { name:'Nasdaq',   epic:'IX.D.NASDAQ.CASH.IP' },
+    { name:'FTSE 100', epic:'IX.D.FTSE.DAILY.IP' },
+    { name:'DAX 40',   epic:'IX.D.DAX.DAILY.IP' },
+    { name:'Gold',     epic:'CS.D.USCGC.TODAY.IP' },
+    { name:'Brent Oil',epic:'CC.D.LCO.USS.IP' },
+    { name:'GBP/USD',  epic:'CS.D.GBPUSD.TODAY.IP' },
+    { name:'EUR/USD',  epic:'CS.D.EURUSD.TODAY.IP' },
+    { name:'EUR/GBP',  epic:'CS.D.EURGBP.TODAY.IP' },
+    { name:'USD/JPY',  epic:'CS.D.USDJPY.TODAY.IP' },
+  ];
+
+  try {
+    const data = {};
+
+    for(const instr of INSTRUMENTS) {
+      data[instr.name] = {};
+
+      // Daily — last 90 days of returns
+      const daily = await sql`
+        SELECT close_price, candle_time::date as dt
+        FROM price_history
+        WHERE (epic=${instr.epic} OR instrument=${instr.name})
+        AND resolution='DAY' AND close_price>0.0001
+        ORDER BY candle_time DESC LIMIT 90`;
+
+      const dailyRows = daily.rows.reverse();
+      data[instr.name].daily = dailyRows.map((r,i) => {
+        if(i===0) return null;
+        const ret = ((parseFloat(r.close_price)-parseFloat(dailyRows[i-1].close_price))/parseFloat(dailyRows[i-1].close_price)*100).toFixed(2);
+        return { date: new Date(r.dt).toISOString().substring(0,10), ret: parseFloat(ret), close: parseFloat(r.close_price) };
+      }).filter(Boolean);
+
+      // Hourly — last 7 days, returns per hour
+      const hourly = await sql`
+        SELECT close_price, candle_time
+        FROM price_history
+        WHERE (epic=${instr.epic} OR instrument=${instr.name})
+        AND resolution='HOUR' AND close_price>0.0001
+        ORDER BY candle_time DESC LIMIT 56`;
+
+      const hourlyRows = hourly.rows.reverse();
+      data[instr.name].hourly = hourlyRows.map((r,i) => {
+        if(i===0) return null;
+        const ret = ((parseFloat(r.close_price)-parseFloat(hourlyRows[i-1].close_price))/parseFloat(hourlyRows[i-1].close_price)*100).toFixed(3);
+        return { time: new Date(r.candle_time).toISOString().substring(0,16), ret: parseFloat(ret) };
+      }).filter(Boolean);
+
+      // Minute — last 24 hours, 5-minute buckets (average to reduce noise)
+      const minute = await sql`
+        SELECT AVG(close_price) as close_price,
+               date_trunc('hour', candle_time) + INTERVAL '5 min' * FLOOR(EXTRACT(MINUTE FROM candle_time)/5) as bucket
+        FROM price_history
+        WHERE (epic=${instr.epic} OR instrument=${instr.name})
+        AND resolution='MINUTE' AND close_price>0.0001
+        AND candle_time > NOW() - INTERVAL '24 hours'
+        GROUP BY bucket ORDER BY bucket ASC`;
+
+      const minRows = minute.rows;
+      data[instr.name].minute5 = minRows.map((r,i) => {
+        if(i===0) return null;
+        const ret = ((parseFloat(r.close_price)-parseFloat(minRows[i-1].close_price))/parseFloat(minRows[i-1].close_price)*100).toFixed(4);
+        return { time: new Date(r.bucket).toISOString().substring(11,16), ret: parseFloat(ret) };
+      }).filter(Boolean);
+    }
+
+    L(`Data loaded for ${Object.keys(data).length} instruments across 3 resolutions`);
+
+    // Build compact summary for AI
+    // Daily: last 30 days returns matrix
+    const instrNames = Object.keys(data);
+    let dailySummary = 'DAILY RETURNS (last 30 days, %):\n';
+    dailySummary += instrNames.join(',') + '\n';
+    const maxDaily = Math.max(...instrNames.map(n => data[n].daily.length));
+    for(let i = Math.max(0, data[instrNames[0]].daily.length - 30); i < data[instrNames[0]].daily.length; i++) {
+      const row = instrNames.map(n => data[n].daily[i]?.ret ?? '0');
+      const date = data[instrNames[0]].daily[i]?.date || '';
+      dailySummary += date + ',' + row.join(',') + '\n';
+    }
+
+    // Hourly: last 48 hours
+    let hourlySummary = '\nHOURLY RETURNS (last 48 hours, %):\n';
+    hourlySummary += instrNames.join(',') + '\n';
+    instrNames.forEach(n => {
+      const last48 = data[n].hourly.slice(-48);
+      data[n]._hourly48 = last48;
+    });
+    const hourLen = Math.max(...instrNames.map(n => data[n]._hourly48.length));
+    for(let i = 0; i < hourLen; i++) {
+      const row = instrNames.map(n => data[n]._hourly48[i]?.ret ?? '0');
+      const time = data[instrNames[0]]._hourly48[i]?.time || '';
+      hourlySummary += time + ',' + row.join(',') + '\n';
+    }
+
+    // Minute: today only — show pattern of intraday moves
+    let minuteSummary = '\n5-MINUTE RETURNS TODAY (%):\n';
+    instrNames.forEach(n => {
+      const m5 = data[n].minute5;
+      if(m5.length > 0) {
+        const cumRet = m5.reduce((s,r) => s + r.ret, 0).toFixed(3);
+        const volatility = Math.sqrt(m5.reduce((s,r) => s + r.ret*r.ret, 0)/m5.length).toFixed(4);
+        const trend = m5.slice(-6).reduce((s,r) => s + r.ret, 0).toFixed(3); // last 30min
+        minuteSummary += `${n}: cumulative ${cumRet>0?'+':''}${cumRet}% | volatility ${volatility}%/5min | last 30min ${trend>0?'+':''}${trend}%\n`;
+      }
+    });
+
+    // Compute some derived stats
+    const correlations = {};
+    instrNames.forEach((a,ai) => instrNames.slice(ai+1).forEach(b => {
+      const retsA = data[a].daily.slice(-20).map(d=>d.ret);
+      const retsB = data[b].daily.slice(-20).map(d=>d.ret);
+      const n = Math.min(retsA.length, retsB.length);
+      if(n < 5) return;
+      const meanA = retsA.reduce((s,v)=>s+v,0)/n;
+      const meanB = retsB.reduce((s,v)=>s+v,0)/n;
+      let num=0,denA=0,denB=0;
+      for(let i=0;i<n;i++){num+=(retsA[i]-meanA)*(retsB[i]-meanB);denA+=Math.pow(retsA[i]-meanA,2);denB+=Math.pow(retsB[i]-meanB,2);}
+      const corr = (denA*denB)>0 ? num/Math.sqrt(denA*denB) : 0;
+      if(Math.abs(corr)>0.4) correlations[`${a}/${b}`] = parseFloat(corr.toFixed(3));
+    }));
+
+    // Momentum scores
+    const momentum = {};
+    instrNames.forEach(n => {
+      const d = data[n].daily;
+      if(d.length >= 5) {
+        momentum[n] = {
+          '1d': d[d.length-1]?.ret || 0,
+          '5d': d.slice(-5).reduce((s,r)=>s+r.ret,0),
+          '20d': d.slice(-20).reduce((s,r)=>s+r.ret,0),
+          'volatility': parseFloat(Math.sqrt(d.slice(-20).reduce((s,r)=>s+r.ret*r.ret,0)/20).toFixed(3))
+        };
+      }
+    });
+
+    L('Computed correlations and momentum scores');
+
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const prompt = `You are a quantitative analyst with no preconceptions. You have access to three resolutions of market data — daily (90 days), hourly (48 hours), and 5-minute (today only) — for 10 financial instruments.
+
+Your task: find ANY patterns, behaviours, or anomalies that could be predictive or tradeable. Look across all timeframes simultaneously. Be specific, cite numbers and times.
+
+DO NOT mention RSI, MACD, moving averages, Bollinger bands, or any standard technical indicator. I want observations about the RAW DATA only.
+
+${dailySummary}
+${hourlySummary}
+${minuteSummary}
+
+RECENT 20-DAY CORRELATIONS (only showing |r|>0.4):
+${Object.entries(correlations).map(([k,v])=>`${k}: ${v}`).join('\n')}
+
+MOMENTUM SCORES (cumulative %):
+${Object.entries(momentum).map(([n,m])=>`${n}: 1d=${m['1d']>0?'+':''}${m['1d'].toFixed(2)}% | 5d=${m['5d']>0?'+':''}${m['5d'].toFixed(2)}% | 20d=${m['20d']>0?'+':''}${m['20d'].toFixed(2)}% | vol=${m.volatility}%/day`).join('\n')}
+
+Find:
+1. Unusual intraday patterns visible in the 5-minute data today
+2. Any instrument showing abnormal behaviour vs its recent hourly pattern
+3. Cross-instrument relationships that appear or disappear between timeframes
+4. Any sequential patterns (e.g. instrument A moves, then B follows hours later)
+5. Volatility clustering — periods where multiple instruments simultaneously calm or spike
+6. Anything genuinely surprising that a human analyst might miss
+
+Be specific. Cite actual numbers and times. Max 700 words.`;
+
+    const aiRes = await fetch(`${base}/api/claude`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1200,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const aiData = await aiRes.json();
+    const analysis = aiData.content?.[0]?.text || 'No analysis returned';
+    L('AI analysis complete');
+
+    return res.status(200).json({
+      success: true,
+      analysis,
+      correlations,
+      momentum,
+      instruments: instrNames,
+      dataPoints: {
+        daily: data[instrNames[0]]?.daily?.length,
+        hourly: data[instrNames[0]]?._hourly48?.length,
+        minute5: data[instrNames[0]]?.minute5?.length,
+      },
       log
     });
 
