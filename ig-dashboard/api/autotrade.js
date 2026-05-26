@@ -1233,6 +1233,72 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     L(`${sig.instr}: size £${finalSz}/pt × ${tradeStopDist}pt stop = £${actualRisk} risk (${((parseFloat(actualRisk)/balance)*100).toFixed(1)}% of account)`);
     L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
 
+    // ── 1-MINUTE PULLBACK ENTRY ────────────────────────────────────────────────
+    // For trend/breakout signals: wait up to 2 hours for a better entry on 1m chart
+    // For MR signals: enter immediately (timing-sensitive, don't wait)
+    const usePullbackEntry = (isTrendTrade || isBreakoutTrade) && !sig.tdRsi;
+    let entryImproved = false;
+
+    if(usePullbackEntry) {
+      try {
+        // Check if we already have a pending entry for this instrument
+        const {sql:peSql} = require('@vercel/postgres');
+        const existing = await peSql`
+          SELECT * FROM pending_entries
+          WHERE epic=${sig.epic} AND status='waiting'
+          ORDER BY created_at DESC LIMIT 1`.catch(()=>({rows:[]}));
+
+        if(existing.rows.length === 0) {
+          // No pending entry — create one and wait
+          const currentPrice = sig.closes?.[sig.closes.length-1] || 0;
+          const targetEntry = sig.direction === 'BUY'
+            ? currentPrice * 0.998  // 0.2% pullback for buys
+            : currentPrice * 1.002; // 0.2% bounce for sells
+          const expiryTime = new Date(Date.now() + 2*60*60*1000).toISOString(); // 2hr limit
+
+          await peSql`
+            INSERT INTO pending_entries
+            (epic, instrument, direction, signal_price, target_entry, size, stop_dist,
+             trade_type, score, ai_confidence, ai_reasoning, expiry_time, status)
+            VALUES (${sig.epic}, ${sig.instr}, ${sig.direction}, ${currentPrice},
+            ${targetEntry}, ${finalSz}, ${tradeStopDist}, ${tradeType},
+            ${sig.score}, ${confidence}, ${reasoning}, ${expiryTime}, 'waiting')
+            ON CONFLICT DO NOTHING`.catch(()=>{});
+
+          L(`${sig.instr}: 📍 Pullback entry queued — waiting for ${sig.direction==='BUY'?'dip to':'bounce to'} ${targetEntry.toFixed(2)} (current: ${currentPrice.toFixed(2)}) — 2hr limit`);
+          return res.status(200).json({action:'pending_entry', instrument:sig.instr,
+            direction:sig.direction, targetEntry, currentPrice, log});
+
+        } else {
+          // Pending entry exists — check if price has reached target
+          const pe = existing.rows[0];
+          const hoursWaiting = (Date.now() - new Date(pe.created_at).getTime()) / (1000*60*60);
+          const currentPrice = sig.closes?.[sig.closes.length-1] || 0;
+          const targetReached = sig.direction === 'BUY'
+            ? currentPrice <= pe.target_entry
+            : currentPrice >= pe.target_entry;
+          const expired = new Date() > new Date(pe.expiry_time);
+
+          if(targetReached) {
+            L(`${sig.instr}: ✅ Pullback target reached at ${currentPrice.toFixed(2)} (was ${pe.signal_price}) — entering now`);
+            entryImproved = true;
+            // Mark as filled and proceed with entry below
+            await peSql`UPDATE pending_entries SET status='filled' WHERE id=${pe.id}`.catch(()=>{});
+          } else if(expired) {
+            L(`${sig.instr}: ⏱️ Pullback wait expired (${hoursWaiting.toFixed(1)}h) — entering at market`);
+            await peSql`UPDATE pending_entries SET status='expired' WHERE id=${pe.id}`.catch(()=>{});
+            // Proceed with market entry below
+          } else {
+            L(`${sig.instr}: ⏳ Waiting for pullback to ${pe.target_entry.toFixed(2)} (current: ${currentPrice.toFixed(2)}, ${hoursWaiting.toFixed(1)}h elapsed)`);
+            return res.status(200).json({action:'waiting_for_pullback', instrument:sig.instr,
+              targetEntry:pe.target_entry, currentPrice, hoursWaiting, log});
+          }
+        }
+      } catch(e) {
+        L(`Pullback entry check error: ${e.message} — entering at market`);
+      }
+    }
+
     try{
       const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
         expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
