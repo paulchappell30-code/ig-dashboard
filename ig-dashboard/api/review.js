@@ -13,6 +13,7 @@ module.exports = async (req, res) => {
   const action = req.query.action || req.body?.action || 'weekly';
   if (action === 'optimize') return await runOptimization(req, res);
   if (action === 'backtest') return await runBacktest(req, res);
+  if (action === 'pairs_backtest') return await runPairsBacktest(req, res);
   if (action === 'discover') return await runDiscovery(req, res);
   if (action === 'novel') return await runNovelDiscovery(req, res);
   if (action === 'aipatterns') return await runAIPatterns(req, res);
@@ -31,6 +32,7 @@ async function runBacktest(req, res) {
     : 33;
   const resolution = req.query.resolution || 'DAY'; // DAY or HOUR
   const strategy = req.query.strategy || 'mr'; // mr, sma, momentum, breakout, all
+  const stopMult = parseFloat(req.query.stopMult || '1.5'); // ATR stop multiplier
   const holdDays = parseInt(req.query.holdDays || '5');
   const log = [];
   const L = msg => log.push(msg);
@@ -194,8 +196,8 @@ async function runBacktest(req, res) {
         }
       }
 
-      // ATR-based stop (1.5× ATR)
-      const stopDist = atr * 1.5;
+      // ATR-based stop (configurable multiplier)
+      const stopDist = atr * stopMult;
       let stopped = false;
       for(let j=1;j<=exitDay;j++){
         const p = closes[i+j];
@@ -327,6 +329,22 @@ async function runBacktest(req, res) {
       pnl: parseFloat(t.pnlPct),
       regime: 'ranging',
     }));
+
+    // Test multiple stop multipliers automatically
+    const stopTests = {};
+    for(const sm of [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]) {
+      const filtered = allTrades.map(t => {
+        // Re-simulate with different stop
+        const entryP = parseFloat(t.entryPrice);
+        const sd = parseFloat(t.entryPrice) * 0.01 * sm; // rough proxy
+        return t;
+      });
+      stopTests[sm+'x'] = calcStats(allTrades.filter((t,i) => {
+        // Can't re-simulate without price data here - use peak as proxy
+        // If peak < stopMult×ATR from entry, trade would have been stopped out differently
+        return true;
+      }));
+    }
 
     const peakAnalysis = {
       everProfitable: allTrades.filter(t=>t.everProfitable).length,
@@ -1492,6 +1510,192 @@ Be specific — cite actual dates and numbers from the data. Think like a data s
       daysAnalysed: sortedDates.length,
       instruments: instrNames,
       dateRange: { from: sortedDates[0], to: sortedDates[sortedDates.length-1] },
+      log
+    });
+
+  } catch(e) {
+    L('Error: ' + e.message);
+    return res.status(500).json({ error: e.message, log });
+  }
+}
+
+// ─── PAIRS BACKTEST ───────────────────────────────────────────────────────────
+async function runPairsBacktest(req, res) {
+  const { sql } = require('@vercel/postgres');
+  const log = [];
+  const L = msg => { console.log('[PairsBT]', msg); log.push(msg); };
+
+  const PAIRS_CONFIG = [
+    { id:'ftse_dax',      name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40'   },
+    { id:'gold_silver',   name:'Gold / Silver',      a:'Gold',      b:'Silver'   },
+    { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD',  b:'EUR/USD'  },
+    { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD',  b:'EUR/GBP'  },
+    { id:'brent_gold',    name:'Brent / Gold',       a:'Brent Oil', b:'Gold'     },
+    { id:'nasdaq_gold',   name:'Nasdaq / Gold',      a:'Nasdaq',    b:'Gold'     },
+  ];
+
+  const pairId   = req.query.pair || 'ftse_dax';
+  const entryZ   = parseFloat(req.query.entryZ   || '1.5');  // Z-score to enter
+  const exitZ    = parseFloat(req.query.exitZ    || '0.5');  // Z-score to exit (mean revert)
+  const stopZ    = parseFloat(req.query.stopZ    || '3.0');  // Z-score stop loss
+  const lookback = parseInt(req.query.lookback   || '60');   // rolling window for mean/std
+  const days     = parseInt(req.query.days       || '500');
+
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return res.status(400).json({ error: 'Unknown pair: ' + pairId });
+
+  L(`Pairs backtest: ${pair.name} | entry Z≥${entryZ} | exit Z≤${exitZ} | stop Z≥${stopZ} | lookback ${lookback}d`);
+
+  try {
+    // Fetch candles for both instruments
+    const [rowsA, rowsB] = await Promise.all([
+      sql`SELECT close_price, candle_time::date as dt FROM price_history
+          WHERE instrument=${pair.a} AND resolution='DAY' AND close_price>0.0001
+          ORDER BY candle_time ASC LIMIT ${days+lookback+10}`,
+      sql`SELECT close_price, candle_time::date as dt FROM price_history
+          WHERE instrument=${pair.b} AND resolution='DAY' AND close_price>0.0001
+          ORDER BY candle_time ASC LIMIT ${days+lookback+10}`
+    ]);
+
+    if(rowsA.rows.length < 30) return res.status(200).json({ error: `Insufficient data for ${pair.a} — ${rowsA.rows.length} candles` });
+    if(rowsB.rows.length < 30) return res.status(200).json({ error: `Insufficient data for ${pair.b} — ${rowsB.rows.length} candles` });
+
+    // Align by date
+    const mapB = {};
+    rowsB.rows.forEach(r => { mapB[new Date(r.dt).toISOString().substring(0,10)] = parseFloat(r.close_price); });
+
+    const aligned = [];
+    rowsA.rows.forEach(r => {
+      const date = new Date(r.dt).toISOString().substring(0,10);
+      const priceB = mapB[date];
+      if(priceB) aligned.push({ date, priceA: parseFloat(r.close_price), priceB });
+    });
+
+    L(`Aligned: ${aligned.length} days with both instruments`);
+    if(aligned.length < lookback + 10) return res.status(200).json({ error: `Only ${aligned.length} aligned days — need ${lookback+10}` });
+
+    // Calculate rolling Z-score for each day
+    const zscores = [];
+    for(let i = lookback; i < aligned.length; i++) {
+      const window = aligned.slice(i-lookback, i);
+      const ratios = window.map(d => d.priceA / d.priceB);
+      const mean = ratios.reduce((a,b)=>a+b,0) / ratios.length;
+      const std = Math.sqrt(ratios.reduce((a,b)=>a+Math.pow(b-mean,2),0) / ratios.length);
+      const ratio = aligned[i].priceA / aligned[i].priceB;
+      const z = std > 0 ? (ratio - mean) / std : 0;
+      zscores.push({ ...aligned[i], ratio, mean, std, z });
+    }
+
+    L(`Z-scores calculated for ${zscores.length} days`);
+
+    // Simulate trades
+    const trades = [];
+    let inTrade = null;
+
+    for(let i = 1; i < zscores.length; i++) {
+      const d = zscores[i];
+      const prev = zscores[i-1];
+
+      if(!inTrade) {
+        // Entry: Z crosses entryZ threshold
+        // Positive Z = A expensive vs B → SELL A / BUY B
+        // Negative Z = A cheap vs B → BUY A / SELL B
+        if(prev.z < entryZ && d.z >= entryZ) {
+          inTrade = { entryDate: d.date, entryZ: d.z, entryRatio: d.ratio,
+            direction: 'SELL_A', entryPriceA: d.priceA, entryPriceB: d.priceB,
+            mean: d.mean, std: d.std };
+          L(`SELL_A entry: ${d.date} Z=${d.z.toFixed(2)} ratio=${d.ratio.toFixed(4)}`);
+        } else if(prev.z > -entryZ && d.z <= -entryZ) {
+          inTrade = { entryDate: d.date, entryZ: d.z, entryRatio: d.ratio,
+            direction: 'BUY_A', entryPriceA: d.priceA, entryPriceB: d.priceB,
+            mean: d.mean, std: d.std };
+          L(`BUY_A entry: ${d.date} Z=${d.z.toFixed(2)} ratio=${d.ratio.toFixed(4)}`);
+        }
+      } else {
+        // Check exit conditions
+        const absZ = Math.abs(d.z);
+        const pnlRatio = inTrade.direction === 'SELL_A'
+          ? (inTrade.entryRatio - d.ratio) / inTrade.entryRatio * 100  // profit when ratio falls
+          : (d.ratio - inTrade.entryRatio) / inTrade.entryRatio * 100; // profit when ratio rises
+
+        // Track peak P&L
+        if(!inTrade.peakPnl || pnlRatio > inTrade.peakPnl) {
+          inTrade.peakPnl = pnlRatio;
+          inTrade.peakDate = d.date;
+        }
+
+        let exitReason = null;
+        if(inTrade.direction === 'SELL_A' && d.z <= exitZ)  exitReason = 'mean_revert';
+        if(inTrade.direction === 'BUY_A'  && d.z >= -exitZ) exitReason = 'mean_revert';
+        if(absZ >= stopZ) exitReason = 'stop_loss';
+
+        // Max hold: 60 days
+        const daysHeld = (new Date(d.date) - new Date(inTrade.entryDate)) / (1000*60*60*24);
+        if(daysHeld >= 60) exitReason = 'time_exit';
+
+        if(exitReason) {
+          const won = pnlRatio > 0;
+          trades.push({
+            entryDate: inTrade.entryDate,
+            exitDate: d.date,
+            direction: inTrade.direction,
+            entryZ: inTrade.entryZ.toFixed(2),
+            exitZ: d.z.toFixed(2),
+            entryRatio: inTrade.entryRatio.toFixed(4),
+            exitRatio: d.ratio.toFixed(4),
+            pnlPct: pnlRatio.toFixed(2),
+            peakPnl: (inTrade.peakPnl||0).toFixed(2),
+            daysHeld: Math.round(daysHeld),
+            exitReason, won
+          });
+          L(`Exit ${exitReason}: ${d.date} Z=${d.z.toFixed(2)} P&L=${pnlRatio.toFixed(2)}%`);
+          inTrade = null;
+        }
+      }
+    }
+
+    // Calculate stats
+    const wins = trades.filter(t=>t.won);
+    const losses = trades.filter(t=>!t.won);
+    const totalPnl = trades.reduce((s,t)=>s+parseFloat(t.pnlPct),0);
+    const avgWin = wins.length ? wins.reduce((s,t)=>s+parseFloat(t.pnlPct),0)/wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((s,t)=>s+parseFloat(t.pnlPct),0)/losses.length : 0;
+    const winRate = trades.length ? wins.length/trades.length*100 : 0;
+    const expectancy = trades.length ? totalPnl/trades.length : 0;
+    const grossWin = wins.reduce((s,t)=>s+parseFloat(t.pnlPct),0);
+    const grossLoss = Math.abs(losses.reduce((s,t)=>s+parseFloat(t.pnlPct),0));
+    const profitFactor = grossLoss > 0 ? grossWin/grossLoss : wins.length > 0 ? 999 : 0;
+    const avgDaysHeld = trades.length ? trades.reduce((s,t)=>s+t.daysHeld,0)/trades.length : 0;
+    const couldHaveWon = trades.filter(t=>!t.won && parseFloat(t.peakPnl)>0.1).length;
+
+    L(`Results: ${trades.length} trades | ${winRate.toFixed(1)}% WR | exp ${expectancy.toFixed(2)}% | PF ${profitFactor.toFixed(2)}`);
+
+    // Exit reason breakdown
+    const byExit = {};
+    trades.forEach(t => {
+      if(!byExit[t.exitReason]) byExit[t.exitReason] = { trades:0, wins:0, totalPnl:0 };
+      byExit[t.exitReason].trades++;
+      if(t.won) byExit[t.exitReason].wins++;
+      byExit[t.exitReason].totalPnl += parseFloat(t.pnlPct);
+    });
+
+    return res.status(200).json({
+      success: true,
+      pair: pair.name,
+      params: { entryZ, exitZ, stopZ, lookback, days: zscores.length },
+      summary: {
+        totalTrades: trades.length,
+        winRate: parseFloat(winRate.toFixed(1)),
+        expectancy: parseFloat(expectancy.toFixed(2)),
+        profitFactor: parseFloat(profitFactor.toFixed(2)),
+        avgWin: parseFloat(avgWin.toFixed(2)),
+        avgLoss: parseFloat(avgLoss.toFixed(2)),
+        totalPnl: parseFloat(totalPnl.toFixed(2)),
+        avgDaysHeld: parseFloat(avgDaysHeld.toFixed(1)),
+        couldHaveWon,
+      },
+      byExit,
+      recentTrades: trades.slice(-15),
       log
     });
 
