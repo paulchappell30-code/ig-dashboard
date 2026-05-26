@@ -1808,6 +1808,77 @@ function renderPairsChart(pairId) {
   ctx.fillText(`${pair.name} spread ratio`, pad.l, 14);
 }
 
+// ─── PAIRS BACKTEST ──────────────────────────────────────────────────────────
+async function runPairsBacktest() {
+  document.getElementById('pbt-results').style.display='none';
+  document.getElementById('pbt-error').style.display='none';
+  document.getElementById('pbt-loading').style.display='inline';
+  try {
+    const pair    = document.getElementById('pbt-pair').value;
+    const entryZ  = document.getElementById('pbt-entry').value;
+    const exitZ   = document.getElementById('pbt-exit').value;
+    const stopZ   = document.getElementById('pbt-stop').value;
+    const lookback= document.getElementById('pbt-lookback').value;
+    const days    = document.getElementById('pbt-days').value;
+
+    const r = await fetch(`/api/review?action=pairs_backtest&pair=${pair}&entryZ=${entryZ}&exitZ=${exitZ}&stopZ=${stopZ}&lookback=${lookback}&days=${days}`);
+    const d = await r.json();
+    document.getElementById('pbt-loading').style.display='none';
+
+    if(d.error) {
+      document.getElementById('pbt-error-msg').textContent = d.error;
+      document.getElementById('pbt-error').style.display='block';
+      return;
+    }
+
+    const s = d.summary;
+    const wrEl = document.getElementById('pbt-wr');
+    const expEl = document.getElementById('pbt-exp');
+    const pfEl  = document.getElementById('pbt-pf');
+
+    document.getElementById('pbt-trades').textContent = s.totalTrades;
+    document.getElementById('pbt-hold').textContent = s.avgDaysHeld;
+    if(wrEl)  { wrEl.textContent=s.winRate+'%';  wrEl.className='value '+(s.winRate>=60?'pos':s.winRate>=50?'':'neg'); }
+    if(expEl) { expEl.textContent=(s.expectancy>=0?'+':'')+s.expectancy+'%'; expEl.className='value '+(s.expectancy>=0?'pos':'neg'); }
+    if(pfEl)  { pfEl.textContent=s.profitFactor+'x'; pfEl.className='value '+(s.profitFactor>=1.5?'pos':s.profitFactor>=1?'':'neg'); }
+
+    // By exit reason
+    document.getElementById('pbt-exits').innerHTML = Object.entries(d.byExit||{}).map(([reason, stats]) =>
+      `<div class="signal-item">
+        <div><div style="font-weight:500">${reason.replace('_',' ')}</div>
+        <div style="font-size:11px;color:var(--text2)">${stats.trades} trades | ${(stats.wins/stats.trades*100).toFixed(0)}% WR</div></div>
+        <div class="${stats.totalPnl>=0?'pos':'neg'}">${stats.totalPnl>=0?'+':''}${stats.totalPnl.toFixed(2)}%</div>
+      </div>`
+    ).join('') || '<div class="empty">No trades</div>';
+
+    // Recent trades
+    document.getElementById('pbt-trades-list').innerHTML = (d.recentTrades||[]).map(t => `
+      <tr>
+        <td style="font-size:11px">${String(t.entryDate||'').substring(5)}</td>
+        <td style="font-size:11px">${String(t.exitDate||'').substring(5)}</td>
+        <td><span class="badge ${t.direction==='BUY_A'?'badge-buy':'badge-sell'}" style="font-size:10px">${t.direction==='BUY_A'?'BUY A':'SELL A'}</span></td>
+        <td style="font-size:11px;color:var(--text2)">${t.entryZ}σ</td>
+        <td style="font-size:11px;color:var(--text2)">${t.exitZ}σ</td>
+        <td style="font-size:11px">${t.daysHeld}d</td>
+        <td class="${parseFloat(t.pnlPct)>=0?'pos':'neg'}" style="font-size:11px">${parseFloat(t.pnlPct)>=0?'+':''}${t.pnlPct}%</td>
+        <td style="font-size:11px;color:var(--green)">+${t.peakPnl}%</td>
+      </tr>`).join('');
+
+    // Interpretation
+    document.getElementById('pbt-interpretation').innerHTML = `
+      <p><strong>Pair:</strong> ${d.pair} | <strong>Params:</strong> Entry ±${entryZ}σ | Exit ±${exitZ}σ | Stop ±${stopZ}σ | ${lookback}d lookback</p>
+      <p><strong>Edge:</strong> ${s.expectancy>0.5?'<span style="color:var(--green)">Positive — worth trading</span>':s.expectancy>0?'Marginal — monitor closely':'<span style="color:var(--red)">No edge — do not trade</span>'}</p>
+      <p><strong>Could have won:</strong> ${s.couldHaveWon} trades went positive but closed negative</p>
+      <p style="margin-top:8px;font-size:12px;color:var(--text3)">${d.log?.slice(-2).join(' · ')}</p>`;
+
+    document.getElementById('pbt-results').style.display='block';
+  } catch(e) {
+    document.getElementById('pbt-loading').style.display='none';
+    document.getElementById('pbt-error-msg').textContent = 'Error: '+e.message;
+    document.getElementById('pbt-error').style.display='block';
+  }
+}
+
 // Auto-load when pairs tab shown
 const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
 document.addEventListener('DOMContentLoaded', () => {
