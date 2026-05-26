@@ -296,15 +296,27 @@ module.exports = async (req, res) => {
 
             let inserted = 0; let skipped = 0;
             const scale = instr.scale || 1;
-            for (const c of candles) {
+            const epic = EPIC_MAP_M[instr.name] || '';
+
+            // Filter to new candles only
+            const newCandles = candles.filter(c => {
               const timeKey = c.time.substring(0,16);
-              if (existingTimes.has(timeKey)) { skipped++; continue; }
-              await sql`INSERT INTO price_history
-                (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
-                VALUES (${EPIC_MAP_M[instr.name]||''},${instr.name},'MINUTE',${c.time}::timestamptz,
-                ${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})
-                ON CONFLICT DO NOTHING`;
-              inserted++;
+              return !existingTimes.has(timeKey);
+            });
+            skipped = candles.length - newCandles.length;
+
+            // Batch insert in chunks of 100 to avoid timeout
+            const BATCH = 100;
+            for(let b = 0; b < newCandles.length; b += BATCH) {
+              const chunk = newCandles.slice(b, b + BATCH);
+              const vals = chunk.map(c =>
+                `('${epic}','${instr.name}','MINUTE','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})`
+              ).join(',');
+              await sql.query(
+                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+                 VALUES ${vals} ON CONFLICT DO NOTHING`
+              );
+              inserted += chunk.length;
             }
             L(`${instr.name}: ${inserted} inserted, ${skipped} skipped (${candles.length} total)`);
             totalInserted += inserted; totalSkipped += skipped;
@@ -384,15 +396,25 @@ module.exports = async (req, res) => {
 
             let inserted = 0; let skipped = 0;
             const scale = instr.scale || 1;
-            for (const c of candles) {
+            const epicH = EPIC_MAP_H[instr.name] || '';
+
+            const newCandlesH = candles.filter(c => {
               const timeKey = c.time.substring(0,16);
-              if (existingTimes.has(timeKey)) { skipped++; continue; }
-              await sql`INSERT INTO price_history
-                (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
-                VALUES (${EPIC_MAP_H[instr.name]||''},${instr.name},'HOUR',${c.time}::timestamptz,
-                ${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})
-                ON CONFLICT DO NOTHING`;
-              inserted++;
+              return !existingTimes.has(timeKey);
+            });
+            skipped = candles.length - newCandlesH.length;
+
+            const BATCH_H = 100;
+            for(let b = 0; b < newCandlesH.length; b += BATCH_H) {
+              const chunk = newCandlesH.slice(b, b + BATCH_H);
+              const vals = chunk.map(c =>
+                `('${epicH}','${instr.name}','HOUR','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale})`
+              ).join(',');
+              await sql.query(
+                `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+                 VALUES ${vals} ON CONFLICT DO NOTHING`
+              );
+              inserted += chunk.length;
             }
             L(`${instr.name}: ${inserted} inserted, ${skipped} skipped (${candles.length} total)`);
             totalInserted += inserted; totalSkipped += skipped;
