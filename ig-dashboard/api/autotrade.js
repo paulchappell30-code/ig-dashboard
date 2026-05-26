@@ -1405,7 +1405,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
             const base2 = process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
             const aiR = await fetch(`${base2}/api/claude`,{method:'POST',
               headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:150,
+              body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:150,
                 messages:[{role:'user',content:pairsPrompt}]})});
             if(aiR.ok){
               const aiD = await aiR.json();
