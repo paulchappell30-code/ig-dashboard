@@ -58,20 +58,22 @@ const CORRELATION_GROUPS = {
 
 // Pairs trading definitions — FX and indices only (live prices available)
 const PAIRS_DEFINITIONS = [
-  // Backtest: 83.3% WR, PF 10.41, +0.71% exp at 2σ entry — BEST PAIR
+  // Backtest: 92.3% WR, PF 13.0, +0.68% exp at 1.75σ entry — OPTIMAL
   { id:'gbpusd_eurusd', instrA:'GBP/USD', instrB:'EUR/USD',
     epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP',
-    minDays:60, entryZ:2.0, exitZ:0.25, stopZ:3.5,
-    description:'GBP/USD vs EUR/USD — dollar pairs, very high WR' },
-  // Backtest: 70% WR, PF 1.48, +1.8% exp — optimal at 1.5σ entry
+    minDays:60, entryZ:1.75, exitZ:0.25, stopZ:3.5,
+    description:'GBP/USD vs EUR/USD — dollar pairs, 92.3% WR at 1.75σ' },
+  // Backtest: 60% WR, PF 1.68, +2.02% exp — grid search optimal 1.75σ/1.0σ
   { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
     epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    minDays:60, entryZ:1.5, exitZ:0.5, stopZ:2.5,
-    description:'Brent vs Gold — regime-driven, avoid 2σ+ entries' },
-  // Backtest: 27.3% WR — DISABLED, no edge
-  // { id:'ftse_dax' ... }
-  // Backtest: 66.7% WR but negative expectancy — DISABLED
-  // { id:'eurusd_eurgbp' ... }
+    minDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
+    description:'Brent vs Gold — hold until 1σ reversion, exit early loses edge' },
+  // Backtest: 75% WR, +1.03% exp at 2.5σ — re-enabled at extreme entry only
+  { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
+    epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
+    minDays:60, entryZ:2.5, exitZ:1.0, stopZ:3.5,
+    description:'EUR triangular relationship — only trade extreme 2.5σ dislocations' },
+  // FTSE/DAX: 27.3% WR — permanently disabled
 ];
 
 const TRADING_HOURS = {
@@ -96,7 +98,7 @@ const DEFAULT_CONFIG = {
   pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
   pairsZStop:3.5,       // Z-score stop loss level
   pairsZTarget:0.5,     // Z-score target (close when reverts to this)
-  pairsMaxSlots:2,      // Max simultaneous pairs trades (increased — strong edge)
+  pairsMaxSlots:3,      // Max simultaneous pairs trades (3 pairs now active)
   pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
   // Note: pairs risk is split across two legs so effective single-leg risk is 2%
   // At 4% with £526 balance = £21 risk per pairs trade
