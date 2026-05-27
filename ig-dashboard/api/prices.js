@@ -240,6 +240,54 @@ module.exports = async (req, res) => {
 
   addLog(`Collection complete. Total candles stored: ${totalStored}`);
 
+  // ── SUPPLEMENT DAILY VOLUME FROM YAHOO FINANCE ───────────────────────────
+  // IG API doesn't provide volume — fetch yesterday's volume from Yahoo
+  const YAHOO_VOLUME_MAP = [
+    { name:'FTSE 100',  ticker:'%5EFTSE' },
+    { name:'S&P 500',   ticker:'%5EGSPC' },
+    { name:'DAX 40',    ticker:'%5EGDAXI' },
+    { name:'Nasdaq',    ticker:'%5EIXIC' },
+    { name:'Gold',      ticker:'GC%3DF' },
+    { name:'Brent Oil', ticker:'BZ%3DF' },
+    { name:'GBP/USD',   ticker:'GBPUSD%3DX' },
+    { name:'EUR/USD',   ticker:'EURUSD%3DX' },
+    { name:'EUR/GBP',   ticker:'EURGBP%3DX' },
+    { name:'USD/JPY',   ticker:'USDJPY%3DX' },
+  ];
+
+  let volUpdated = 0;
+  try {
+    for(const instr of YAHOO_VOLUME_MAP) {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${instr.ticker}?interval=1d&range=5d`;
+        const yr = await fetch(url, { headers:{'User-Agent':'Mozilla/5.0'} });
+        if(!yr.ok) continue;
+        const yd = await yr.json();
+        const chart = yd.chart?.result?.[0];
+        if(!chart) continue;
+
+        const timestamps = chart.timestamp || [];
+        const volumes = chart.indicators?.quote?.[0]?.volume || [];
+
+        // Update volume for the last 2 days in price_history
+        for(let i = Math.max(0, timestamps.length-2); i < timestamps.length; i++) {
+          const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10);
+          const vol = volumes[i];
+          if(!vol || vol <= 0) continue;
+          await sql`
+            UPDATE price_history SET volume=${vol}
+            WHERE instrument=${instr.name} AND resolution='DAY'
+            AND candle_time::date = ${dt}::date AND (volume IS NULL OR volume = 0)`;
+          volUpdated++;
+        }
+        await new Promise(r => setTimeout(r, 200));
+      } catch(e) { /* skip instrument on error */ }
+    }
+    addLog(`Volume supplement: updated ${volUpdated} daily candles from Yahoo`);
+  } catch(e) {
+    addLog(`Volume supplement error: ${e.message}`);
+  }
+
   return res.status(200).json({
     success: true,
     totalStored,
