@@ -1300,13 +1300,21 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     // ── 1-MINUTE PULLBACK ENTRY ────────────────────────────────────────────────
     // For trend/breakout signals: wait up to 2 hours for a better entry on 1m chart
     // For MR signals: enter immediately (timing-sensitive, don't wait)
+    // Pullback entry — waits for 0.2% dip before entering trend/breakout trades
+    // Requires pending_entries table (created via Init DB in Journal tab)
     const usePullbackEntry = (isTrendTrade || isBreakoutTrade) && !sig.tdRsi;
     let entryImproved = false;
 
     if(usePullbackEntry) {
       try {
-        // Check if we already have a pending entry for this instrument
+        // Check if pending_entries table exists first
         const {sql:peSql} = require('@vercel/postgres');
+        const tableCheck = await peSql`SELECT 1 FROM pending_entries LIMIT 1`.catch(()=>null);
+        if(!tableCheck) {
+          L(`${sig.instr}: pending_entries table not ready — entering at market`);
+          throw new Error('table_not_ready'); // fall through to market order
+        }
+
         const existing = await peSql`
           SELECT * FROM pending_entries
           WHERE epic=${sig.epic} AND status='waiting'
@@ -1359,7 +1367,10 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           }
         }
       } catch(e) {
-        L(`Pullback entry check error: ${e.message} — entering at market`);
+        if(e.message !== 'table_not_ready') {
+          L(`Pullback entry check error: ${e.message} — entering at market`);
+        }
+        // Fall through to market order below
       }
     }
 
