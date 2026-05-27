@@ -61,6 +61,20 @@ module.exports = async (req, res) => {
         } catch(e) { return res.status(200).json({ error: e.message, candles: [] }); }
       }
 
+      if (action === 'pairs_trades') {
+        const limit = parseInt(req.query.limit) || 50;
+        try {
+          const result = await sql`
+            SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
+                   size_a, size_b, entry_z, stop_z, target_z, close_z,
+                   close_reason, ai_confidence, status, opened_at, closed_at
+            FROM pairs_trades
+            ORDER BY opened_at DESC
+            LIMIT ${limit}`;
+          return res.status(200).json({ pairs_trades: result.rows });
+        } catch(e) { return res.status(200).json({ error: e.message, pairs_trades: [] }); }
+      }
+
       if (action === 'tdcache') {
         try {
           const row = await sql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
