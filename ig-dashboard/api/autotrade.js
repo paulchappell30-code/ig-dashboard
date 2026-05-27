@@ -1684,16 +1684,32 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           // (multi-day positions shouldn't be blocked by intraday P&L)
           const riskAmt = balance * cfg.pairsRiskPct;
           const zStopDist = pair.stopZ - absZ; // σ distance to stop (per-pair threshold)
-          // Get current prices for sizing
+          // Get current prices for sizing — IG market snapshot primary, DB candle fallback
           const [priceFeedA, priceFeedB] = await Promise.all([
             fetch(`${igBase}/markets/${pair.epicA}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
             fetch(`${igBase}/markets/${pair.epicB}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
           ]);
-          const priceA = priceFeedA?.snapshot?.bid || 0;
-          const priceB = priceFeedB?.snapshot?.bid || 0;
+          let priceA = priceFeedA?.snapshot?.bid || 0;
+          let priceB = priceFeedB?.snapshot?.bid || 0;
           const minStopA = priceFeedA?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
           const minStopB = priceFeedB?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
-          if(!priceA || !priceB){ L('Pairs: could not get prices'); continue; }
+
+          // Fallback to last DB candle close if IG snapshot unavailable
+          if(!priceA || !priceB) {
+            try {
+              const {sql: priceSql} = require('@vercel/postgres');
+              if(!priceA) {
+                const rA = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrA} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
+                if(rA.rows.length) { priceA = parseFloat(rA.rows[0].close_price); L(`Pairs: ${pair.instrA} using DB price ${priceA} (IG snapshot unavailable)`); }
+              }
+              if(!priceB) {
+                const rB = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrB} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
+                if(rB.rows.length) { priceB = parseFloat(rB.rows[0].close_price); L(`Pairs: ${pair.instrB} using DB price ${priceB} (IG snapshot unavailable)`); }
+              }
+            } catch(e) { L(`Pairs: DB price fallback error — ${e.message}`); }
+          }
+
+          if(!priceA || !priceB){ L(`Pairs: could not get prices for ${pair.instrA}/${pair.instrB} — skipping`); continue; }
 
           // Stop distance in points = zStopDist * σ * priceB (approx)
           const pzStats = pairsZScores[pair.instrA];
