@@ -1533,6 +1533,15 @@ async function runPairsBacktest(req, res) {
     { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD',  b:'EUR/GBP'  },
     { id:'brent_gold',    name:'Brent / Gold',       a:'Brent Oil', b:'Gold'     },
     { id:'nasdaq_gold',   name:'Nasdaq / Gold',      a:'Nasdaq',    b:'Gold'     },
+    { id:'nasdaq_sp500',  name:'Nasdaq / S&P 500',   a:'Nasdaq',    b:'S&P 500'  },
+    { id:'dax_cac',       name:'DAX / CAC 40',       a:'DAX 40',    b:'CAC 40'   },
+    { id:'ftse_sp500',    name:'FTSE / S&P 500',     a:'FTSE 100',  b:'S&P 500'  },
+    { id:'gbpusd_usdjpy', name:'GBP/USD vs USD/JPY', a:'GBP/USD',  b:'USD/JPY'  },
+    { id:'silver_gold',   name:'Silver / Gold ratio', a:'Silver',   b:'Gold'     },
+    { id:'copper_gold',   name:'Copper / Gold',      a:'Copper',    b:'Gold'     },
+    { id:'sp500_brent',   name:'S&P 500 / Brent',    a:'S&P 500',  b:'Brent Oil'},
+    { id:'dow_sp500',     name:'Dow / S&P 500',      a:'Dow Jones', b:'S&P 500'  },
+    { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY', a:'EUR/USD',  b:'USD/JPY'  },
   ];
 
   const pairId   = req.query.pair || 'ftse_dax';
