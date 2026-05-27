@@ -309,6 +309,21 @@ async function fetchNews(L) {
 }
 
 async function managePositions(openPos, igBase, igH, cfg, balance, L) {
+  const {sql: mgSql} = require('@vercel/postgres');
+
+  // Load partial_close flags from DB for all open positions in one query
+  const dealIds = openPos.map(p => p.position.dealId).filter(Boolean);
+  let partialClosedSet = new Set();
+  try {
+    if (dealIds.length > 0) {
+      const pcRows = await mgSql`
+        SELECT deal_id FROM trades
+        WHERE deal_id = ANY(${dealIds})
+        AND partial_close = true`;
+      pcRows.rows.forEach(r => partialClosedSet.add(r.deal_id));
+    }
+  } catch(e) { L('Partial close DB check error: ' + e.message); }
+
   for (const p of openPos) {
     try {
       const epic = p.market.epic;
@@ -317,15 +332,16 @@ async function managePositions(openPos, igBase, igH, cfg, balance, L) {
       const openLevel = p.position.openLevel;
       const current = p.market.bid || openLevel;
       const upl = dir === 'BUY' ? (current - openLevel) * sz : (openLevel - current) * sz;
+      const dealId = p.position.dealId;
 
-      // Partial close: if profit >= 1x ATR close 50%
+      // Partial close: if profit >= 1x ATR close 50% — only once per trade (DB-persisted flag)
       const dbEpic = DB_EPIC_MAP[epic] || epic;
       const closes = await getDbPrices(dbEpic, 20, L) || [];
       const atr = closes.length >= 5 ? calcATR(closes) : 50;
       const atrProfit = atr * sz;
 
       if (upl > 0 && sz >= 0.01) {
-        if (upl >= atrProfit && !p.position.partialClosed) {
+        if (upl >= atrProfit && !partialClosedSet.has(dealId)) {
           const halfSize = parseFloat((sz / 2).toFixed(2));
           if (halfSize >= 0.01) {
             L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close £${halfSize}/pt`);
@@ -337,9 +353,18 @@ async function managePositions(openPos, igBase, igH, cfg, balance, L) {
                 method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(closeBody)
               });
               const cd = await cr.json();
-              if (cd.dealReference) L(`Partial close confirmed: ${cd.dealReference}`);
+              if (cd.dealReference) {
+                L(`Partial close confirmed: ${cd.dealReference}`);
+                // Persist flag to DB so subsequent cron runs don't re-fire
+                try {
+                  await mgSql`UPDATE trades SET partial_close = true WHERE deal_id = ${dealId}`;
+                  partialClosedSet.add(dealId); // update in-memory set for this run too
+                } catch(e) { L('Partial close DB update error: ' + e.message); }
+              }
             } catch(e) { L('Partial close error: ' + e.message); }
           }
+        } else if (partialClosedSet.has(dealId)) {
+          L(`${p.market.instrumentName}: partial close already done — holding remainder`);
         }
       }
     } catch(e) { L('Position manage error: ' + e.message); }
