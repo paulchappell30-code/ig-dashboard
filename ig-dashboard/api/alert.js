@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const auth = req.headers['authorization'] || '';
-  const cronSecret = process.env.CRON_SECRET || 'BBpass1-';
+  const cronSecret = process.env.CRON_SECRET || 'Bambip49';
   if (req.method === 'POST' && !auth.includes(cronSecret)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -78,11 +78,9 @@ module.exports = async (req, res) => {
       const rsi = parseFloat(rsiData.values?.[0]?.rsi);
       if (isNaN(rsi)) { L(`${instr.instr}: no RSI value`); continue; }
 
-      await new Promise(r => setTimeout(r, 2000));
-
       // MACD removed — saves 4 TD credits per run, calculated locally from DB candles
-      tdCache[instr.instr] = { rsi, macd: isNaN(macd) ? null : macd, signal: isNaN(macdSignal) ? null : macdSignal };
-      L(`${instr.instr}: RSI ${rsi.toFixed(1)}${macd != null ? ' MACD ' + macd.toFixed(4) : ''}`);
+      tdCache[instr.instr] = { rsi, macd: null, signal: null };
+      L(`${instr.instr}: RSI ${rsi.toFixed(1)}`);
 
       if (rsi <= RSI_OVERSOLD || rsi >= RSI_OVERBOUGHT) {
         const direction = rsi <= RSI_OVERSOLD ? 'oversold' : 'overbought';
