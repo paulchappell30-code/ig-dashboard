@@ -84,9 +84,13 @@ const PAIRS_DEFINITIONS = [
     description:'Dow vs S&P 500 — US mega-cap divergence, 81.8% WR at 2.25σ ⭐' },
   // Grid search: score 21.33 | 72.7% WR | 3.17% exp | 11 trades over 500d
   // lookbackDays 90: lookback sweep shows 90d score 39.66 vs 21.33 at 60d — macro cycle pair
+  // dbPriceScale: Yahoo stores Copper in USc/lb (*100 vs IG pence/lb), Gold in USD/oz (×100 for pence)
+  // Ratio is internally consistent for Z-score but live IG prices must be used for sizing
   { id:'copper_gold', instrA:'Copper', instrB:'Gold',
     epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
     minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.25, stopZ:3.0,
+    dbPriceScaleA: 1.0,   // Copper DB price ~636 pence/lb — close to IG units, use as-is
+    dbPriceScaleB: 0.073, // Gold DB price ~4524 USD/oz → ×0.073 ≈ 330 pence/oz (approx GBP/100)
     description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
   // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
   // lookbackDays 60: confirmed optimal in lookback sweep (score 17.1 vs 1.27 at 90d)
@@ -1725,16 +1729,32 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
               const {sql: priceSql} = require('@vercel/postgres');
               if(!priceA) {
                 const rA = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrA} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
-                if(rA.rows.length) { priceA = parseFloat(rA.rows[0].close_price); L(`Pairs: ${pair.instrA} using DB price ${priceA} (IG snapshot unavailable)`); }
+                if(rA.rows.length) {
+                  const raw = parseFloat(rA.rows[0].close_price);
+                  priceA = raw * (pair.dbPriceScaleA || 1.0);
+                  L(`Pairs: ${pair.instrA} using DB price ${priceA.toFixed(1)} (scaled from ${raw}, IG snapshot unavailable)`);
+                }
               }
               if(!priceB) {
                 const rB = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrB} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
-                if(rB.rows.length) { priceB = parseFloat(rB.rows[0].close_price); L(`Pairs: ${pair.instrB} using DB price ${priceB} (IG snapshot unavailable)`); }
+                if(rB.rows.length) {
+                  const raw = parseFloat(rB.rows[0].close_price);
+                  priceB = raw * (pair.dbPriceScaleB || 1.0);
+                  L(`Pairs: ${pair.instrB} using DB price ${priceB.toFixed(1)} (scaled from ${raw}, IG snapshot unavailable)`);
+                }
               }
             } catch(e) { L(`Pairs: DB price fallback error — ${e.message}`); }
           }
 
           if(!priceA || !priceB){ L(`Pairs: could not get prices for ${pair.instrA}/${pair.instrB} — skipping`); continue; }
+
+          // Safety: if using scaled DB prices for a commodity pair, skip execution
+          // DB unit scaling is approximate — only trade with confirmed live IG prices
+          const usingDbFallback = (!priceFeedA?.snapshot?.bid || !priceFeedB?.snapshot?.bid);
+          if(usingDbFallback && (pair.dbPriceScaleA !== undefined || pair.dbPriceScaleB !== undefined)) {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — commodity pair requires live IG prices for sizing, skipping until market open`);
+            continue;
+          }
 
           // Stop distance in points = zStopDist * σ * priceB (approx)
           const pzStats = pairsZScores[pair.instrA];
