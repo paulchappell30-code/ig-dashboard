@@ -1,7 +1,7 @@
 // ─── RSI ALERT TRIGGER ────────────────────────────────────────────────────────
-// Sole TD data source — fetches RSI/MACD for FX pairs, saves to DB cache,
-// triggers full engine if RSI extreme detected (≤33 or ≥67)
-// Cron: */2 8-17 * * 1-5 (every 2 mins during market hours)
+// Sole TD data source — fetches RSI for FX pairs, saves to DB cache
+// Cron: 0 8,12,16 * * 1-5 (8am, 12pm, 4pm UTC weekdays — ~12 TD credits/day)
+// 4-hour cache TTL means autotrade always has fresh-enough data within trading hours
 // Autotrade reads DB cache only — never fetches TD directly
 
 const fetch = require('node-fetch');
