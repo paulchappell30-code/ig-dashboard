@@ -298,7 +298,7 @@ module.exports = async (req, res) => {
               const dt = new Date(row.dt).toISOString().substring(0,10);
               const vol = volMap[dt];
               if(vol) {
-                await sql`UPDATE price_history SET volume=${vol} WHERE id=${row.id}`;
+                await sql`UPDATE price_history SET volume=${String(vol)} WHERE id=${row.id}`;
                 updated++;
               }
             }
@@ -391,7 +391,7 @@ module.exports = async (req, res) => {
             for(let b = 0; b < newCandles.length; b += BATCH) {
               const chunk = newCandles.slice(b, b + BATCH);
               const vals = chunk.map(c =>
-                `('${epic}','${instr.name}','MINUTE','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale},${Math.round(c.volume||0)})`
+                `('${epic}','${instr.name}','MINUTE','${c.time}',${c.open*scale},${c.high*scale},${c.low*scale},${c.close*scale},${Math.round(c.volume||0).toString()})`
               ).join(',');
               await sql.query(
                 `INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price,volume)
@@ -751,6 +751,7 @@ async function initTables() {
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_type VARCHAR(20) DEFAULT 'hourly_mr'",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS close_reason VARCHAR(30)",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pyramid_added BOOLEAN DEFAULT false",
+    "ALTER TABLE price_history ALTER COLUMN volume TYPE BIGINT",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS ai_was_correct BOOLEAN",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS holding_minutes INTEGER",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false",
@@ -790,7 +791,7 @@ async function initTables() {
       high_price DECIMAL(15,4),
       low_price DECIMAL(15,4),
       close_price DECIMAL(15,4),
-      volume INTEGER,
+      volume BIGINT,
       collected_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(epic, resolution, candle_time)
     )
