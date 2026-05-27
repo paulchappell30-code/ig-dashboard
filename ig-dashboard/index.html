@@ -566,6 +566,9 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="dow_sp500">Dow / S&amp;P 500</option>
               <option value="copper_gold">Copper / Gold</option>
               <option value="ftse_sp500">FTSE / S&amp;P 500</option>
+              <option value="nikkei_sp500">Nikkei / S&amp;P 500</option>
+              <option value="asx_sp500">ASX / S&amp;P 500</option>
+              <option value="usdcad_wti">USD/CAD vs WTI</option>
             </optgroup>
             <optgroup label="── Paper trade">
               <option value="sp500_brent">S&amp;P 500 / Brent</option>
@@ -622,6 +625,9 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="dow_sp500"   data-entry="2.25" data-exit="0.75" data-stop="3.0">Dow / S&amp;P 500 ⭐ score 26.8</option>
               <option value="copper_gold" data-entry="2.0"  data-exit="0.25" data-stop="3.0">Copper / Gold ⭐ score 21.3</option>
               <option value="ftse_sp500"  data-entry="2.0"  data-exit="1.0"  data-stop="3.0">FTSE / S&amp;P 500 ⭐ score 17.1</option>
+              <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5" data-stop="3.0">Nikkei / S&amp;P 500 ⭐ score 107</option>
+              <option value="asx_sp500"   data-entry="1.0"  data-exit="0.5"  data-stop="3.0">ASX / S&amp;P 500 ⭐ score 23.6</option>
+              <option value="usdcad_wti"  data-entry="1.25" data-exit="0.75" data-stop="3.0">USD/CAD vs WTI ⭐ score 57.2</option>
             </optgroup>
             <optgroup label="── Paper trade">
               <option value="sp500_brent"    data-entry="2.0" data-exit="0.25" data-stop="3.0">S&amp;P 500 / Brent (thin)</option>
@@ -1584,8 +1590,17 @@ const PAIRS_CONFIG = [
     entryZ:2.0,  exitZ:0.25, score:21.33, winRate:72.7, expectancy:3.17,
     description:'Industrial vs safe-haven — risk sentiment proxy, 3.17% expectancy ⭐' },
   { id:'ftse_sp500',  name:'FTSE / S&P 500',   a:'FTSE 100',  b:'S&P 500',   type:'ratio', tier:'deploy',
-    entryZ:2.0,  exitZ:1.0,  score:17.10, winRate:70.6, expectancy:1.44,
+    lookbackDays:60, entryZ:2.0,  exitZ:1.0,  score:17.10, winRate:70.6, expectancy:1.44,
     description:'UK vs US equity divergence — clean mean-reversion at 2σ ⭐' },
+  { id:'nikkei_sp500', name:'Nikkei / S&P 500', a:'Japan 225', b:'S&P 500',  type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:82.8, expectancy:2.71,
+    description:'Yen dynamics + risk divergence — 82.8% WR, 29 trades, score 107 ⭐' },
+  { id:'asx_sp500',   name:'ASX / S&P 500',    a:'Australia 200', b:'S&P 500', type:'ratio', tier:'deploy',
+    lookbackDays:45, entryZ:1.0,  exitZ:0.5,  score:23.57, winRate:84.8, expectancy:1.12,
+    description:'Time-zone gap divergences — 84.8% WR, 33 trades, most reliable result ⭐' },
+  { id:'usdcad_wti',  name:'USD/CAD vs WTI',   a:'USD/CAD',  b:'WTI Oil',   type:'ratio', tier:'deploy',
+    lookbackDays:90, entryZ:1.25, exitZ:0.75, score:57.2,  winRate:86.7, expectancy:2.73,
+    description:'Petrocurrency relationship — CAD tracks oil, 86.7% WR ⭐' },
   // ── PAPER TRADE — monitor until sample grows ──────────────────────────────
   { id:'sp500_brent', name:'S&P 500 / Brent',  a:'S&P 500',   b:'Brent Oil', type:'ratio', tier:'paper',
     entryZ:2.0,  exitZ:0.25, score:19.52, winRate:63.6, expectancy:3.27,
@@ -1625,6 +1640,10 @@ async function loadPairsData() {
       'Dow Jones':'IX.D.DOW.DAILY.IP',  'CAC 40':'IX.D.CAC.DAILY.IP',
       'GBP/USD':'CS.D.GBPUSD.TODAY.IP', 'EUR/USD':'CS.D.EURUSD.TODAY.IP',
       'EUR/GBP':'CS.D.EURGBP.TODAY.IP', 'USD/JPY':'CS.D.USDJPY.TODAY.IP',
+      'Japan 225':'IX.D.NIKKEI.DAILY.IP',
+      'Australia 200':'IX.D.ASX.DAILY.IP',
+      'USD/CAD':'CS.D.USDCAD.TODAY.IP',
+      'WTI Oil':'CS.D.USCRUDE.TODAY.IP',
     };
     for(const instr of instruments) {
       try {
@@ -1660,8 +1679,10 @@ async function loadPairsData() {
       'IX.D.FTSE.DAILY.IP':'FTSE 100',   'IX.D.DAX.DAILY.IP':'DAX 40',
       'IX.D.SPTRD.DAILY.IP':'S&P 500',   'IX.D.DOW.DAILY.IP':'Dow Jones',
       'IX.D.NASDAQ.CASH.IP':'Nasdaq',    'IX.D.CAC.DAILY.IP':'CAC 40',
+      'IX.D.NIKKEI.DAILY.IP':'Japan 225','IX.D.ASX.DAILY.IP':'Australia 200',
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD',  'CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY',  'CS.D.EURGBP.TODAY.IP':'EUR/GBP',
+      'CS.D.USDCAD.TODAY.IP':'USD/CAD',
       // Commodities excluded — IG and Yahoo use different price scales
       // Historical Z-scores use Yahoo units; live IG prices would corrupt the ratio
     };
