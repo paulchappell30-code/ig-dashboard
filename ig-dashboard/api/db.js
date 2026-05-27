@@ -236,6 +236,87 @@ module.exports = async (req, res) => {
         return res.status(200).json({ success:true, totalInserted, totalSkipped, results, log });
       }
 
+      if (type === 'backfill_volume') {
+        // Backfill volume for existing daily candles from Yahoo Finance
+        const specificInstrument = data?.instrument || null;
+        const log = []; const L = msg => { console.log('[VolumeBackfill]', msg); log.push(msg); };
+
+        const YAHOO_VOL = [
+          { name:'FTSE 100',  ticker:'%5EFTSE' },
+          { name:'S&P 500',   ticker:'%5EGSPC' },
+          { name:'DAX 40',    ticker:'%5EGDAXI' },
+          { name:'Dow Jones', ticker:'%5EDJI' },
+          { name:'Nasdaq',    ticker:'%5EIXIC' },
+          { name:'Gold',      ticker:'GC%3DF' },
+          { name:'Silver',    ticker:'SI%3DF' },
+          { name:'Brent Oil', ticker:'BZ%3DF' },
+          { name:'GBP/USD',   ticker:'GBPUSD%3DX' },
+          { name:'EUR/USD',   ticker:'EURUSD%3DX' },
+          { name:'EUR/GBP',   ticker:'EURGBP%3DX' },
+          { name:'USD/JPY',   ticker:'USDJPY%3DX' },
+          { name:'Copper',    ticker:'HG%3DF' },
+        ];
+
+        const instruments = specificInstrument
+          ? YAHOO_VOL.filter(i => i.name === specificInstrument)
+          : YAHOO_VOL;
+
+        let totalUpdated = 0;
+        const results = {};
+
+        for(const instr of instruments) {
+          try {
+            // Yahoo max range for daily = 2y
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${instr.ticker}?interval=1d&range=2y`;
+            const yr = await fetch(url, { headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json'} });
+            if(!yr.ok) throw new Error(`HTTP ${yr.status}`);
+            const yd = await yr.json();
+            const chart = yd.chart?.result?.[0];
+            if(!chart) throw new Error('no chart data');
+
+            const timestamps = chart.timestamp || [];
+            const volumes = chart.indicators?.quote?.[0]?.volume || [];
+
+            // Build date→volume map
+            const volMap = {};
+            timestamps.forEach((ts, i) => {
+              const dt = new Date(ts*1000).toISOString().substring(0,10);
+              if(volumes[i] && volumes[i] > 0) volMap[dt] = volumes[i];
+            });
+
+            L(`${instr.name}: ${Object.keys(volMap).length} days of volume from Yahoo`);
+
+            // Update in batches — find candles missing volume
+            const missing = await sql`
+              SELECT id, candle_time::date as dt FROM price_history
+              WHERE instrument=${instr.name} AND resolution='DAY'
+              AND (volume IS NULL OR volume = 0)
+              ORDER BY candle_time ASC`;
+
+            let updated = 0;
+            for(const row of missing.rows) {
+              const dt = new Date(row.dt).toISOString().substring(0,10);
+              const vol = volMap[dt];
+              if(vol) {
+                await sql`UPDATE price_history SET volume=${vol} WHERE id=${row.id}`;
+                updated++;
+              }
+            }
+
+            L(`${instr.name}: ${updated}/${missing.rows.length} candles updated with volume`);
+            totalUpdated += updated;
+            results[instr.name] = { updated, missing: missing.rows.length, total: Object.keys(volMap).length };
+            await new Promise(r => setTimeout(r, 400));
+          } catch(e) {
+            L(`${instr.name}: ERROR ${e.message}`);
+            results[instr.name] = { error: e.message };
+          }
+        }
+
+        L(`Volume backfill done — ${totalUpdated} candles updated`);
+        return res.status(200).json({ success:true, totalUpdated, results, log });
+      }
+
       if (type === 'backfill_minute') {
         // Backfill 7 days of 1-minute candles from Yahoo Finance (max available)
         const specificInstrument = data?.instrument || null;
