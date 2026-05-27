@@ -925,13 +925,16 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
         // Volume confirmation for Brent Oil — only trade high-volume moves
         // Low volume Brent moves (0.64x avg) are unreliable — filter them out
-        if((epic.includes('LCO') || instr === 'Brent Oil') && sig.volumeRatio > 0) {
-          if(sig.volumeRatio < 0.8 && sc > 0) {
-            L(`${instr}: ⚠️ Low volume (${sig.volumeRatio}x avg) — reducing conviction`);
-            sc = Math.max(0, sc - 1); // reduce score on low volume
-          } else if(sig.volumeRatio > 1.5) {
-            L(`${instr}: 📊 High volume (${sig.volumeRatio}x avg) — boosting conviction`);
-            sc = Math.min(sc + 1, 6); // boost score on high volume
+        if(epic.includes('LCO') || instr === 'Brent Oil') {
+          const brentVolRatio = calcVolumeRatio(closes._volumes, 20);
+          if(brentVolRatio > 0 && brentVolRatio !== 1.0) {
+            if(brentVolRatio < 0.8 && sc > 0) {
+              L(`${instr}: ⚠️ Low volume (${brentVolRatio}x avg) — reducing conviction`);
+              sc = Math.max(0, sc - 1);
+            } else if(brentVolRatio > 1.5) {
+              L(`${instr}: 📊 High volume (${brentVolRatio}x avg) — boosting conviction`);
+              sc = Math.min(sc + 1, 6);
+            }
           }
         }
 
