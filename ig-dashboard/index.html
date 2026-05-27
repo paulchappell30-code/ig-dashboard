@@ -646,8 +646,8 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
         <div class="form-row"><label>Stop Z-score</label>
           <select id="pbt-stop" style="width:100%">
             <option value="2.5">2.5σ</option>
-            <option value="3.0">3.0σ</option>
-            <option value="3.5" selected>3.5σ</option>
+            <option value="3.0" selected>3.0σ</option>
+            <option value="3.5">3.5σ</option>
           </select>
         </div>
         <div class="form-row"><label>Lookback window</label>
@@ -1793,13 +1793,32 @@ function renderPairsGrid() {
     const clampedZ = Math.max(-3, Math.min(3, zscore || 0));
     const barPct = ((clampedZ + 3) / 6) * 100;
 
+    // Tier badge config
+    const TIER_BADGE = {
+      deploy: { label:'⭐ Deploy',     bg:'rgba(63,185,80,0.15)',  color:'var(--green)',  border:'rgba(63,185,80,0.3)' },
+      paper:  { label:'👁 Paper trade', bg:'rgba(88,166,255,0.12)', color:'var(--blue)',   border:'rgba(88,166,255,0.25)' },
+      reject: { label:'✕ Reject',      bg:'rgba(248,81,73,0.1)',   color:'var(--red)',    border:'rgba(248,81,73,0.2)' },
+      legacy: { label:'Legacy',        bg:'rgba(139,148,158,0.12)',color:'var(--text2)',  border:'rgba(139,148,158,0.2)' },
+    };
+    const tb = TIER_BADGE[pair.tier] || TIER_BADGE.legacy;
+
+    // Unit-mismatch warning for commodity pairs (Gold, Silver, Copper, Brent stored as Yahoo futures)
+    const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil']);
+    const hasCommodity = COMMODITY_INSTRUMENTS.has(pair.a) || COMMODITY_INSTRUMENTS.has(pair.b);
+    // Check if ratio looks anomalous — for Gold/Silver ratio should be ~70-90, not ~59 with mean ~81
+    // Flag if current ratio deviates >30% from mean (suggests unit mismatch corrupting the data)
+    const ratioDevPct = mean && current ? Math.abs((current - mean) / mean) * 100 : 0;
+    const unitMismatchWarning = hasCommodity && ratioDevPct > 20 && !hasLive;
+
     grid.innerHTML += `
       <div style="background:var(--bg2);border-radius:8px;padding:14px;cursor:pointer;border:1px solid ${Math.abs(zscore||0)>=2?zColor:'var(--border)'}"
            onclick="selectPair('${pair.id}')">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:8px">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               <div style="font-weight:600;font-size:14px">${pair.name}</div>
+              <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;
+                background:${tb.bg};color:${tb.color};border:1px solid ${tb.border}">${tb.label}</span>
               ${zscore !== null ? `<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:${strengthColor}22;color:${strengthColor}">${strengthLabel} (${signalStrength}%)</span>` : ''}
             </div>
             <div style="font-size:11px;color:var(--text2);margin-top:2px">${pair.description}</div>
@@ -1827,6 +1846,10 @@ function renderPairsGrid() {
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-bottom:8px">
           <span>-3σ</span><span>-2σ</span><span>0</span><span>+2σ</span><span>+3σ</span>
         </div>
+        ${unitMismatchWarning ? `
+        <div style="background:rgba(210,153,34,0.1);border:1px solid rgba(210,153,34,0.25);border-radius:4px;padding:6px 8px;font-size:11px;color:var(--gold);margin-bottom:6px">
+          ⚠️ Possible unit mismatch — ratio ${current?.toFixed(2)} vs mean ${mean?.toFixed(2)} (${ratioDevPct.toFixed(0)}% deviation). DB candles may use different price units than expected. Z-score unreliable until candle source is verified.
+        </div>` : ''}
         ${zscore !== null && Math.abs(zscore) >= 1.5 ? `
         <div style="background:var(--bg1);border-radius:4px;padding:6px 8px;font-size:12px;color:${signal.color}">
           ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
