@@ -544,11 +544,27 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
           <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Pair</div>
           <select id="sizing-pair" onchange="calcPairSizing()"
             style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px">
-            <option value="ftse_dax">FTSE / DAX</option>
-            <option value="gbpusd_eurusd">GBP/USD vs EUR/USD</option>
-            <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
-            <option value="gold_silver">Gold / Silver</option>
-            <option value="brent_gold">Brent / Gold</option>
+            <optgroup label="── Legacy pairs">
+              <option value="ftse_dax">FTSE / DAX</option>
+              <option value="gbpusd_eurusd">GBP/USD vs EUR/USD</option>
+              <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
+              <option value="gold_silver">Gold / Silver</option>
+              <option value="brent_gold">Brent / Gold</option>
+            </optgroup>
+            <optgroup label="── Deploy ⭐">
+              <option value="dow_sp500">Dow / S&amp;P 500</option>
+              <option value="copper_gold">Copper / Gold</option>
+              <option value="ftse_sp500">FTSE / S&amp;P 500</option>
+            </optgroup>
+            <optgroup label="── Paper trade">
+              <option value="sp500_brent">S&amp;P 500 / Brent</option>
+              <option value="gbpusd_usdjpy">GBP/USD vs USD/JPY</option>
+              <option value="eurusd_usdjpy">EUR/USD vs USD/JPY</option>
+            </optgroup>
+            <optgroup label="── Reject">
+              <option value="nasdaq_sp500">Nasdaq / S&amp;P 500</option>
+              <option value="dax_cac">DAX / CAC 40</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -582,28 +598,49 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
       <p style="font-size:12px;color:var(--text2);margin:0 0 14px">Tests Z-score entry/exit rules on historical spread data. Uses stored daily candles.</p>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
         <div class="form-row"><label>Pair</label>
-          <select id="pbt-pair" style="width:100%">
-            <option value="gbpusd_eurusd">GBP/USD vs EUR/USD ⭐</option>
-            <option value="brent_gold">Brent / Gold</option>
-            <option value="gold_silver">Gold / Silver</option>
-            <option value="ftse_dax">FTSE / DAX</option>
-            <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
-            <option value="nasdaq_gold">Nasdaq / Gold</option>
+          <select id="pbt-pair" style="width:100%" onchange="prefillPbtParams()">
+            <optgroup label="── Legacy pairs">
+              <option value="gbpusd_eurusd" data-entry="2.0" data-exit="0.25" data-stop="3.0">GBP/USD vs EUR/USD</option>
+              <option value="brent_gold"    data-entry="2.0" data-exit="0.5"  data-stop="3.0">Brent / Gold</option>
+              <option value="gold_silver"   data-entry="2.0" data-exit="0.5"  data-stop="3.0">Gold / Silver</option>
+              <option value="ftse_dax"      data-entry="2.0" data-exit="0.5"  data-stop="3.0">FTSE / DAX</option>
+              <option value="eurusd_eurgbp" data-entry="2.0" data-exit="0.25" data-stop="3.0">EUR/USD vs EUR/GBP</option>
+              <option value="nasdaq_gold"   data-entry="2.0" data-exit="0.5"  data-stop="3.0">Nasdaq / Gold</option>
+            </optgroup>
+            <optgroup label="── Deploy ⭐">
+              <option value="dow_sp500"   data-entry="2.25" data-exit="0.75" data-stop="3.0">Dow / S&amp;P 500 ⭐ score 26.8</option>
+              <option value="copper_gold" data-entry="2.0"  data-exit="0.25" data-stop="3.0">Copper / Gold ⭐ score 21.3</option>
+              <option value="ftse_sp500"  data-entry="2.0"  data-exit="1.0"  data-stop="3.0">FTSE / S&amp;P 500 ⭐ score 17.1</option>
+            </optgroup>
+            <optgroup label="── Paper trade">
+              <option value="sp500_brent"    data-entry="2.0" data-exit="0.25" data-stop="3.0">S&amp;P 500 / Brent (thin)</option>
+              <option value="gbpusd_usdjpy"  data-entry="1.5" data-exit="0.5"  data-stop="3.0">GBP/USD vs USD/JPY</option>
+              <option value="eurusd_usdjpy"  data-entry="2.0" data-exit="0.25" data-stop="3.0">EUR/USD vs USD/JPY (thin)</option>
+            </optgroup>
+            <optgroup label="── Reject">
+              <option value="nasdaq_sp500" data-entry="1.75" data-exit="1.0"  data-stop="3.0">Nasdaq / S&amp;P 500</option>
+              <option value="dax_cac"      data-entry="1.0"  data-exit="0.75" data-stop="3.0">DAX / CAC 40</option>
+            </optgroup>
           </select>
         </div>
         <div class="form-row"><label>Entry Z-score</label>
           <select id="pbt-entry" style="width:100%">
             <option value="1.0">1.0σ</option>
+            <option value="1.25">1.25σ</option>
             <option value="1.5">1.5σ</option>
-            <option value="2.0" selected>2.0σ (optimal GBP/USD)</option>
+            <option value="1.75">1.75σ</option>
+            <option value="2.0" selected>2.0σ</option>
+            <option value="2.25">2.25σ</option>
             <option value="2.5">2.5σ</option>
           </select>
         </div>
         <div class="form-row"><label>Exit Z-score</label>
           <select id="pbt-exit" style="width:100%">
-            <option value="0.25" selected>0.25σ (optimal GBP/USD)</option>
+            <option value="0.0">0.0σ (full revert)</option>
+            <option value="0.25" selected>0.25σ</option>
             <option value="0.5">0.5σ</option>
             <option value="0.75">0.75σ</option>
+            <option value="1.0">1.0σ</option>
           </select>
         </div>
         <div class="form-row"><label>Stop Z-score</label>
@@ -1504,16 +1541,44 @@ setTimeout(()=>{if(!_tdTimer)startTdPriceFallback();},8000);
 
 // ── PAIRS TRADING ─────────────────────────────────────────────────────────────
 const PAIRS_CONFIG = [
-  { id:'ftse_dax',   name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40',    type:'ratio',
+  // ── LEGACY (original pairs) ────────────────────────────────────────────────
+  { id:'ftse_dax',   name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40',    type:'ratio', tier:'legacy',
     description:'European indices — same macro drivers, different compositions' },
-  { id:'gold_silver', name:'Gold / Silver', a:'Gold', b:'Silver', type:'ratio',
+  { id:'gold_silver', name:'Gold / Silver', a:'Gold', b:'Silver', type:'ratio', tier:'legacy',
     description:'Precious metals ratio — historically mean-reverts strongly' },
-  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio',
+  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio', tier:'legacy',
     description:'Dollar pairs — divergence often means one is mispriced vs USD' },
-  { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio',
+  { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio', tier:'legacy',
     description:'EUR crosses — triangular arbitrage relationship' },
-  { id:'brent_gold',  name:'Brent / Gold',      a:'Brent Oil', b:'Gold',      type:'ratio',
+  { id:'brent_gold',  name:'Brent / Gold',      a:'Brent Oil', b:'Gold',      type:'ratio', tier:'legacy',
     description:'Risk assets — Oil/Gold ratio signals risk-on vs risk-off' },
+  // ── DEPLOY — grid search tier 1 ───────────────────────────────────────────
+  { id:'dow_sp500',   name:'Dow / S&P 500',     a:'Dow Jones', b:'S&P 500',   type:'ratio', tier:'deploy',
+    entryZ:2.25, exitZ:0.75, score:26.79, winRate:81.8, expectancy:0.81,
+    description:'US mega-cap vs broad market — 81.8% WR, score 26.8 ⭐' },
+  { id:'copper_gold', name:'Copper / Gold',     a:'Copper',    b:'Gold',      type:'ratio', tier:'deploy',
+    entryZ:2.0,  exitZ:0.25, score:21.33, winRate:72.7, expectancy:3.17,
+    description:'Industrial vs safe-haven — risk sentiment proxy, 3.17% expectancy ⭐' },
+  { id:'ftse_sp500',  name:'FTSE / S&P 500',   a:'FTSE 100',  b:'S&P 500',   type:'ratio', tier:'deploy',
+    entryZ:2.0,  exitZ:1.0,  score:17.10, winRate:70.6, expectancy:1.44,
+    description:'UK vs US equity divergence — clean mean-reversion at 2σ ⭐' },
+  // ── PAPER TRADE — monitor until sample grows ──────────────────────────────
+  { id:'sp500_brent', name:'S&P 500 / Brent',  a:'S&P 500',   b:'Brent Oil', type:'ratio', tier:'paper',
+    entryZ:2.0,  exitZ:0.25, score:19.52, winRate:63.6, expectancy:3.27,
+    description:'Equities vs energy — thin sample (11 trades), paper trade only' },
+  { id:'gbpusd_usdjpy', name:'GBP/USD vs USD/JPY', a:'GBP/USD', b:'USD/JPY', type:'ratio', tier:'paper',
+    entryZ:1.5,  exitZ:0.5,  score:4.14,  winRate:75.0, expectancy:0.73,
+    description:'G10 FX cross — low entry threshold, watch for noise' },
+  { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY', a:'EUR/USD', b:'USD/JPY', type:'ratio', tier:'paper',
+    entryZ:2.0,  exitZ:0.25, score:2.98,  winRate:63.6, expectancy:0.76,
+    description:'EUR vs JPY risk sentiment — thin sample (11 trades), paper trade only' },
+  // ── REJECT — not recommended for live trading ─────────────────────────────
+  { id:'nasdaq_sp500', name:'Nasdaq / S&P 500', a:'Nasdaq',   b:'S&P 500',   type:'ratio', tier:'reject',
+    entryZ:1.75, exitZ:1.0,  score:0.85,  winRate:58.8, expectancy:0.23,
+    description:'Tech vs broad US — weak edge (0.23% exp), not recommended' },
+  { id:'dax_cac',      name:'DAX / CAC 40',     a:'DAX 40',   b:'CAC 40',    type:'ratio', tier:'reject',
+    entryZ:1.0,  exitZ:0.75, score:0.67,  winRate:76.2, expectancy:0.15,
+    description:'Continental indices — noise-trading at 1σ, reject' },
 ];
 
 let pairsData = {};
@@ -1529,9 +1594,11 @@ async function loadPairsData() {
 
     // Map instrument names to epics for DB lookup
     const EPIC_MAP_PAIRS = {
-      'FTSE 100':'IX.D.FTSE.DAILY.IP', 'DAX 40':'IX.D.DAX.DAILY.IP',
-      'S&P 500':'IX.D.SPTRD.DAILY.IP', 'Brent Oil':'CC.D.LCO.USS.IP',
-      'Gold':'CS.D.USCGC.TODAY.IP', 'Silver':'CS.D.USCSI.TODAY.IP',
+      'FTSE 100':'IX.D.FTSE.DAILY.IP',  'DAX 40':'IX.D.DAX.DAILY.IP',
+      'S&P 500':'IX.D.SPTRD.DAILY.IP',  'Brent Oil':'CC.D.LCO.USS.IP',
+      'Gold':'CS.D.USCGC.TODAY.IP',     'Silver':'CS.D.USCSI.TODAY.IP',
+      'Copper':'CS.D.COPPER.TODAY.IP',  'Nasdaq':'IX.D.NASDAQ.CASH.IP',
+      'Dow Jones':'IX.D.DOW.DAILY.IP',  'CAC 40':'IX.D.CAC.DAILY.IP',
       'GBP/USD':'CS.D.GBPUSD.TODAY.IP', 'EUR/USD':'CS.D.EURUSD.TODAY.IP',
       'EUR/GBP':'CS.D.EURGBP.TODAY.IP', 'USD/JPY':'CS.D.USDJPY.TODAY.IP',
     };
@@ -1566,10 +1633,11 @@ async function loadPairsData() {
     // - Commodities: different units (Yahoo futures vs IG contracts) ❌ excluded
     const livePrices = {};
     const EPIC_TO_INSTR = {
-      'IX.D.FTSE.DAILY.IP':'FTSE 100', 'IX.D.DAX.DAILY.IP':'DAX 40',
-      'IX.D.SPTRD.DAILY.IP':'S&P 500', 'IX.D.DOW.DAILY.IP':'Dow Jones',
-      'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD',
-      'CS.D.USDJPY.TODAY.IP':'USD/JPY','CS.D.EURGBP.TODAY.IP':'EUR/GBP',
+      'IX.D.FTSE.DAILY.IP':'FTSE 100',   'IX.D.DAX.DAILY.IP':'DAX 40',
+      'IX.D.SPTRD.DAILY.IP':'S&P 500',   'IX.D.DOW.DAILY.IP':'Dow Jones',
+      'IX.D.NASDAQ.CASH.IP':'Nasdaq',    'IX.D.CAC.DAILY.IP':'CAC 40',
+      'CS.D.GBPUSD.TODAY.IP':'GBP/USD',  'CS.D.EURUSD.TODAY.IP':'EUR/USD',
+      'CS.D.USDJPY.TODAY.IP':'USD/JPY',  'CS.D.EURGBP.TODAY.IP':'EUR/GBP',
       // Commodities excluded — IG and Yahoo use different price scales
       // Historical Z-scores use Yahoo units; live IG prices would corrupt the ratio
     };
@@ -1877,6 +1945,27 @@ function renderPairsChart(pairId) {
   // Title
   ctx.fillStyle = 'var(--text1)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(`${pair.name} spread ratio`, pad.l, 14);
+}
+
+// Auto-fill optimal params when pair is selected in backtest
+function prefillPbtParams() {
+  const sel = document.getElementById('pbt-pair');
+  const opt = sel.options[sel.selectedIndex];
+  const entry = opt.dataset.entry;
+  const exit  = opt.dataset.exit;
+  const stop  = opt.dataset.stop;
+  if(entry) {
+    const entryEl = document.getElementById('pbt-entry');
+    [...entryEl.options].forEach(o => { o.selected = o.value === entry; });
+  }
+  if(exit) {
+    const exitEl = document.getElementById('pbt-exit');
+    [...exitEl.options].forEach(o => { o.selected = o.value === exit; });
+  }
+  if(stop) {
+    const stopEl = document.getElementById('pbt-stop');
+    [...stopEl.options].forEach(o => { o.selected = o.value === stop; });
+  }
 }
 
 // ─── PAIRS BACKTEST ──────────────────────────────────────────────────────────
