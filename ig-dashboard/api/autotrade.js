@@ -64,15 +64,34 @@ const PAIRS_DEFINITIONS = [
     minDays:60, entryZ:1.75, exitZ:0.25, stopZ:3.5,
     description:'GBP/USD vs EUR/USD — dollar pairs, 92.3% WR at 1.75σ' },
   // Backtest: 60% WR, PF 1.68, +2.02% exp — grid search optimal 1.75σ/1.0σ
+  // stopZ 2.5: tighter stop on volatile Brent/Gold ratio — PF drops significantly at 3.0σ
   { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
     epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
     minDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
     description:'Brent vs Gold — hold until 1σ reversion, exit early loses edge' },
   // Backtest: 75% WR, +1.03% exp at 2.5σ — re-enabled at extreme entry only
+  // stopZ 3.5: wider stop on slow-moving EUR triangular — 3.0σ stops out trades that revert
   { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
     epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
     minDays:60, entryZ:2.5, exitZ:1.0, stopZ:3.5,
     description:'EUR triangular relationship — only trade extreme 2.5σ dislocations' },
+  // ── GRID SEARCH DEPLOY TIER — added 27/05/2026 ────────────────────────────
+  // Grid search: score 26.79 | 81.8% WR | 0.81% exp | 11 trades over 500d
+  { id:'dow_sp500', instrA:'Dow Jones', instrB:'S&P 500',
+    epicA:'IX.D.DOW.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+    minDays:60, entryZ:2.25, exitZ:0.75, stopZ:3.0,
+    description:'Dow vs S&P 500 — US mega-cap divergence, 81.8% WR at 2.25σ ⭐' },
+  // Grid search: score 21.33 | 72.7% WR | 3.17% exp | 11 trades over 500d
+  // Note: commodity pair — Z-score uses DB candle units; live prices excluded from ratio
+  { id:'copper_gold', instrA:'Copper', instrB:'Gold',
+    epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
+    minDays:60, entryZ:2.0, exitZ:0.25, stopZ:3.0,
+    description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
+  // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
+  { id:'ftse_sp500', instrA:'FTSE 100', instrB:'S&P 500',
+    epicA:'IX.D.FTSE.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+    minDays:60, entryZ:2.0, exitZ:1.0, stopZ:3.0,
+    description:'FTSE vs S&P 500 — UK/US equity divergence, 70.6% WR at 2σ ⭐' },
   // FTSE/DAX: 27.3% WR — permanently disabled
 ];
 
@@ -764,11 +783,13 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const volRatioA = calcVolumeRatio(volsA, 20);
         const volRatioB = calcVolumeRatio(volsB, 20);
         pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
+          mean, std, current,
           _volumesA: volsA, _volumesB: volsB,
           volRatioA, volRatioB,
           signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
         // From instrB perspective, Z is inverted
         pairsZScores[pair.instrB] = { zscore: -zscore, partner: pair.instrA, n: ratios.length,
+          mean: mean > 0 ? 1/mean : 0, std, current: current > 0 ? 1/current : 0,
           signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
 
         if(Math.abs(zscore) >= 1.0) {
@@ -1613,15 +1634,15 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           const pairsPrompt = `Trading risk manager. Approve this PAIRS trade?
 PAIR: ${pair.instrA} vs ${pair.instrB}
 STRATEGY: Statistical arbitrage — Z-score divergence from ${pz.n}-day mean
-Z-SCORE: ${pz.zscore.toFixed(2)} (entry threshold: ±${cfg.pairsZEntry})
+Z-SCORE: ${pz.zscore.toFixed(2)} (entry threshold: ±${pairEntryZ})
 DIRECTION: ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}
 VOLUME: ${pair.instrA} ${pairVolRatioA}x avg | ${pair.instrB} ${pairVolRatioB}x avg${pairVolConfirmed?' — HIGH VOLUME (institutional)':pairVolWeak?' — LOW VOLUME (retail noise)':' — normal'}
 DESCRIPTION: ${pair.description}
-RATIO: Current ${(pairsZScores[pair.instrA]?.current||0).toFixed(4)} vs Mean ${(pairsZScores[pair.instrA]?.mean||0).toFixed(4)}
-STOP: Z=${pz.zscore<0?'-':'+'}${cfg.pairsZStop} (${(cfg.pairsZStop-absZ).toFixed(1)}σ away)
-TARGET: Z=0 (${absZ.toFixed(1)}σ reversion needed)
+RATIO: Current ${(pz.current||0).toFixed(4)} vs Mean ${(pz.mean||0).toFixed(4)} | σ: ${(pz.std||0).toFixed(4)}
+STOP: Z=±${pair.stopZ} (${(pair.stopZ-absZ).toFixed(1)}σ away)
+EXIT TARGET: Z=±${pair.exitZ} (${(absZ-pair.exitZ).toFixed(1)}σ reversion needed)
 DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
-APPROVAL RULES: Approve if (1) |Z| ≥ ${cfg.pairsZEntry}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence.
+APPROVAL RULES: Approve if (1) |Z| ≥ ${pairEntryZ}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence.
 Account P&L: ${plPct.toFixed(2)}% | Open positions: ${openCount}/${cfg.maxPositions}
 Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
@@ -1649,7 +1670,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           // Size both legs — pairs trades exempt from profit lock
           // (multi-day positions shouldn't be blocked by intraday P&L)
           const riskAmt = balance * cfg.pairsRiskPct;
-          const zStopDist = cfg.pairsZStop - absZ; // σ distance to stop
+          const zStopDist = pair.stopZ - absZ; // σ distance to stop (per-pair threshold)
           // Get current prices for sizing
           const [priceFeedA, priceFeedB] = await Promise.all([
             fetch(`${igBase}/markets/${pair.epicA}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
@@ -1722,13 +1743,13 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
               entry_z, stop_z, target_z, ai_confidence, status, opened_at)
               VALUES (${pair.id},${pair.instrA},${pair.instrB},${pair.epicA},${pair.epicB},
               ${dirA},${dirB},${sizeA},${sizeB},${dealIdA},${dealIdB},
-              ${pz.zscore},${pz.zscore<0?-cfg.pairsZStop:cfg.pairsZStop},${pz.zscore<0?-cfg.pairsZTarget:cfg.pairsZTarget},
+              ${pz.zscore},${pz.zscore<0?-pair.stopZ:pair.stopZ},${pz.zscore<0?-pair.exitZ:pair.exitZ},
               ${pairsConfidence},'open',NOW())`;
             L(`Pairs trade saved: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)}`);
           } catch(e){ L(`Pairs DB save error: ${e.message}`); }
 
           await sendNotify('trade',`⚖️ Pairs Trade: ${pair.instrA}/${pair.instrB}`,
-            `${dirA} ${pair.instrA} £${sizeA}/pt | ${dirB} ${pair.instrB} £${sizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${cfg.pairsZEntry} | Stop: ±${cfg.pairsZStop}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
+            `${dirA} ${pair.instrA} £${sizeA}/pt | ${dirB} ${pair.instrB} £${sizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${pairEntryZ} | Exit: ±${pair.exitZ} | Stop: ±${pair.stopZ}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
           break; // One pairs trade per run
         }
       }
