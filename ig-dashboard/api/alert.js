@@ -96,7 +96,7 @@ module.exports = async (req, res) => {
     try {
       const { sql } = require('@vercel/postgres');
       await sql`INSERT INTO engine_events (event_type, details, created_at)
-                VALUES ('td_cache', ${JSON.stringify(tdCache)}, NOW())`;
+                VALUES ('td_cache', ${tdCache}, NOW())`;
       await sql`DELETE FROM engine_events
                 WHERE event_type = 'td_cache'
                 AND created_at < NOW() - INTERVAL '2 hours'`;
