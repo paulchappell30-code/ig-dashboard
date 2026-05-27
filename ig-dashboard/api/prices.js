@@ -66,6 +66,71 @@ module.exports = async (req, res) => {
     }
   }
 
+  // POST — backfill historical candles from Yahoo Finance for any instrument
+  if (req.body?.action === 'backfill') {
+    const { instrument, symbol, days = 500 } = req.body;
+    if (!instrument || !symbol) return res.status(400).json({ error: 'instrument and symbol required' });
+
+    try {
+      const { sql } = require('@vercel/postgres');
+      // Ensure price_history table exists
+      await sql`CREATE TABLE IF NOT EXISTS price_history (
+        id SERIAL PRIMARY KEY, epic VARCHAR(100) NOT NULL,
+        instrument VARCHAR(50), resolution VARCHAR(20) NOT NULL,
+        candle_time TIMESTAMPTZ NOT NULL, open_price DECIMAL(15,4),
+        high_price DECIMAL(15,4), low_price DECIMAL(15,4),
+        close_price DECIMAL(15,4), volume INTEGER,
+        collected_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(epic, resolution, candle_time))`;
+
+      // Yahoo Finance v8 chart API — range covers days requested
+      const range = days > 365 ? '2y' : days > 180 ? '1y' : '6mo';
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+      const yr = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 });
+      if (!yr.ok) return res.status(500).json({ error: `Yahoo fetch failed: ${yr.status} for ${symbol}` });
+
+      const yd = await yr.json();
+      const chart = yd.chart?.result?.[0];
+      if (!chart) return res.status(500).json({ error: `No chart data for ${symbol}` });
+
+      const timestamps = chart.timestamp || [];
+      const quote = chart.indicators?.quote?.[0] || {};
+      const opens   = quote.open   || [];
+      const highs   = quote.high   || [];
+      const lows    = quote.low    || [];
+      const closes  = quote.close  || [];
+      const volumes = quote.volume || [];
+
+      // Use symbol as epic for Yahoo-sourced candles (prefixed to distinguish from IG)
+      const yahooEpic = `YAHOO:${symbol}`;
+      let inserted = 0;
+
+      for (let i = 0; i < timestamps.length; i++) {
+        const close = closes[i];
+        if (!close || close <= 0) continue;
+        const dt = new Date(timestamps[i] * 1000).toISOString().substring(0, 10) + 'T00:00:00Z';
+        try {
+          await sql`
+            INSERT INTO price_history (epic, instrument, resolution, candle_time,
+              open_price, high_price, low_price, close_price, volume)
+            VALUES (${yahooEpic}, ${instrument}, 'DAY', ${dt},
+              ${opens[i] || close}, ${highs[i] || close}, ${lows[i] || close},
+              ${close}, ${volumes[i] || 0})
+            ON CONFLICT (epic, resolution, candle_time) DO UPDATE SET
+              close_price = EXCLUDED.close_price,
+              high_price  = EXCLUDED.high_price,
+              low_price   = EXCLUDED.low_price,
+              volume      = EXCLUDED.volume`;
+          inserted++;
+        } catch(e) { /* skip duplicate */ }
+      }
+
+      return res.status(200).json({ success: true, instrument, symbol, inserted, total: timestamps.length });
+    } catch(e) {
+      return res.status(500).json({ error: e.message, instrument, symbol });
+    }
+  }
+
   // POST — collect latest prices from IG and store
   const igBase = IG_BASES[process.env.IG_ENV || 'demo'];
   const log = [];
