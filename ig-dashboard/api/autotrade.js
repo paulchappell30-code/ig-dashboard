@@ -61,36 +61,38 @@ const PAIRS_DEFINITIONS = [
   // Backtest: 92.3% WR, PF 13.0, +0.68% exp at 1.75σ entry — OPTIMAL
   { id:'gbpusd_eurusd', instrA:'GBP/USD', instrB:'EUR/USD',
     epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP',
-    minDays:60, entryZ:1.75, exitZ:0.25, stopZ:3.5,
+    minDays:60, lookbackDays:60, entryZ:1.75, exitZ:0.25, stopZ:3.5,
     description:'GBP/USD vs EUR/USD — dollar pairs, 92.3% WR at 1.75σ' },
   // Backtest: 60% WR, PF 1.68, +2.02% exp — grid search optimal 1.75σ/1.0σ
   // stopZ 2.5: tighter stop on volatile Brent/Gold ratio — PF drops significantly at 3.0σ
   { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
     epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    minDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
+    minDays:60, lookbackDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
     description:'Brent vs Gold — hold until 1σ reversion, exit early loses edge' },
   // Backtest: 75% WR, +1.03% exp at 2.5σ — re-enabled at extreme entry only
   // stopZ 3.5: wider stop on slow-moving EUR triangular — 3.0σ stops out trades that revert
   { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
     epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
-    minDays:60, entryZ:2.5, exitZ:1.0, stopZ:3.5,
+    minDays:60, lookbackDays:60, entryZ:2.5, exitZ:1.0, stopZ:3.5,
     description:'EUR triangular relationship — only trade extreme 2.5σ dislocations' },
   // ── GRID SEARCH DEPLOY TIER — added 27/05/2026 ────────────────────────────
   // Grid search: score 26.79 | 81.8% WR | 0.81% exp | 11 trades over 500d
+  // lookbackDays 60: confirmed optimal in lookback sweep (score 26.79 vs 6.54 at 90d)
   { id:'dow_sp500', instrA:'Dow Jones', instrB:'S&P 500',
     epicA:'IX.D.DOW.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:60, entryZ:2.25, exitZ:0.75, stopZ:3.0,
+    minDays:60, lookbackDays:60, entryZ:2.25, exitZ:0.75, stopZ:3.0,
     description:'Dow vs S&P 500 — US mega-cap divergence, 81.8% WR at 2.25σ ⭐' },
   // Grid search: score 21.33 | 72.7% WR | 3.17% exp | 11 trades over 500d
-  // Note: commodity pair — Z-score uses DB candle units; live prices excluded from ratio
+  // lookbackDays 90: lookback sweep shows 90d score 39.66 vs 21.33 at 60d — macro cycle pair
   { id:'copper_gold', instrA:'Copper', instrB:'Gold',
     epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    minDays:60, entryZ:2.0, exitZ:0.25, stopZ:3.0,
+    minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.25, stopZ:3.0,
     description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
   // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
+  // lookbackDays 60: confirmed optimal in lookback sweep (score 17.1 vs 1.27 at 90d)
   { id:'ftse_sp500', instrA:'FTSE 100', instrB:'S&P 500',
     epicA:'IX.D.FTSE.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:60, entryZ:2.0, exitZ:1.0, stopZ:3.0,
+    minDays:60, lookbackDays:60, entryZ:2.0, exitZ:1.0, stopZ:3.0,
     description:'FTSE vs S&P 500 — UK/US equity divergence, 70.6% WR at 2σ ⭐' },
   // FTSE/DAX: 27.3% WR — permanently disabled
 ];
@@ -749,28 +751,37 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     const {sql: pairSql} = require('@vercel/postgres');
     for(const pair of PAIRS_DEFINITIONS) {
       try {
+        const lb = pair.lookbackDays || 60;
+        // Fetch enough history to have lb days of aligned ratio data
+        // Fetch 2× lookback as buffer for alignment gaps (weekends, holidays)
+        const fetchLimit = Math.ceil(lb * 2.5);
         const rowsA = await pairSql`
-          SELECT close_price FROM price_history
+          SELECT close_price, candle_time::date as dt FROM price_history
           WHERE instrument = ${pair.instrA} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT 600`;
+          ORDER BY candle_time DESC LIMIT ${fetchLimit}`;
         const rowsB = await pairSql`
           SELECT close_price, volume, candle_time::date as dt FROM price_history
           WHERE instrument = ${pair.instrB} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT 600`;
-        
+          ORDER BY candle_time DESC LIMIT ${fetchLimit}`;
+
         if(rowsA.rows.length < 10 || rowsB.rows.length < 10) continue;
-        
-        // Build ratio series (most recent last)
-        const closesA = rowsA.rows.map(r => parseFloat(r.close_price)).reverse();
-        const closesB = rowsB.rows.map(r => parseFloat(r.close_price)).reverse();
-        const volsA = rowsA.rows.map(r => parseInt(r.volume||0)).reverse();
-        const volsB = rowsB.rows.map(r => parseInt(r.volume||0)).reverse();
-        const n = Math.min(closesA.length, closesB.length);
-        const ratios = [];
-        for(let i = 0; i < n; i++) {
-          if(closesB[i] > 0) ratios.push(closesA[i] / closesB[i]);
-        }
-        if(ratios.length < 10) continue;
+
+        // Align by date then reverse to chronological order
+        const mapB = {};
+        rowsB.rows.forEach(r => { mapB[r.dt] = { price: parseFloat(r.close_price), vol: parseInt(r.volume||0) }; });
+        const aligned = rowsA.rows
+          .filter(r => mapB[r.dt] && mapB[r.dt].price > 0)
+          .map(r => ({ ratio: parseFloat(r.close_price) / mapB[r.dt].price, volA: 0, volB: mapB[r.dt].vol }))
+          .reverse(); // oldest first
+
+        if(aligned.length < 10) continue;
+
+        // Rolling window: use only the most recent `lb` aligned days for mean/std
+        // This matches the backtest's rolling lookback — engine and backtest now consistent
+        const window = aligned.slice(-lb);
+        const ratios = window.map(r => r.ratio);
+        const volsA = new Array(aligned.length).fill(0);
+        const volsB = aligned.map(r => r.volB);
 
         const mean = ratios.reduce((a,b) => a+b, 0) / ratios.length;
         const std = Math.sqrt(ratios.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ratios.length);
@@ -780,8 +791,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // Store for both instruments in the pair
         // Positive Z = instrA expensive vs instrB
         // Negative Z = instrA cheap vs instrB
-        const volRatioA = calcVolumeRatio(volsA, 20);
-        const volRatioB = calcVolumeRatio(volsB, 20);
+        const volRatioA = 1.0; // volA not available from date-aligned query — volume confluence uses B only
+        const volRatioB = calcVolumeRatio(volsB.slice(-lb), 20);
         pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
           mean, std, current,
           _volumesA: volsA, _volumesB: volsB,
@@ -793,7 +804,9 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
 
         if(Math.abs(zscore) >= 1.0) {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length} (${pairsZScores[pair.instrA].signal})`);
+          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d) (${pairsZScores[pair.instrA].signal})`);
+        } else {
+          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d) (neutral)`);
         }
       } catch(e) { /* skip pair on error */ }
     }
