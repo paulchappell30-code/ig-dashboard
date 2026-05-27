@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     `;
     if (cacheRow.rows.length > 0) {
       const age = Date.now() - new Date(cacheRow.rows[0].created_at).getTime();
-      if (age < 8 * 60 * 1000) { // 8 minutes
+      if (age < 4 * 60 * 60 * 1000) { // 4 hours — reduces TD API calls from ~800/day to ~32/day
         L(`Cache fresh (${Math.round(age/60000)}m old) — skipping TD fetch`);
         return res.status(200).json({ action: 'cache_fresh', ageMinutes: Math.round(age/60000), log });
       }
@@ -80,22 +80,7 @@ module.exports = async (req, res) => {
 
       await new Promise(r => setTimeout(r, 2000));
 
-      // Fetch MACD
-      let macd = null, macdSignal = null;
-      try {
-        const macdRes = await fetch(
-          `https://api.twelvedata.com/macd?symbol=${encodeURIComponent(instr.symbol)}&interval=1h&apikey=${TD_KEY}&outputsize=1`,
-          { timeout: 8000 }
-        );
-        if (macdRes.ok) {
-          const macdData = await macdRes.json();
-          if (macdData.status !== 'error') {
-            macd       = parseFloat(macdData.values?.[0]?.macd);
-            macdSignal = parseFloat(macdData.values?.[0]?.macd_signal);
-          }
-        }
-      } catch(e) { /* MACD optional */ }
-
+      // MACD removed — saves 4 TD credits per run, calculated locally from DB candles
       tdCache[instr.instr] = { rsi, macd: isNaN(macd) ? null : macd, signal: isNaN(macdSignal) ? null : macdSignal };
       L(`${instr.instr}: RSI ${rsi.toFixed(1)}${macd != null ? ' MACD ' + macd.toFixed(4) : ''}`);
 
