@@ -1545,14 +1545,22 @@ async function runPairsBacktest(req, res) {
   ];
 
   const pairId   = req.query.pair || 'ftse_dax';
-  const entryZ   = parseFloat(req.query.entryZ   || '1.5');  // Z-score to enter
-  const exitZ    = parseFloat(req.query.exitZ    || '0.5');  // Z-score to exit (mean revert)
-  const stopZ    = parseFloat(req.query.stopZ    || '3.0');  // Z-score stop loss
-  const lookback = parseInt(req.query.lookback   || '60');   // rolling window for mean/std
+  const entryZ   = parseFloat(req.query.entryZ   || '1.5');
+  const exitZ    = parseFloat(req.query.exitZ    || '0.5');
+  const stopZ    = parseFloat(req.query.stopZ    || '3.0');
+  const lookback = parseInt(req.query.lookback   || '60');
   const days     = parseInt(req.query.days       || '500');
 
-  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
-  if(!pair) return res.status(400).json({ error: 'Unknown pair: ' + pairId });
+  // Support dynamic pairs via instrA/instrB query params (for universe grid search)
+  // Falls back to hardcoded PAIRS_CONFIG if not provided
+  let pair;
+  if(req.query.instrA && req.query.instrB) {
+    pair = { id: pairId, name: `${req.query.instrA} / ${req.query.instrB}`,
+             a: req.query.instrA, b: req.query.instrB };
+  } else {
+    pair = PAIRS_CONFIG.find(p => p.id === pairId);
+    if(!pair) return res.status(400).json({ error: 'Unknown pair: ' + pairId });
+  }
 
   L(`Pairs backtest: ${pair.name} | entry Z≥${entryZ} | exit Z≤${exitZ} | stop Z≥${stopZ} | lookback ${lookback}d`);
 
