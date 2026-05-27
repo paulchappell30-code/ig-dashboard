@@ -275,7 +275,7 @@ module.exports = async (req, res) => {
           const vol = volumes[i];
           if(!vol || vol <= 0) continue;
           await sql`
-            UPDATE price_history SET volume=${vol}
+            UPDATE price_history SET volume=${String(vol)}
             WHERE instrument=${instr.name} AND resolution='DAY'
             AND candle_time::date = ${dt}::date AND (volume IS NULL OR volume = 0)`;
           volUpdated++;
