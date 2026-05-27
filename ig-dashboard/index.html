@@ -295,6 +295,17 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
         <div id="journal-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
         <table class="data-table"><thead><tr><th>Date</th><th>Instrument</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>P&L</th><th>AI%</th><th>Status</th></tr></thead><tbody id="journal-body"><tr><td colspan="9" class="empty">Click ↻ to load</td></tr></tbody></table>
       </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">⚖️ Pairs Trade History</div>
+          <div id="pairs-journal-status" style="font-size:11px;color:var(--text2)"></div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Opened</th><th>Pair</th><th>Direction</th><th>Entry Z</th><th>Close Z</th><th>Days</th><th>AI%</th><th>Exit</th><th>Status</th></tr></thead>
+          <tbody id="pairs-journal-body"><tr><td colspan="9" class="empty">Click ↻ to load journal</td></tr></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- CHARTS -->
@@ -1127,8 +1138,21 @@ async function loadCalendarData(){
 async function loadJournal(){
   const statusEl=document.getElementById('journal-status');if(statusEl)statusEl.textContent='Loading...';
   try{
-    const [sr,tr,er]=await Promise.all([fetch('/api/db?action=stats'),fetch('/api/db?action=trades&limit=50'),fetch('/api/db?action=equity&days=30')]);
-    const [stats,trades,equity]=await Promise.all([sr.json(),tr.json(),er.json()]);
+    const [sr,tr,er,pr]=await Promise.all([fetch('/api/db?action=stats'),fetch('/api/db?action=trades&limit=50'),fetch('/api/db?action=equity&days=30'),fetch('/api/db?action=pairs_trades&limit=50')]);
+    const [stats,trades,equity,pairsRes]=await Promise.all([sr.json(),tr.json(),er.json(),pr.json()]);
+    const ptl=pairsRes.pairs_trades||[];
+    const pjb=document.getElementById('pairs-journal-body');
+    const pjs=document.getElementById('pairs-journal-status');
+    if(pjb)pjb.innerHTML=ptl.length?ptl.map(pt=>{
+      const daysHeld=pt.opened_at&&pt.closed_at?Math.round((new Date(pt.closed_at)-new Date(pt.opened_at))/(1000*60*60*24)):pt.opened_at?Math.round((Date.now()-new Date(pt.opened_at))/(1000*60*60*24)):'-';
+      const entryZ=pt.entry_z!=null?parseFloat(pt.entry_z).toFixed(2):'—';
+      const closeZ=pt.close_z!=null?parseFloat(pt.close_z).toFixed(2):'—';
+      const dirLabel=pt.direction_a==='BUY'?pt.instr_a+' BUY / '+pt.instr_b+' SELL':pt.instr_a+' SELL / '+pt.instr_b+' BUY';
+      const statusBadge=pt.status==='open'?'badge-buy':pt.close_reason==='mean_revert'?'badge-sell':'badge-neutral';
+      const exitLabel=pt.close_reason?pt.close_reason.replace('_',' '):pt.status==='open'?'open':'—';
+      return '<tr><td style="font-size:12px;color:var(--text2)">'+( pt.opened_at?new Date(pt.opened_at).toLocaleDateString("en-GB"):'—')+'</td><td style="font-weight:500">'+pt.instr_a+' / '+pt.instr_b+'</td><td style="font-size:12px">'+dirLabel+'</td><td style="font-family:var(--font-mono)">'+(entryZ>0?"+":"")+entryZ+'σ</td><td style="font-family:var(--font-mono)">'+( pt.close_z!=null?(closeZ>0?"+":"")+closeZ+"σ":"—")+'</td><td>'+daysHeld+'d</td><td style="font-size:12px">'+( pt.ai_confidence!=null?pt.ai_confidence+"%":"—")+'</td><td><span class="badge badge-neutral" style="font-size:10px">'+exitLabel+'</span></td><td><span class="badge '+statusBadge+'">'+pt.status+'</span></td></tr>';
+    }).join(''):'<tr><td colspan="9" class="empty">No pairs trades yet</td></tr>';
+    if(pjs)pjs.textContent=ptl.length+' pairs trade'+(ptl.length!==1?'s':'');
     if(stats.configured===false){if(statusEl)statusEl.innerHTML='⚠️ Postgres not configured. <a href="https://vercel.com/docs/storage/vercel-postgres" target="_blank" style="color:var(--blue)">Set up database</a> then click Init DB.';return;}
     if(statusEl)statusEl.textContent='';
     if(stats.totalTrades!==undefined){
