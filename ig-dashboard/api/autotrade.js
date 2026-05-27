@@ -437,7 +437,8 @@ module.exports = async (req,res) => {
   const log=[];
   const L=msg=>{console.log('[ATv3]',msg);log.push(msg);};
 
-  L('=== Engine v4 === '+new Date().toLocaleString('en-GB',{timeZone:'Europe/London'}));
+  const now = new Date(); // define once at top level for use throughout
+  L('=== Engine v4 === '+now.toLocaleString('en-GB',{timeZone:'Europe/London'}));
 
   // Auth
   try{
@@ -581,7 +582,6 @@ module.exports = async (req,res) => {
 
   // End-of-day position close
   if(cfg.eodClose){
-    const now = new Date();
     const utcH = now.getUTCHours();
     const utcM = now.getUTCMinutes();
     // EOD: close 10 mins before configured time to avoid spread widening at session close
