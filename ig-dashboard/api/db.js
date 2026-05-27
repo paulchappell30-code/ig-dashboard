@@ -61,6 +61,24 @@ module.exports = async (req, res) => {
         } catch(e) { return res.status(200).json({ error: e.message, candles: [] }); }
       }
 
+      if (action === 'open_pairs_trade') {
+        if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
+        try {
+          const b = req.body || {};
+          const result = await sql`
+            INSERT INTO pairs_trades
+              (pair_id, instr_a, instr_b, epic_a, epic_b,
+               direction_a, direction_b, size_a, size_b,
+               entry_z, stop_z, target_z, ai_confidence, status, opened_at)
+            VALUES
+              (${b.pair_id}, ${b.instr_a}, ${b.instr_b}, ${b.epic_a}, ${b.epic_b},
+               ${b.direction_a}, ${b.direction_b}, ${b.size_a}, ${b.size_b},
+               ${b.entry_z}, ${b.stop_z}, ${b.target_z}, ${b.ai_confidence}, 'open', NOW())
+            RETURNING id`;
+          return res.status(200).json({ success: true, id: result.rows[0].id });
+        } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
       if (action === 'close_pairs_trade') {
         const id = req.query.id;
         const close_z = req.query.close_z || null;
