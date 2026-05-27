@@ -87,7 +87,7 @@ const TRADING_HOURS = {
 const PREFERRED_WINDOWS = [{open:8,close:10},{open:13,close:15}];
 
 const DEFAULT_CONFIG = {
-  dailyProfitLock:2.0,dailyLossLimit:1.0,maxDrawdownPct:5.0,
+  dailyProfitLock:3.0,dailyLossLimit:1.0,maxDrawdownPct:5.0, // profit lock raised to 3% to accommodate pairs trades
   maxPositions:3,defaultSize:1,maxSizePerTrade:5,maxPortfolioHeat:300,
   requireAIConfirm:true,aiConfidenceMin:60,enabled:true,
   trailingStopPct:1.5,signalThreshold:2,useNewsFilter:true,
@@ -1643,7 +1643,8 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           L(`Pairs AI: ${pairsApproved?'✅':'❌'}(${pairsConfidence}%) ${pairsReasoning}`);
           if(!pairsApproved || pairsConfidence < cfg.aiConfidenceMin) continue;
 
-          // Size both legs — equal notional, risk = pairsRiskPct of balance
+          // Size both legs — pairs trades exempt from profit lock
+          // (multi-day positions shouldn't be blocked by intraday P&L)
           const riskAmt = balance * cfg.pairsRiskPct;
           const zStopDist = cfg.pairsZStop - absZ; // σ distance to stop
           // Get current prices for sizing
