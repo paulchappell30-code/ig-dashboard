@@ -61,6 +61,17 @@ module.exports = async (req, res) => {
         } catch(e) { return res.status(200).json({ error: e.message, candles: [] }); }
       }
 
+      if (action === 'close_pairs_trade') {
+        const id = req.query.id;
+        const close_z = req.query.close_z || null;
+        const close_reason = req.query.close_reason || 'manual';
+        if (!id) return res.status(400).json({ error: 'id required' });
+        try {
+          await sql`UPDATE pairs_trades SET status='closed', close_reason=${close_reason}, close_z=${close_z}, closed_at=NOW() WHERE id=${id}`;
+          return res.status(200).json({ success: true, id, close_reason });
+        } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
       if (action === 'pairs_trades') {
         const limit = parseInt(req.query.limit) || 50;
         try {
