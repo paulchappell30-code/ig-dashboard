@@ -1718,8 +1718,9 @@ function calcPairSpread(candlesA, candlesB, livePriceA, livePriceB) {
   return spreads;
 }
 
-function calcZScore(spreads) {
+function calcZScore(spreads, lookbackDays) {
   if(spreads.length < 5) return { zscore: null, mean: null, std: null };
+  const lb = lookbackDays || 60;
   const values = spreads.map(s => s.spread);
   const dates = spreads.map(s => s.date);
   const mean = values.reduce((a,b) => a+b, 0) / values.length;
@@ -1749,7 +1750,7 @@ function calcZScore(spreads) {
   // Signal strength: combines Z magnitude + data quality
   // 0-100 score: 50% from Z-score, 50% from data days
   const zStrength = Math.min(100, (Math.abs(zscore) / 3) * 100); // 3σ = max
-  const dataStrength = Math.min(100, (values.length / 60) * 100); // 60 days = max
+  const dataStrength = Math.min(100, (values.length / lb) * 100); // full lookback = max
   const signalStrength = Math.round((zStrength * 0.6) + (dataStrength * 0.4));
   const strengthLabel = signalStrength >= 70 ? 'Strong'
     : signalStrength >= 50 ? 'Moderate'
@@ -1807,8 +1808,11 @@ function renderPairsGrid() {
     const liveA = pairsLivePrices[pair.a];
     const liveB = pairsLivePrices[pair.b];
     const spreads = calcPairSpread(candlesA, candlesB, liveA, liveB);
+    // Apply per-pair rolling lookback window — matches engine calculation exactly
+    const lb = pair.lookbackDays || 60;
+    const windowedSpreads = spreads.length > lb ? spreads.slice(-lb) : spreads;
     const { zscore, mean, std, current, n, direction, zTrend,
-              recentMaxZ, recentMaxDate, signalStrength, strengthLabel, strengthColor } = calcZScore(spreads);
+              recentMaxZ, recentMaxDate, signalStrength, strengthLabel, strengthColor } = calcZScore(windowedSpreads, lb);
     const hasLive = spreads.length > 0 && spreads[spreads.length-1].isLive;
     const signal = getSignal(pair, zscore);
     const zColor = getZScoreColor(zscore);
@@ -1917,9 +1921,11 @@ function renderPairsChart(pairId) {
     return;
   }
 
-  const { mean, std } = calcZScore(spreads);
-  const values = spreads.map(s => s.spread);
-  const dates = spreads.map(s => s.date.substring(5));
+  const lb = pair.lookbackDays || 60;
+  const windowedSpreads = spreads.length > lb ? spreads.slice(-lb) : spreads;
+  const { mean, std } = calcZScore(windowedSpreads, lb);
+  const values = windowedSpreads.map(s => s.spread);
+  const dates = windowedSpreads.map(s => s.date.substring(5));
   const upper2 = mean + 2*std;
   const lower2 = mean - 2*std;
   const upper1 = mean + std;
@@ -2122,7 +2128,9 @@ function calcPairSizing() {
       return;
     }
     const spreads = calcPairSpread(candlesA, candlesB);
-    const { zscore, mean, std, n } = calcZScore(spreads);
+    const lbSz = pair.lookbackDays || 60;
+    const wSpreads = spreads.length > lbSz ? spreads.slice(-lbSz) : spreads;
+    const { zscore, mean, std, n } = calcZScore(wSpreads, lbSz);
     if(!zscore) { result.innerHTML = '<span style="color:var(--text2)">Insufficient data</span>'; return; }
     const absZ = Math.abs(zscore);
     const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
