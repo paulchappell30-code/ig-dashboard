@@ -832,6 +832,18 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     }
   } catch(e) { L(`Pyramid check error: ${e.message}`); }
 
+  // ── 19:30 UTC VOLATILITY WARNING ─────────────────────────────────────────
+  // AI analysis found consistent multi-instrument volatility spikes at 19:30 UTC
+  // (3:30pm ET — US market close / options expiry time)
+  // Avoid opening NEW positions in the 19:20-19:45 UTC window
+  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const is1930Window = utcMins >= 19*60+20 && utcMins <= 19*60+45;
+  if(is1930Window) {
+    L('⚠️ 19:30 UTC volatility window — skipping new position opens');
+    return res.status(200).json({ action:'volatility_window', log,
+      message:'19:30 UTC witching hour — no new positions' });
+  }
+
   // Cooldown: block re-entry on same instrument within 4 hours of a stop loss
   const recentlyStoppedEpics = new Set();
   try {
@@ -938,6 +950,35 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
               L(`${instr}: 🥇 Gold 20-day low breakout at ${price.toFixed(0)} (score:${sc})`);
             }
           }
+        }
+
+        // ── DAX AFTER-HOURS LEAD INDICATOR ──────────────────────────────────
+        // When DAX makes >1% hourly move after 16:30 UTC, US equities
+        // tend to follow at next day's 13:30 UTC open (Finding 4 from AI analysis)
+        const utcHour = now.getUTCHours();
+        const isAfterDaxClose = utcHour >= 16 && utcHour <= 21;
+        if(isAfterDaxClose && (epic.includes('SPTRD') || epic.includes('NASDAQ'))) {
+          try {
+            const {sql:daxSql} = require('@vercel/postgres');
+            const daxRow = await daxSql`
+              SELECT close_price FROM price_history
+              WHERE instrument='DAX 40' AND resolution='HOUR'
+              AND candle_time > NOW() - INTERVAL '3 hours'
+              ORDER BY candle_time DESC LIMIT 3`.catch(()=>({rows:[]}));
+            if(daxRow.rows.length >= 2) {
+              const daxLast = parseFloat(daxRow.rows[0].close_price);
+              const daxPrev = parseFloat(daxRow.rows[daxRow.rows.length-1].close_price);
+              const daxMove = (daxLast - daxPrev) / daxPrev * 100;
+              if(Math.abs(daxMove) > 1.0) {
+                const daxDir = daxMove > 0 ? 'BUY' : 'SELL';
+                L(`${instr}: 🇩🇪 DAX lead signal ${daxMove>0?'+':''}${daxMove.toFixed(2)}% after-hours → expect US ${daxDir} at tomorrow's open`);
+                if(daxDir === dir || !dir) {
+                  sc = Math.max(sc, 1); // adds 1 to score as confluence
+                  dir = dir || daxDir;
+                }
+              }
+            }
+          } catch(e) { /* skip on error */ }
         }
 
         // SMA Crossover signal — trend following, works in any regime
@@ -1451,6 +1492,38 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
       L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
+
+    // ── EUR/USD TRIANGULATION LAG DETECTOR ──────────────────────────────────
+    // Finding 5: EUR/USD lags GBP/USD by ~30min due to triangular relationship
+    // When GBP/USD moves significantly, EUR/USD should follow — trade the lag
+    try {
+      const {sql:triSql} = require('@vercel/postgres');
+      const [gbpRow, eurRow] = await Promise.all([
+        triSql`SELECT close_price FROM price_history WHERE instrument='GBP/USD'
+               AND resolution='MINUTE' AND candle_time > NOW() - INTERVAL '45 minutes'
+               ORDER BY candle_time ASC`.catch(()=>({rows:[]})),
+        triSql`SELECT close_price FROM price_history WHERE instrument='EUR/USD'
+               AND resolution='MINUTE' AND candle_time > NOW() - INTERVAL '45 minutes'
+               ORDER BY candle_time ASC`.catch(()=>({rows:[]}))
+      ]);
+
+      if(gbpRow.rows.length >= 5 && eurRow.rows.length >= 5) {
+        const gbpFirst = parseFloat(gbpRow.rows[0].close_price);
+        const gbpLast = parseFloat(gbpRow.rows[gbpRow.rows.length-1].close_price);
+        const eurFirst = parseFloat(eurRow.rows[0].close_price);
+        const eurLast = parseFloat(eurRow.rows[eurRow.rows.length-1].close_price);
+
+        const gbpMove = (gbpLast - gbpFirst) / gbpFirst * 100;
+        const eurMove = (eurLast - eurFirst) / eurFirst * 100;
+        const divergence = Math.abs(gbpMove - eurMove);
+
+        // GBP moved >0.1% but EUR hasn't caught up (divergence >0.05%)
+        if(Math.abs(gbpMove) > 0.1 && divergence > 0.05) {
+          const lagDir = gbpMove > 0 ? 'BUY' : 'SELL';
+          L(`💡 EUR/USD triangulation lag: GBP/USD ${gbpMove>0?'+':''}${gbpMove.toFixed(3)}% | EUR/USD ${eurMove>0?'+':''}${eurMove.toFixed(3)}% | divergence ${divergence.toFixed(3)}% — EUR/USD should ${lagDir}`);
+        }
+      }
+    } catch(e) { /* skip */ }
 
       // Check if any open pairs need closing (Z-score reverted or stopped)
       for(const pt of openPairs.rows) {
