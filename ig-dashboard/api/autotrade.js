@@ -386,11 +386,12 @@ async function managePositions(openPos, igBase, igH, cfg, balance, L) {
         continue;
       }
 
-      // Partial close for directional trades only: if profit >= 1x ATR close 50%
+      // Partial close for directional trades only: if profit >= 3x ATR close 50%
+      // 3x ATR gives the trade room to develop before locking in — 1x was too early
       const dbEpic = DB_EPIC_MAP[epic] || epic;
       const closes = await getDbPrices(dbEpic, 20, L) || [];
       const atr = closes.length >= 5 ? calcATR(closes) : 50;
-      const atrProfit = atr * sz;
+      const atrProfit = atr * sz * 3;
 
       if (upl > 0 && sz >= 0.01) {
         if (upl >= atrProfit && !partialClosedSet.has(dealId)) {
@@ -644,6 +645,25 @@ module.exports = async (req,res) => {
         }
       }
     } catch(e){ L('Stop loss detection error: ' + e.message); }
+
+    // Only manage positions the engine opened — skip manual trades
+    // Build set of all engine deal IDs (from both trades and pairs_trades)
+    try {
+      const {sql: mgFilterSql} = require('@vercel/postgres');
+      const [dirRows, pairRows] = await Promise.all([
+        mgFilterSql`SELECT deal_id FROM trades WHERE status='open'`.catch(()=>({rows:[]})),
+        mgFilterSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
+      ]);
+      const engineDealIds = new Set();
+      dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
+      pairRows.rows.forEach(r => {
+        if(r.deal_id_a) engineDealIds.add(r.deal_id_a);
+        if(r.deal_id_b) engineDealIds.add(r.deal_id_b);
+      });
+      const manualPos = openPos.filter(p => !engineDealIds.has(p.position.dealId));
+      if(manualPos.length > 0) L(`Skipping ${manualPos.length} manual position(s) — not managed by engine`);
+      openPos = openPos.filter(p => engineDealIds.has(p.position.dealId));
+    } catch(e) { L('Engine position filter error: ' + e.message); }
 
     await managePositions(openPos,igBase,igH,cfg,balance,L);
   }catch(e){L('Positions error: '+e.message);}
