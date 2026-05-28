@@ -340,9 +340,25 @@ async function fetchNews(L) {
 
 async function managePositions(openPos, igBase, igH, cfg, balance, L) {
   const {sql: mgSql} = require('@vercel/postgres');
-
-  // Load partial_close flags from DB for all open positions in one query
   const dealIds = openPos.map(p => p.position.dealId).filter(Boolean);
+
+  // Build set of deal IDs that belong to open pairs trades — these are NEVER partially closed.
+  // Partial closing one leg destroys the hedge and leaves a naked position on the other leg.
+  // Pairs legs are held in full until the Z-score hits the exit threshold, then closed together.
+  let pairsDealIds = new Set();
+  try {
+    if (dealIds.length > 0) {
+      const pairRows = await mgSql`
+        SELECT deal_id_a, deal_id_b FROM pairs_trades
+        WHERE deal_id_a = ANY(${dealIds}) OR deal_id_b = ANY(${dealIds})`;
+      pairRows.rows.forEach(r => {
+        if(r.deal_id_a) pairsDealIds.add(r.deal_id_a);
+        if(r.deal_id_b) pairsDealIds.add(r.deal_id_b);
+      });
+    }
+  } catch(e) { L('Pairs deal ID check error: ' + e.message); }
+
+  // Load partial_close flags for directional trades only
   let partialClosedSet = new Set();
   try {
     if (dealIds.length > 0) {
@@ -364,7 +380,13 @@ async function managePositions(openPos, igBase, igH, cfg, balance, L) {
       const upl = dir === 'BUY' ? (current - openLevel) * sz : (openLevel - current) * sz;
       const dealId = p.position.dealId;
 
-      // Partial close: if profit >= 1x ATR close 50% — only once per trade (DB-persisted flag)
+      // Skip partial close entirely for pairs legs — managed by pairs close logic instead
+      if (pairsDealIds.has(dealId)) {
+        if (upl > 0) L(`${p.market.instrumentName}: pairs leg +£${upl.toFixed(2)} — holding for Z-score exit`);
+        continue;
+      }
+
+      // Partial close for directional trades only: if profit >= 1x ATR close 50%
       const dbEpic = DB_EPIC_MAP[epic] || epic;
       const closes = await getDbPrices(dbEpic, 20, L) || [];
       const atr = closes.length >= 5 ? calcATR(closes) : 50;
@@ -385,10 +407,9 @@ async function managePositions(openPos, igBase, igH, cfg, balance, L) {
               const cd = await cr.json();
               if (cd.dealReference) {
                 L(`Partial close confirmed: ${cd.dealReference}`);
-                // Persist flag to DB so subsequent cron runs don't re-fire
                 try {
                   await mgSql`UPDATE trades SET partial_close = true WHERE deal_id = ${dealId}`;
-                  partialClosedSet.add(dealId); // update in-memory set for this run too
+                  partialClosedSet.add(dealId);
                 } catch(e) { L('Partial close DB update error: ' + e.message); }
               }
             } catch(e) { L('Partial close error: ' + e.message); }
@@ -1591,8 +1612,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         size_a DECIMAL(10,4), size_b DECIMAL(10,4), deal_id_a VARCHAR(50), deal_id_b VARCHAR(50),
         entry_z DECIMAL(8,4), stop_z DECIMAL(8,4), target_z DECIMAL(8,4), close_z DECIMAL(8,4),
         close_reason VARCHAR(30), ai_confidence INTEGER, status VARCHAR(20) DEFAULT 'open',
+        partial_close BOOLEAN DEFAULT false,
         opened_at TIMESTAMPTZ DEFAULT NOW(), closed_at TIMESTAMPTZ
       )`.catch(()=>{});
+      // Add partial_close to existing tables that predate this column
+      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false`.catch(()=>{});
       const openPairs = await pSql`SELECT pair_id, instr_a, instr_b, direction_a, deal_id_a, deal_id_b,
         entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
