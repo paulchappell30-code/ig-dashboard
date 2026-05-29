@@ -2,7 +2,7 @@
 // Features: Price history DB, regime detection, news sentiment, time filter,
 // active position management, Kelly sizing, portfolio heat, sentiment divergence
 const fetch = require('node-fetch');
-const TD_CACHE_TTL = 60 * 60 * 1000; // 60 min Twelve Data cache TTL — DB-backed
+const TD_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hour TD cache TTL — alert cron runs 3x/day (7am, 12pm, 4pm UTC)
 
 const IG_BASES = {
   live: 'https://api.ig.com/gateway/deal',
@@ -312,7 +312,7 @@ SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sent
 TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
 ${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence.type.toUpperCase()} — ${sig.divergence.description} (strength:${sig.divergence.strength}/3)`:''}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
-WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${typeof directionalOpen!=='undefined'?directionalOpen:openCount}/${cfg.maxPositions}
+WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
 ${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal.replace('_',' ')} vs ${sig.pairsCtx.partner} (Z-score: ${sig.pairsCtx.zscore.toFixed(2)}, ${sig.pairsCtx.n} days data)
 ${sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this BUY — instrument cheap vs partner' :
@@ -647,7 +647,7 @@ module.exports = async (req,res) => {
   }
 
   // Positions + portfolio heat
-  let openPos=[],portfolioHeat=0;
+  let openPos=[],portfolioHeat=0,directionalOpen=0;
   try{
     const pr=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
     const pd=await pr.json();openPos=pd.positions||[];
@@ -687,14 +687,14 @@ module.exports = async (req,res) => {
       openPos = openPos.filter(p => engineDealIds.has(p.position.dealId));
       // Separate counts: pairs legs don't consume directional slots
       const pairsLegCount = openPos.filter(p => pairsDealIds.has(p.position.dealId)).length;
-      const directionalOpen = openPos.length - pairsLegCount;
+      directionalOpen = openPos.length - pairsLegCount;
       L(`Open: ${directionalOpen}/${cfg.maxPositions} directional | ${Math.round(pairsLegCount/2)}/${cfg.pairsMaxSlots} pairs | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
     } catch(e) { L('Engine position filter error: ' + e.message); }
 
     await managePositions(openPos,igBase,igH,cfg,balance,L);
   }catch(e){L('Positions error: '+e.message);}
 
-  if((typeof directionalOpen !== 'undefined' ? directionalOpen : openPos.length)>=cfg.maxPositions){L('Max positions');return res.status(200).json({action:'max_positions',log});}
+  if(directionalOpen>=cfg.maxPositions){L('Max positions');return res.status(200).json({action:'max_positions',log});}
   if(portfolioHeat>=cfg.maxPortfolioHeat){L('Portfolio heat limit');return res.status(200).json({action:'heat_limit',log});}
 
   // Time filter
@@ -967,7 +967,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       // Only pyramid trend/breakout trades, on day 2+, up 1%+, not already pyramided
       if((tradeType === 'trend' || tradeType === 'breakout')
         && !pyramidAdded && daysHeld >= 1.5 && pnlPct >= 1.0
-        && (typeof directionalOpen !== 'undefined' ? directionalOpen : openPos.length) < cfg.maxPositions) {
+        && directionalOpen < cfg.maxPositions) {
 
         const pyrSize = parseFloat((pos.position.dealSize * 0.5).toFixed(2)); // add 50% of original
         L(`🔺 Pyramid: ${pos.market.instrumentName} up ${pnlPct.toFixed(1)}% after ${daysHeld.toFixed(1)}d — adding £${pyrSize}/pt`);
@@ -1332,7 +1332,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     let approved=!cfg.requireAIConfirm,confidence=100,reasoning='AI not required';
     if(cfg.requireAIConfirm){
       try{
-        const air=await aiConfirm(sig,cfg,plPct,openPos.length,winRate,L);
+        const air=await aiConfirm(sig,cfg,plPct,directionalOpen,winRate,L);
         approved=air.approved;confidence=air.confidence;reasoning=air.reasoning;
       }catch(e){L('AI error — trade skipped: '+e.message);approved=false;confidence=0;reasoning='AI call failed';}
     }
@@ -1783,7 +1783,7 @@ STOP: Z=±${pair.stopZ} (${(pair.stopZ-absZ).toFixed(1)}σ away)
 EXIT TARGET: Z=±${pair.exitZ} (${(absZ-pair.exitZ).toFixed(1)}σ reversion needed)
 DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
 APPROVAL RULES: Approve if (1) |Z| ≥ ${pairEntryZ}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence.
-Account P&L: ${plPct.toFixed(2)}% | Open positions: ${openCount}/${cfg.maxPositions}
+Account P&L: ${plPct.toFixed(2)}% | Open positions: ${directionalOpen}/${cfg.maxPositions} directional | ${openPairs.rows.length}/${cfg.pairsMaxSlots} pairs
 Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           let pairsApproved = false; let pairsConfidence = 0; let pairsReasoning = '';
