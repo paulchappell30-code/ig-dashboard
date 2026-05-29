@@ -149,7 +149,7 @@ const DEFAULT_CONFIG = {
   pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
   pairsZStop:3.5,       // Z-score stop loss level
   pairsZTarget:0.5,     // Z-score target (close when reverts to this)
-  pairsMaxSlots:3,      // Max simultaneous pairs trades (3 pairs now active)
+  pairsMaxSlots:2,      // Max simultaneous pairs trades — separate from directional slots
   pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
   // Note: pairs risk is split across two legs so effective single-leg risk is 2%
   // At 4% with £526 balance = £21 risk per pairs trade
@@ -312,7 +312,7 @@ SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sent
 TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
 ${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence.type.toUpperCase()} — ${sig.divergence.description} (strength:${sig.divergence.strength}/3)`:''}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
-WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
+WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${typeof directionalOpen!=='undefined'?directionalOpen:openCount}/${cfg.maxPositions}
 Reasons: ${sig.reasons.join(', ')}
 ${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal.replace('_',' ')} vs ${sig.pairsCtx.partner} (Z-score: ${sig.pairsCtx.zscore.toFixed(2)}, ${sig.pairsCtx.n} days data)
 ${sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this BUY — instrument cheap vs partner' :
@@ -652,7 +652,6 @@ module.exports = async (req,res) => {
     const pr=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
     const pd=await pr.json();openPos=pd.positions||[];
     portfolioHeat=openPos.reduce((s,p)=>s+(p.position.size||1)*50,0);
-    L(`Open: ${openPos.length}/${cfg.maxPositions} | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
 
     // Detect stop-loss triggered positions (in DB as open but not in IG positions)
     try {
@@ -677,20 +676,25 @@ module.exports = async (req,res) => {
         mgFilterSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
       ]);
       const engineDealIds = new Set();
+      const pairsDealIds = new Set();
       dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
       pairRows.rows.forEach(r => {
-        if(r.deal_id_a) engineDealIds.add(r.deal_id_a);
-        if(r.deal_id_b) engineDealIds.add(r.deal_id_b);
+        if(r.deal_id_a) { engineDealIds.add(r.deal_id_a); pairsDealIds.add(r.deal_id_a); }
+        if(r.deal_id_b) { engineDealIds.add(r.deal_id_b); pairsDealIds.add(r.deal_id_b); }
       });
       const manualPos = openPos.filter(p => !engineDealIds.has(p.position.dealId));
       if(manualPos.length > 0) L(`Skipping ${manualPos.length} manual position(s) — not managed by engine`);
       openPos = openPos.filter(p => engineDealIds.has(p.position.dealId));
+      // Separate counts: pairs legs don't consume directional slots
+      const pairsLegCount = openPos.filter(p => pairsDealIds.has(p.position.dealId)).length;
+      const directionalOpen = openPos.length - pairsLegCount;
+      L(`Open: ${directionalOpen}/${cfg.maxPositions} directional | ${Math.round(pairsLegCount/2)}/${cfg.pairsMaxSlots} pairs | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
     } catch(e) { L('Engine position filter error: ' + e.message); }
 
     await managePositions(openPos,igBase,igH,cfg,balance,L);
   }catch(e){L('Positions error: '+e.message);}
 
-  if(openPos.length>=cfg.maxPositions){L('Max positions');return res.status(200).json({action:'max_positions',log});}
+  if((typeof directionalOpen !== 'undefined' ? directionalOpen : openPos.length)>=cfg.maxPositions){L('Max positions');return res.status(200).json({action:'max_positions',log});}
   if(portfolioHeat>=cfg.maxPortfolioHeat){L('Portfolio heat limit');return res.status(200).json({action:'heat_limit',log});}
 
   // Time filter
@@ -963,7 +967,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       // Only pyramid trend/breakout trades, on day 2+, up 1%+, not already pyramided
       if((tradeType === 'trend' || tradeType === 'breakout')
         && !pyramidAdded && daysHeld >= 1.5 && pnlPct >= 1.0
-        && openPos.length < cfg.maxPositions) {
+        && (typeof directionalOpen !== 'undefined' ? directionalOpen : openPos.length) < cfg.maxPositions) {
 
         const pyrSize = parseFloat((pos.position.dealSize * 0.5).toFixed(2)); // add 50% of original
         L(`🔺 Pyramid: ${pos.market.instrumentName} up ${pnlPct.toFixed(1)}% after ${daysHeld.toFixed(1)}d — adding £${pyrSize}/pt`);
@@ -1641,8 +1645,10 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   }
 
   // ── PAIRS TRADING ────────────────────────────────────────────────────────────
+  // Pairs trades use SEPARATE slots (pairsMaxSlots) from directional trades (maxPositions)
+  // Count directional-only open positions for slot check
   const openCount = openPos.length;
-  if(cfg.pairsEnabled && openCount < cfg.maxPositions) {
+  if(cfg.pairsEnabled) {
     try {
       const {sql: pSql} = require('@vercel/postgres');
 
