@@ -114,7 +114,7 @@ const PAIRS_DEFINITIONS = [
   // ASX time-zone gap creates frequent short-lived divergences from US session
   { id:'asx_sp500', instrA:'Australia 200', instrB:'S&P 500',
     epicA:'IX.D.ASX.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:45, lookbackDays:45, entryZ:1.0, exitZ:0.5, stopZ:3.0,
+    minDays:45, lookbackDays:45, entryZ:1.5, exitZ:0.5, stopZ:3.0,
     description:'ASX vs S&P 500 — time-zone gap divergences, 84.8% WR, 33 trades ⭐' },
   // Universe search: score 57.2 | 86.7% WR | 2.73% exp | 15 trades over 500d
   // Strong cross-asset pair — CAD is a petrocurrency, USD/CAD moves inversely with oil
