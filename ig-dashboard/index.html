@@ -626,7 +626,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="copper_gold" data-entry="2.0"  data-exit="0.25" data-stop="3.0">Copper / Gold ⭐ score 21.3</option>
               <option value="ftse_sp500"  data-entry="2.0"  data-exit="1.0"  data-stop="3.0">FTSE / S&amp;P 500 ⭐ score 17.1</option>
               <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5" data-stop="3.0">Nikkei / S&amp;P 500 ⭐ score 107</option>
-              <option value="asx_sp500"   data-entry="1.0"  data-exit="0.5"  data-stop="3.0">ASX / S&amp;P 500 ⭐ score 23.6</option>
+              <option value="asx_sp500"   data-entry="1.5"  data-exit="0.5"  data-stop="3.0">ASX / S&amp;P 500 ⭐ score 23.6</option>
               <option value="usdcad_wti"  data-entry="1.25" data-exit="0.75" data-stop="3.0">USD/CAD vs WTI ⭐ score 57.2</option>
             </optgroup>
             <optgroup label="── Paper trade">
@@ -1596,7 +1596,7 @@ const PAIRS_CONFIG = [
     lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:82.8, expectancy:2.71,
     description:'Yen dynamics + risk divergence — 82.8% WR, 29 trades, score 107 ⭐' },
   { id:'asx_sp500',   name:'ASX / S&P 500',    a:'Australia 200', b:'S&P 500', type:'ratio', tier:'deploy',
-    lookbackDays:45, entryZ:1.0,  exitZ:0.5,  score:23.57, winRate:84.8, expectancy:1.12,
+    lookbackDays:45, entryZ:1.5,  exitZ:0.5,  score:23.57, winRate:84.8, expectancy:1.12,
     description:'Time-zone gap divergences — 84.8% WR, 33 trades, most reliable result ⭐' },
   { id:'usdcad_wti',  name:'USD/CAD vs WTI',   a:'USD/CAD',  b:'WTI Oil',   type:'ratio', tier:'deploy',
     lookbackDays:90, entryZ:1.25, exitZ:0.75, score:57.2,  winRate:86.7, expectancy:2.73,
