@@ -191,9 +191,31 @@ async function closeAll(igBase, igH) {
     const pr = await fetch(`${igBase}/positions`, { headers: { ...igH, 'Version': '1' } });
     const pd = await pr.json();
     const positions = pd.positions || [];
+
+    // Only close engine-opened positions — skip manual trades
+    let engineDealIds = new Set();
+    try {
+      const {sql: caSql} = require('@vercel/postgres');
+      const [dirRows, pairRows] = await Promise.all([
+        caSql`SELECT deal_id FROM trades WHERE status='open'`.catch(()=>({rows:[]})),
+        caSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
+      ]);
+      dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
+      pairRows.rows.forEach(r => {
+        if(r.deal_id_a) engineDealIds.add(r.deal_id_a);
+        if(r.deal_id_b) engineDealIds.add(r.deal_id_b);
+      });
+    } catch(e) { console.log('[closeAll] DB filter error:', e.message); }
+
     let closed = 0;
     for (const p of positions) {
       try {
+        const dealId = p.position.dealId;
+        // Skip manual positions not tracked by engine
+        if (engineDealIds.size > 0 && !engineDealIds.has(dealId)) {
+          console.log('[closeAll] Skipping manual position:', p.market.instrumentName);
+          continue;
+        }
         const epic = p.market.epic;
         const dir = p.position.direction === 'BUY' ? 'SELL' : 'BUY';
         const size = p.position.dealSize || p.position.size;
