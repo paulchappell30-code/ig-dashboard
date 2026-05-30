@@ -1646,8 +1646,11 @@ async function loadPairsData() {
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD',  'CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY',  'CS.D.EURGBP.TODAY.IP':'EUR/GBP',
       'CS.D.USDCAD.TODAY.IP':'USD/CAD',
-      // Commodities excluded — IG and Yahoo use different price scales
-      // Historical Z-scores use Yahoo units; live IG prices would corrupt the ratio
+      // Commodities — IG prices in pence/unit, different to Yahoo DB units
+      // Only used for profit estimation in pairs card, NOT for Z-score calculation
+      'CS.D.USCGC.TODAY.IP':'Gold',
+      'CS.D.COPPER.TODAY.IP':'Copper',
+      'CC.D.LCO.USS.IP':'Brent Oil',
     };
     (S.markets||[]).forEach(m => {
       const instr = EPIC_TO_INSTR[m.epic];
@@ -1891,16 +1894,14 @@ function renderPairsGrid() {
             const zReversion = Math.max(0, absZ - exitZ);
             // Points each leg moves as Z reverts: zReversion × std × price of OTHER leg
             if(priceA > 0 && priceB > 0) {
-              // Index/FX pairs: use live prices for accurate calculation
+              // Exact calculation using live IG prices for both legs
               const legAProfit = zReversion * effectiveStd * priceB * sizeA;
               const legBProfit = zReversion * effectiveStd * priceA * sizeB;
               estProfit = legAProfit + legBProfit;
             } else {
-              // Commodity pairs: no live prices — scale expectancy by actual vs theoretical size
-              const theoreticalSize = riskAmt / 2 / Math.max(1, (stopZ - entryZ) * effectiveStd * 10000);
-              const sizeScale = sizeA > 0 && theoreticalSize > 0 ? sizeA / theoreticalSize : 1;
+              // Fallback: scale expectancy by remaining Z reversion proportion
               const zRatio = zReversion / Math.max(0.01, Math.abs(parseFloat(openTrade.entry_z)||entryZ) - exitZ);
-              estProfit = zRatio * (pair.expectancy/100) * riskAmt * sizeScale;
+              estProfit = zRatio * (pair.expectancy/100) * riskAmt;
             }
             profitLabel = `open: Z ${absZ.toFixed(2)}→${exitZ}σ`;
           } else if(priceA > 0 && priceB > 0 && absZ >= entryZ) {
