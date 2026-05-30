@@ -1812,8 +1812,12 @@ function renderPairsGrid() {
   PAIRS_CONFIG.forEach(pair => {
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
-    const liveA = pairsLivePrices[pair.a];
-    const liveB = pairsLivePrices[pair.b];
+    const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
+    const liveA = COMMODITY_INSTRUMENTS.has(pair.a) ? null : pairsLivePrices[pair.a];
+    const liveB = COMMODITY_INSTRUMENTS.has(pair.b) ? null : pairsLivePrices[pair.b];
+    // Keep full live prices available for profit calculation (separate from Z-score)
+    const priceA = pairsLivePrices[pair.a];
+    const priceB = pairsLivePrices[pair.b];
     const spreads = calcPairSpread(candlesA, candlesB, liveA, liveB);
     // Apply per-pair rolling lookback window — matches engine calculation exactly
     const lb = pair.lookbackDays || 60;
@@ -1991,7 +1995,10 @@ function renderPairsChart(pairId) {
 
   const candlesA = pairsData[pair.a] || [];
   const candlesB = pairsData[pair.b] || [];
-  const spreads = calcPairSpread(candlesA, candlesB, pairsLivePrices[pair.a], pairsLivePrices[pair.b]);
+  const COMMODITY_INSTRS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
+  const spreads = calcPairSpread(candlesA, candlesB,
+    COMMODITY_INSTRS.has(pair.a) ? null : pairsLivePrices[pair.a],
+    COMMODITY_INSTRS.has(pair.b) ? null : pairsLivePrices[pair.b]);
   if(spreads.length < 3) {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = 'var(--text2)';
