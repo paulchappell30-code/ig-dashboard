@@ -1575,6 +1575,7 @@ const PAIRS_CONFIG = [
 let pairsData = {};
 let pairsLivePrices = {};
 let selectedPair = 'ftse_dax';
+let openPairsMap = {};
 
 async function loadPairsData() {
   document.getElementById('pairs-updated').textContent = 'Loading...';
@@ -1621,6 +1622,16 @@ async function loadPairsData() {
 
     pairsData = results;
 
+    // Load open pairs trades for sizing display
+    try {
+      const pr = await fetch('/api/db?action=pairs_trades');
+      const pd = await pr.json();
+      openPairsMap = {};
+      (pd.pairs_trades || []).filter(p => p.status === 'open').forEach(p => {
+        openPairsMap[p.pair_id] = p;
+      });
+    } catch(e) { openPairsMap = {}; }
+
     // Add live intraday prices from S.markets (already fetched by LS + snapshots)
     // Only use IG live prices for instruments where IG and Yahoo use same units:
     // - Indices: same units ✅
@@ -1648,7 +1659,7 @@ async function loadPairsData() {
     pairsLivePrices = livePrices;
     console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
     setTimeout(calcPairSizing, 100); // Update sizing calculator
-    await renderPairsGrid();
+    renderPairsGrid();
     renderPairsChart(selectedPair);
     document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' (live prices: ' + Object.keys(livePrices).length + ')';
   } catch(e) {
@@ -1767,20 +1778,10 @@ function getSignal(pair, zscore) {
   }
 }
 
-async function renderPairsGrid() {
+function renderPairsGrid() {
   const grid = document.getElementById('pairs-grid');
   const selector = document.getElementById('pairs-selector');
   if(!grid) return;
-
-  // Load open pairs trades to get actual position sizes
-  let openPairsMap = {}; // keyed by pair_id
-  try {
-    const pr = await fetch('/api/db?action=pairs_trades');
-    const pd = await pr.json();
-    (pd.pairs_trades || []).filter(p => p.status === 'open').forEach(p => {
-      openPairsMap[p.pair_id] = p;
-    });
-  } catch(e) { /* non-critical — falls back to theoretical sizing */ }
 
   grid.innerHTML = '';
   selector.innerHTML = '';
@@ -1950,7 +1951,7 @@ async function renderPairsGrid() {
 
 function selectPair(id) {
   selectedPair = id;
-  await renderPairsGrid();
+  renderPairsGrid();
   renderPairsChart(id);
 }
 
