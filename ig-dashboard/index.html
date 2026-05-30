@@ -173,7 +173,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <div class="nav-tab active" onclick="switchTab('overview',this)">Overview</div>
     <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
     <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
-    <div class="nav-tab" onclick="switchTab('charts',this)">📈 Charts</div>
+
     <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
     <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
     <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
@@ -309,54 +309,6 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     </div>
 
     <!-- CHARTS -->
-    <div class="tab-content" id="tab-charts">
-      <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <button class="btn btn-sm active" id="chart-btn-FTSE" onclick="selectChartInstrument('FTSE 100','IX.D.FTSE.DAILY.IP',this)">FTSE</button>
-            <button class="btn btn-sm" id="chart-btn-SP500" onclick="selectChartInstrument('S&P 500','IX.D.SPTRD.DAILY.IP',this)">S&P 500</button>
-            <button class="btn btn-sm" id="chart-btn-DAX" onclick="selectChartInstrument('DAX 40','IX.D.DAX.DAILY.IP',this)">DAX</button>
-            <button class="btn btn-sm" id="chart-btn-DOW" onclick="selectChartInstrument('Dow Jones','IX.D.DOW.DAILY.IP',this)">Dow</button>
-            <button class="btn btn-sm" id="chart-btn-OIL" onclick="selectChartInstrument('Brent Oil','CC.D.LCO.USS.IP',this)">Oil</button>
-            <button class="btn btn-sm" id="chart-btn-GOLD" onclick="selectChartInstrument('Gold','CS.D.USCGC.TODAY.IP',this)">Gold</button>
-            <button class="btn btn-sm" id="chart-btn-SILVER" onclick="selectChartInstrument('Silver','CS.D.USCSI.TODAY.IP',this)">Silver</button>
-            <button class="btn btn-sm" id="chart-btn-COPPER" onclick="selectChartInstrument('Copper','CS.D.COPPER.TODAY.IP',this)">Copper</button>
-            <button class="btn btn-sm" id="chart-btn-GBPUSD" onclick="selectChartInstrument('GBP/USD','CS.D.GBPUSD.TODAY.IP',this)">GBP/USD</button>
-            <button class="btn btn-sm" id="chart-btn-EURUSD" onclick="selectChartInstrument('EUR/USD','CS.D.EURUSD.TODAY.IP',this)">EUR/USD</button>
-            <button class="btn btn-sm" id="chart-btn-USDJPY" onclick="selectChartInstrument('USD/JPY','CS.D.USDJPY.TODAY.IP',this)">USD/JPY</button>
-            <button class="btn btn-sm" id="chart-btn-EURGBP" onclick="selectChartInstrument('EUR/GBP','CS.D.EURGBP.TODAY.IP',this)">EUR/GBP</button>
-            <button class="btn btn-sm" id="chart-btn-CAC" onclick="selectChartInstrument('CAC 40','IX.D.CAC.DAILY.IP',this)">CAC 40</button>
-            <button class="btn btn-sm" id="chart-btn-NIKKEI" onclick="selectChartInstrument('Nikkei 225','IX.D.NIKKEI.DAILY.IP',this)">Nikkei</button>
-            <button class="btn btn-sm" id="chart-btn-NASDAQ" onclick="selectChartInstrument('Nasdaq','IX.D.NASDAQ.CASH.IP',this)">Nasdaq</button>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:18px;font-weight:700;font-family:var(--font-mono)" id="chart-price">—</span>
-            <span id="chart-change" style="font-size:12px;font-family:var(--font-mono)"></span>
-            <span id="chart-regime" class="badge badge-neutral" style="font-size:10px">—</span>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm" onclick="selectTimeframe('MINUTE',10,this)">1H</button>
-            <button class="btn btn-sm" onclick="selectTimeframe('HOUR',10,this)">1D</button>
-            <button class="btn btn-sm active" onclick="selectTimeframe('DAY',30,this)">30D</button>
-            <button class="btn btn-sm" onclick="selectTimeframe('WEEK',10,this)">10W</button>
-          </div>
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm active" onclick="setChartType('candle',this)">Candle</button>
-            <button class="btn btn-sm" onclick="setChartType('line',this)">Line</button>
-          </div>
-        </div>
-        <canvas id="chart-canvas" height="300"></canvas>
-        <div style="font-size:11px;color:var(--text3);margin-top:6px" id="chart-updated">Click an instrument to load</div>
-      </div>
-      <div class="two-col">
-        <div class="card"><div class="card-title" style="margin-bottom:12px">Technical Signals</div><div id="tech-signals"><div class="empty loading">Load chart first</div></div></div>
-        <div class="card"><div class="card-header"><div class="card-title">AI Recommendation</div><button class="btn btn-sm btn-primary" onclick="getAIScore()">Analyse</button></div><div id="ai-score-result"><div class="empty">Click Analyse after loading chart</div></div></div>
-      </div>
-      <div class="card"><div class="card-title" style="margin-bottom:12px">IG Client Sentiment</div><div id="sentiment-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"><div class="empty" style="grid-column:1/-1">Load chart to see sentiment</div></div></div>
-    </div>
-
     <!-- BACKTEST -->
     <div class="tab-content" id="tab-backtest">
       <div class="card" style="margin-bottom:16px">
@@ -1903,6 +1855,18 @@ function renderPairsGrid() {
         <div style="background:var(--bg1);border-radius:4px;padding:6px 8px;font-size:12px;color:${signal.color}">
           ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
         </div>` : ''}
+        ${pair.expectancy != null ? (() => {
+          const balance = parseFloat(document.getElementById('balance')?.textContent?.replace(/[^0-9.]/g,'')) || 500;
+          const riskAmt = balance * 0.04;
+          const likelyProfit = (pair.expectancy / 100) * riskAmt;
+          const likelyLoss = riskAmt * (1 - (pair.winRate||70)/100);
+          return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px">
+            <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
+            <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
+            <div><span style="color:var(--text2)">Est. profit/trade</span> <strong style="color:var(--green)">+£${likelyProfit.toFixed(2)}</strong></div>
+            <div><span style="color:var(--text2)">At 4% risk (£${riskAmt.toFixed(0)})</span></div>
+          </div>`;
+        })() : ''}
         ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
           Ratio: ${current?.toFixed(4)} ${hasLive ? '<span style="color:var(--green);font-size:10px">● LIVE</span>' : ''}| Mean: ${mean.toFixed(4)} | σ: ${std?.toFixed(4)}
         </div>` : ''}
