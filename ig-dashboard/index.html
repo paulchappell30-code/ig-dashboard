@@ -1654,11 +1654,31 @@ async function loadPairsData() {
     };
     (S.markets||[]).forEach(m => {
       const instr = EPIC_TO_INSTR[m.epic];
-      if(instr && m.price) {
-        const raw = parseFloat(m.price.replace(/,/g,''));
+      if(instr && m.price && m.price !== '—') {
+        const raw = parseFloat(String(m.price).replace(/,/g,''));
         if(!isNaN(raw) && raw > 0) livePrices[instr] = raw;
       }
     });
+    // Also pull prices directly by instrument name for any missed
+    (S.markets||[]).forEach(m => {
+      const instr = EPIC_TO_INSTR[m.epic];
+      if(instr && !livePrices[instr] && m.price && m.price !== '—') {
+        const raw = parseFloat(String(m.price).replace(/,/g,''));
+        if(!isNaN(raw) && raw > 0) livePrices[instr] = raw;
+      }
+    });
+    // For commodities not yet updated by LS, fetch snapshot directly
+    const COMMODITY_EPICS = {'CS.D.USCGC.TODAY.IP':'Gold','CS.D.COPPER.TODAY.IP':'Copper','CC.D.LCO.USS.IP':'Brent Oil'};
+    for(const [epic, instr] of Object.entries(COMMODITY_EPICS)) {
+      if(!livePrices[instr]) {
+        try {
+          const sr = await igFetch('markets/'+epic, {_retry:false});
+          const bid = sr?.snapshot?.bid;
+          if(bid && bid > 0) livePrices[instr] = bid;
+        } catch(e) { /* non-critical */ }
+      }
+    }
+
     pairsLivePrices = livePrices;
     console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
     setTimeout(calcPairSizing, 100); // Update sizing calculator
