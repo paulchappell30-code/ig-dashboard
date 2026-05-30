@@ -1648,7 +1648,7 @@ async function loadPairsData() {
     pairsLivePrices = livePrices;
     console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
     setTimeout(calcPairSizing, 100); // Update sizing calculator
-    renderPairsGrid();
+    await renderPairsGrid();
     renderPairsChart(selectedPair);
     document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' (live prices: ' + Object.keys(livePrices).length + ')';
   } catch(e) {
@@ -1767,10 +1767,20 @@ function getSignal(pair, zscore) {
   }
 }
 
-function renderPairsGrid() {
+async function renderPairsGrid() {
   const grid = document.getElementById('pairs-grid');
   const selector = document.getElementById('pairs-selector');
   if(!grid) return;
+
+  // Load open pairs trades to get actual position sizes
+  let openPairsMap = {}; // keyed by pair_id
+  try {
+    const pr = await fetch('/api/db?action=pairs_trades');
+    const pd = await pr.json();
+    (pd.pairs_trades || []).filter(p => p.status === 'open').forEach(p => {
+      openPairsMap[p.pair_id] = p;
+    });
+  } catch(e) { /* non-critical — falls back to theoretical sizing */ }
 
   grid.innerHTML = '';
   selector.innerHTML = '';
@@ -1861,30 +1871,50 @@ function renderPairsGrid() {
           const absZ = Math.abs(zscore);
           const exitZ = pair.exitZ || 0.5;
           const entryZ = pair.entryZ || 2.0;
-          // Dynamic profit estimate: based on current Z reverting to exit threshold
-          // If Z hasn't reached entry yet, use full expectancy as estimate
-          const inTrade = absZ >= entryZ * 0.8; // close enough to entry to be relevant
-          let estProfit, estProfitPct, profitLabel;
-          if(inTrade && absZ > exitZ) {
-            // Proportion of spread remaining to revert × risk amount × win-adjusted expectancy
-            const revertPct = (absZ - exitZ) / (entryZ > 0 ? entryZ : 1);
-            estProfit = revertPct * (pair.expectancy / 100) * riskAmt * (entryZ > 0 ? entryZ / Math.max(absZ, entryZ) : 1);
-            // Simpler: use ratio of current Z to mean × risk × expectancy
+          const openTrade = openPairsMap[pair.id];
+
+          let estProfit, profitLabel;
+
+          if(openTrade && std && absZ > exitZ) {
+            // ACTUAL position: calculate from real leg sizes and current Z vs exit
+            const sizeA = parseFloat(openTrade.size_a) || 0;
+            const sizeB = parseFloat(openTrade.size_b) || 0;
+            const entryZActual = parseFloat(openTrade.entry_z) || entryZ;
+            const zReversion = absZ - exitZ; // σ remaining to revert
+            // Convert Z reversion to price points for each leg
+            // Leg A moves: zReversion × std × priceA (approx from ratio × priceB)
+            const priceA = pairsLivePrices[pair.a] || (current * (pairsLivePrices[pair.b] || 1));
+            const priceB = pairsLivePrices[pair.b] || 1;
+            const ratioMove = zReversion * std; // expected ratio change
+            // A moves as ratio reverts: if shorting A, A falls → profit
+            const legAProfit = ratioMove * priceB * sizeA;
+            // B moves opposite: if long B, B rises → profit (or stays flat in commodity pairs)
+            const legBProfit = ratioMove * priceA * sizeB * 0.3; // B contribution estimate
+            estProfit = legAProfit + legBProfit;
+            profitLabel = `if Z ${absZ.toFixed(2)}σ→${exitZ}σ`;
+          } else if(absZ >= entryZ * 0.8 && absZ > exitZ) {
+            // Near entry but no open trade: estimate from expectancy scaled by Z position
             estProfit = ((absZ - exitZ) / absZ) * (pair.expectancy / 100) * riskAmt * (absZ / entryZ);
-            estProfitPct = (estProfit / balance * 100).toFixed(3);
             profitLabel = `if Z→${exitZ}σ`;
           } else {
+            // No signal: show historical average
             estProfit = (pair.expectancy / 100) * riskAmt;
-            estProfitPct = (estProfit / balance * 100).toFixed(3);
             profitLabel = 'avg per trade';
           }
-          const zColor2 = absZ >= entryZ ? 'var(--green)' : 'var(--text2)';
+
+          estProfit = Math.max(0, estProfit);
+          const estProfitPct = (estProfit / balance * 100).toFixed(3);
+          const valColor = estProfit > 0 ? 'var(--green)' : 'var(--text2)';
+          const riskLabel = openTrade
+            ? `actual (£${(parseFloat(openTrade.size_a||0)*50).toFixed(0)} risk est.)`
+            : `@ 4% risk (£${riskAmt.toFixed(0)})`;
+
           return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px;flex-wrap:wrap">
             <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
             <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
-            <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${zColor2}">+£${Math.max(0,estProfit).toFixed(2)}</strong></div>
-            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:${zColor2}">+${Math.max(0,parseFloat(estProfitPct)).toFixed(3)}%</strong></div>
-            <div style="color:var(--text2)">@ 4% risk (£${riskAmt.toFixed(0)})</div>
+            <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${valColor}">+£${estProfit.toFixed(2)}</strong></div>
+            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:${valColor}">+${estProfitPct}%</strong></div>
+            <div style="color:var(--text2)">${riskLabel}</div>
           </div>`;
         })() : ''}
         ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
@@ -1903,7 +1933,7 @@ function renderPairsGrid() {
 
 function selectPair(id) {
   selectedPair = id;
-  renderPairsGrid();
+  await renderPairsGrid();
   renderPairsChart(id);
 }
 
