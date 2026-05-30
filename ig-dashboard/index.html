@@ -1886,16 +1886,22 @@ function renderPairsGrid() {
           let sizeA, sizeB, projRisk, profitLabel, estProfit;
 
           if(openTrade) {
-            // Use actual executed sizes
             sizeA = parseFloat(openTrade.size_a) || 0;
             sizeB = parseFloat(openTrade.size_b) || 0;
-            const entryZActual = Math.abs(parseFloat(openTrade.entry_z) || entryZ);
-            const zReversion = absZ - exitZ;
-            const stopDist = stopZ - entryZActual;
-            projRisk = (stopDist * effectiveStd * (priceB||1) * 3 * sizeA);
-            estProfit = (zReversion / entryZActual) * projRisk * (entryZActual / stopDist);
-            // Simpler: ratio of reversion remaining × expectancy × actual risk
-            estProfit = (zReversion > 0) ? (zReversion / (entryZActual - exitZ)) * (pair.expectancy/100) * projRisk * 2 : 0;
+            const zReversion = Math.max(0, absZ - exitZ);
+            // Points each leg moves as Z reverts: zReversion × std × price of OTHER leg
+            if(priceA > 0 && priceB > 0) {
+              // Index/FX pairs: use live prices for accurate calculation
+              const legAProfit = zReversion * effectiveStd * priceB * sizeA;
+              const legBProfit = zReversion * effectiveStd * priceA * sizeB;
+              estProfit = legAProfit + legBProfit;
+            } else {
+              // Commodity pairs: no live prices — scale expectancy by actual vs theoretical size
+              const theoreticalSize = riskAmt / 2 / Math.max(1, (stopZ - entryZ) * effectiveStd * 10000);
+              const sizeScale = sizeA > 0 && theoreticalSize > 0 ? sizeA / theoreticalSize : 1;
+              const zRatio = zReversion / Math.max(0.01, Math.abs(parseFloat(openTrade.entry_z)||entryZ) - exitZ);
+              estProfit = zRatio * (pair.expectancy/100) * riskAmt * sizeScale;
+            }
             profitLabel = `open: Z ${absZ.toFixed(2)}→${exitZ}σ`;
           } else if(priceA > 0 && priceB > 0 && absZ >= entryZ) {
             // Engine sizing at current Z
