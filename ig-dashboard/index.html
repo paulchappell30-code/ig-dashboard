@@ -1859,12 +1859,13 @@ function renderPairsGrid() {
           const balance = parseFloat(document.getElementById('balance')?.textContent?.replace(/[^0-9.]/g,'')) || 500;
           const riskAmt = balance * 0.04;
           const likelyProfit = (pair.expectancy / 100) * riskAmt;
-          const likelyLoss = riskAmt * (1 - (pair.winRate||70)/100);
-          return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px">
+          const profitPct = (likelyProfit / balance * 100).toFixed(3);
+          return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px;flex-wrap:wrap">
             <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
             <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
             <div><span style="color:var(--text2)">Est. profit/trade</span> <strong style="color:var(--green)">+£${likelyProfit.toFixed(2)}</strong></div>
-            <div><span style="color:var(--text2)">At 4% risk (£${riskAmt.toFixed(0)})</span></div>
+            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:var(--green)">+${profitPct}%</strong></div>
+            <div style="color:var(--text2)">@ 4% risk (£${riskAmt.toFixed(0)})</div>
           </div>`;
         })() : ''}
         ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
