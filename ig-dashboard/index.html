@@ -1871,50 +1871,67 @@ async function renderPairsGrid() {
           const absZ = Math.abs(zscore);
           const exitZ = pair.exitZ || 0.5;
           const entryZ = pair.entryZ || 2.0;
+          const stopZ = pair.stopZ || 3.0;
           const openTrade = openPairsMap[pair.id];
 
-          let estProfit, profitLabel;
+          // Replicate engine sizing formula exactly:
+          // stopPts = (stopZ - absZ) × std × priceOther × 3
+          // size = (riskAmt/2) / stopPts
+          const priceA = pairsLivePrices[pair.a] || 0;
+          const priceB = pairsLivePrices[pair.b] || 0;
+          const zStopDist = stopZ - Math.max(absZ, entryZ); // σ from entry to stop
+          const effectiveStd = std || 0.01;
 
-          if(openTrade && std && absZ > exitZ) {
-            // ACTUAL position: calculate from real leg sizes and current Z vs exit
-            const sizeA = parseFloat(openTrade.size_a) || 0;
-            const sizeB = parseFloat(openTrade.size_b) || 0;
-            const entryZActual = parseFloat(openTrade.entry_z) || entryZ;
-            const zReversion = absZ - exitZ; // σ remaining to revert
-            // Convert Z reversion to price points for each leg
-            // Leg A moves: zReversion × std × priceA (approx from ratio × priceB)
-            const priceA = pairsLivePrices[pair.a] || (current * (pairsLivePrices[pair.b] || 1));
-            const priceB = pairsLivePrices[pair.b] || 1;
-            const ratioMove = zReversion * std; // expected ratio change
-            // A moves as ratio reverts: if shorting A, A falls → profit
-            const legAProfit = ratioMove * priceB * sizeA;
-            // B moves opposite: if long B, B rises → profit (or stays flat in commodity pairs)
-            const legBProfit = ratioMove * priceA * sizeB * 0.3; // B contribution estimate
-            estProfit = legAProfit + legBProfit;
-            profitLabel = `if Z ${absZ.toFixed(2)}σ→${exitZ}σ`;
-          } else if(absZ >= entryZ * 0.8 && absZ > exitZ) {
-            // Near entry but no open trade: estimate from expectancy scaled by Z position
-            estProfit = ((absZ - exitZ) / absZ) * (pair.expectancy / 100) * riskAmt * (absZ / entryZ);
-            profitLabel = `if Z→${exitZ}σ`;
+          let sizeA, sizeB, projRisk, profitLabel, estProfit;
+
+          if(openTrade) {
+            // Use actual executed sizes
+            sizeA = parseFloat(openTrade.size_a) || 0;
+            sizeB = parseFloat(openTrade.size_b) || 0;
+            const entryZActual = Math.abs(parseFloat(openTrade.entry_z) || entryZ);
+            const zReversion = absZ - exitZ;
+            const stopDist = stopZ - entryZActual;
+            projRisk = (stopDist * effectiveStd * (priceB||1) * 3 * sizeA);
+            estProfit = (zReversion / entryZActual) * projRisk * (entryZActual / stopDist);
+            // Simpler: ratio of reversion remaining × expectancy × actual risk
+            estProfit = (zReversion > 0) ? (zReversion / (entryZActual - exitZ)) * (pair.expectancy/100) * projRisk * 2 : 0;
+            profitLabel = `open: Z ${absZ.toFixed(2)}→${exitZ}σ`;
+          } else if(priceA > 0 && priceB > 0 && absZ >= entryZ) {
+            // Engine sizing at current Z
+            const stopPtsA = Math.max(5, Math.round(zStopDist * effectiveStd * priceB * 3));
+            const stopPtsB = Math.max(5, Math.round(zStopDist * effectiveStd * priceA * 3));
+            sizeA = Math.max(0.01, parseFloat(((riskAmt/2)/stopPtsA).toFixed(2)));
+            sizeB = Math.max(0.01, parseFloat(((riskAmt/2)/stopPtsB).toFixed(2)));
+            projRisk = riskAmt;
+            const zReversion = absZ - exitZ;
+            estProfit = (zReversion / (stopZ - absZ)) * projRisk * (pair.expectancy/100) * 10;
+            profitLabel = `if Z ${absZ.toFixed(2)}→${exitZ}σ`;
           } else {
-            // No signal: show historical average
-            estProfit = (pair.expectancy / 100) * riskAmt;
+            // No signal / no live prices — show avg expectancy
+            sizeA = null; sizeB = null;
+            projRisk = riskAmt;
+            estProfit = (pair.expectancy/100) * riskAmt;
             profitLabel = 'avg per trade';
           }
 
           estProfit = Math.max(0, estProfit);
-          const estProfitPct = (estProfit / balance * 100).toFixed(3);
+          const estPct = (estProfit / balance * 100).toFixed(3);
           const valColor = estProfit > 0 ? 'var(--green)' : 'var(--text2)';
-          const riskLabel = openTrade
-            ? `actual (£${(parseFloat(openTrade.size_a||0)*50).toFixed(0)} risk est.)`
-            : `@ 4% risk (£${riskAmt.toFixed(0)})`;
+          const sizingLine = sizeA != null
+            ? `<div><span style="color:var(--text2)">${openTrade?'Actual':'Projected'} size</span> <strong>£${sizeA}/pt : £${sizeB}/pt</strong></div>`
+            : '';
 
-          return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px;flex-wrap:wrap">
-            <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
-            <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
-            <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${valColor}">+£${estProfit.toFixed(2)}</strong></div>
-            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:${valColor}">+${estProfitPct}%</strong></div>
-            <div style="color:var(--text2)">${riskLabel}</div>
+          return `<div style="margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+              <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
+              <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
+              <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${valColor}">+£${estProfit.toFixed(2)}</strong></div>
+              <div><span style="color:var(--text2)">Account</span> <strong style="color:${valColor}">+${estPct}%</strong></div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;color:var(--text2)">
+              ${sizingLine}
+              <div>4% risk = £${riskAmt.toFixed(0)}</div>
+            </div>
           </div>`;
         })() : ''}
         ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
