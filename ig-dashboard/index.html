@@ -1809,10 +1809,10 @@ function renderPairsGrid() {
   grid.innerHTML = '';
   selector.innerHTML = '';
 
+  const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
   PAIRS_CONFIG.forEach(pair => {
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
-    const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
     const liveA = COMMODITY_INSTRUMENTS.has(pair.a) ? null : pairsLivePrices[pair.a];
     const liveB = COMMODITY_INSTRUMENTS.has(pair.b) ? null : pairsLivePrices[pair.b];
     // Keep full live prices available for profit calculation (separate from Z-score)
@@ -1842,7 +1842,6 @@ function renderPairsGrid() {
     const tb = TIER_BADGE[pair.tier] || TIER_BADGE.legacy;
 
     // Unit-mismatch warning for commodity pairs (Gold, Silver, Copper, Brent stored as Yahoo futures)
-    const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil']);
     const hasCommodity = COMMODITY_INSTRUMENTS.has(pair.a) || COMMODITY_INSTRUMENTS.has(pair.b);
     // Check if ratio looks anomalous — for Gold/Silver ratio should be ~70-90, not ~59 with mean ~81
     // Flag if current ratio deviates >30% from mean (suggests unit mismatch corrupting the data)
