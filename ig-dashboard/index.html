@@ -1855,16 +1855,35 @@ function renderPairsGrid() {
         <div style="background:var(--bg1);border-radius:4px;padding:6px 8px;font-size:12px;color:${signal.color}">
           ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
         </div>` : ''}
-        ${pair.expectancy != null ? (() => {
+        ${pair.expectancy != null && zscore !== null ? (() => {
           const balance = parseFloat(document.getElementById('balance')?.textContent?.replace(/[^0-9.]/g,'')) || 500;
           const riskAmt = balance * 0.04;
-          const likelyProfit = (pair.expectancy / 100) * riskAmt;
-          const profitPct = (likelyProfit / balance * 100).toFixed(3);
+          const absZ = Math.abs(zscore);
+          const exitZ = pair.exitZ || 0.5;
+          const entryZ = pair.entryZ || 2.0;
+          // Dynamic profit estimate: based on current Z reverting to exit threshold
+          // If Z hasn't reached entry yet, use full expectancy as estimate
+          const inTrade = absZ >= entryZ * 0.8; // close enough to entry to be relevant
+          let estProfit, estProfitPct, profitLabel;
+          if(inTrade && absZ > exitZ) {
+            // Proportion of spread remaining to revert × risk amount × win-adjusted expectancy
+            const revertPct = (absZ - exitZ) / (entryZ > 0 ? entryZ : 1);
+            estProfit = revertPct * (pair.expectancy / 100) * riskAmt * (entryZ > 0 ? entryZ / Math.max(absZ, entryZ) : 1);
+            // Simpler: use ratio of current Z to mean × risk × expectancy
+            estProfit = ((absZ - exitZ) / absZ) * (pair.expectancy / 100) * riskAmt * (absZ / entryZ);
+            estProfitPct = (estProfit / balance * 100).toFixed(3);
+            profitLabel = `if Z→${exitZ}σ`;
+          } else {
+            estProfit = (pair.expectancy / 100) * riskAmt;
+            estProfitPct = (estProfit / balance * 100).toFixed(3);
+            profitLabel = 'avg per trade';
+          }
+          const zColor2 = absZ >= entryZ ? 'var(--green)' : 'var(--text2)';
           return `<div style="display:flex;gap:12px;margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px;flex-wrap:wrap">
             <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
             <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
-            <div><span style="color:var(--text2)">Est. profit/trade</span> <strong style="color:var(--green)">+£${likelyProfit.toFixed(2)}</strong></div>
-            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:var(--green)">+${profitPct}%</strong></div>
+            <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${zColor2}">+£${Math.max(0,estProfit).toFixed(2)}</strong></div>
+            <div><span style="color:var(--text2)">Account gain</span> <strong style="color:${zColor2}">+${Math.max(0,parseFloat(estProfitPct)).toFixed(3)}%</strong></div>
             <div style="color:var(--text2)">@ 4% risk (£${riskAmt.toFixed(0)})</div>
           </div>`;
         })() : ''}
