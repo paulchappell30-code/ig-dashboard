@@ -749,16 +749,33 @@ module.exports = async (req,res) => {
 
         // Fetch trade types from DB
         const {sql:eodSql} = require('@vercel/postgres');
-        const tradeTypeRows = await eodSql`
-          SELECT deal_id, COALESCE(trade_type, 'hourly_mr') as trade_type, created_at
-          FROM trades WHERE status = 'open'
-        `.catch(() => ({ rows: [] }));
+        const [tradeTypeRows, pairsRows] = await Promise.all([
+          eodSql`SELECT deal_id, COALESCE(trade_type, 'hourly_mr') as trade_type, created_at
+            FROM trades WHERE status = 'open'`.catch(() => ({ rows: [] })),
+          eodSql`SELECT deal_id_a, deal_id_b FROM pairs_trades
+            WHERE status = 'open'`.catch(() => ({ rows: [] })),
+        ]);
         const tradeTypeMap = {};
         tradeTypeRows.rows.forEach(r => { tradeTypeMap[r.deal_id] = r.trade_type || 'hourly_mr'; });
+        // Build set of pairs leg deal IDs — these are NEVER closed by EOD logic
+        // Pairs trades have their own Z-score based close logic and must be closed as a unit
+        const eodPairsDealIds = new Set();
+        pairsRows.rows.forEach(r => {
+          if(r.deal_id_a) eodPairsDealIds.add(r.deal_id_a);
+          if(r.deal_id_b) eodPairsDealIds.add(r.deal_id_b);
+        });
 
         const toClose = [];
         for(const p of positions){
           const dealId = p.position.dealId;
+
+          // Skip pairs legs — they must be closed as a unit by the Z-score close logic
+          // EOD close of one leg leaves a naked unhedged position on the other
+          if(eodPairsDealIds.has(dealId)) {
+            L(`EOD skip: ${p.market.instrumentName} — pairs leg, managed by Z-score exit`);
+            continue;
+          }
+
           const tradeType = tradeTypeMap[dealId] || 'hourly_mr';
           const openTime = new Date(p.position.createdDateUtc || Date.now());
           const daysHeld = (Date.now() - openTime.getTime()) / (1000*60*60*24);
