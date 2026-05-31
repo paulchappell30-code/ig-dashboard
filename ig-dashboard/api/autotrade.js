@@ -34,7 +34,7 @@ const EPIC_MAP = {
   'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
   'EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP',
   'CAC 40':'IX.D.CAC.DAILY.IP',
-  'Nikkei 225':'IX.D.NIKKEI.DAILY.IP',
+  'Tokyo First Section':'IX.D.TPXC.DAILY.IP',
   'Nasdaq':'IX.D.NASDAQ.CASH.IP',
   'Gold':'CS.D.USCGC.TODAY.IP',
   'Silver':'CS.D.USCSI.TODAY.IP',
@@ -46,7 +46,7 @@ const CORRELATION_GROUPS = {
   'IX.D.FTSE.DAILY.IP':'indices','IX.D.SPTRD.DAILY.IP':'indices',
   'IX.D.DAX.DAILY.IP':'indices','IX.D.DOW.DAILY.IP':'indices',
   'IX.D.CAC.DAILY.IP':'indices',
-  'IX.D.NIKKEI.DAILY.IP':'indices',
+  'IX.D.TPXC.DAILY.IP':'indices',        // Tokyo First Section (TOPIX)
   'IX.D.NASDAQ.CASH.IP':'indices',
   'IX.D.ASX.DAILY.IP':'indices',        // Australia 200
   'CC.D.LCO.USS.IP':'commodities',
@@ -102,13 +102,13 @@ const PAIRS_DEFINITIONS = [
     minDays:60, lookbackDays:60, entryZ:2.0, exitZ:1.0, stopZ:3.0,
     description:'FTSE vs S&P 500 — UK/US equity divergence, 70.6% WR at 2σ ⭐' },
   // ── UNIVERSE SEARCH DEPLOY TIER — added 27/05/2026 ───────────────────────
-  // Universe search: score 107.3 | 82.8% WR | 2.71% exp | 29 trades over 500d
-  // Highest statistically-reliable score in universe search — 29 trades is meaningful
-  // Yen dynamics + BoJ policy divergence from Fed creates reliable mean-reversion
-  { id:'nikkei_sp500', instrA:'Japan 225', instrB:'S&P 500',
-    epicA:'IX.D.NIKKEI.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+  // Universe search originally: Japan 225/S&P 500 score 107.3 | 82.8% WR | 2.71% exp | 29 trades
+  // Switched to TOPIX (Tokyo First Section) — same relationship, 16× smaller price = workable sizing
+  // TOPIX backtest: 85.2% WR | 2.33% exp | 27 trades | PF 6.08 — comparable to Nikkei
+  { id:'nikkei_sp500', instrA:'Tokyo First Section', instrB:'S&P 500',
+    epicA:'IX.D.TPXC.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
-    description:'Nikkei vs S&P 500 — yen dynamics + risk divergence, 82.8% WR ⭐' },
+    description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR ⭐' },
   // Universe search: score 23.57 | 84.8% WR | 1.12% exp | 33 trades over 500d
   // Highest trade count (33) = most statistically reliable result in entire search
   // ASX time-zone gap creates frequent short-lived divergences from US session
