@@ -1543,7 +1543,7 @@ async function runPairsBacktest(req, res) {
     { id:'dow_sp500',     name:'Dow / S&P 500',      a:'Dow Jones', b:'S&P 500'  },
     { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY', a:'EUR/USD',  b:'USD/JPY'  },
     // Universe search deploy tier — added 27/05/2026
-    { id:'nikkei_sp500',  name:'Nikkei / S&P 500',   a:'Japan 225',      b:'S&P 500'  },
+    { id:'nikkei_sp500',  name:'TOPIX / S&P 500',    a:'Tokyo First Section', b:'S&P 500'  },
     { id:'asx_sp500',     name:'ASX / S&P 500',       a:'Australia 200',  b:'S&P 500'  },
     { id:'usdcad_wti',    name:'USD/CAD vs WTI Oil',  a:'USD/CAD',        b:'WTI Oil'  },
   ];
