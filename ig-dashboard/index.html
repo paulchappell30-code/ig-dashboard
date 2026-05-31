@@ -518,7 +518,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="dow_sp500">Dow / S&amp;P 500</option>
               <option value="copper_gold">Copper / Gold</option>
               <option value="ftse_sp500">FTSE / S&amp;P 500</option>
-              <option value="nikkei_sp500">Nikkei / S&amp;P 500</option>
+              <option value="nikkei_sp500">TOPIX / S&amp;P 500</option>
               <option value="asx_sp500">ASX / S&amp;P 500</option>
               <option value="usdcad_wti">USD/CAD vs WTI</option>
             </optgroup>
@@ -577,7 +577,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="dow_sp500"   data-entry="2.25" data-exit="0.75" data-stop="3.0">Dow / S&amp;P 500 ⭐ score 26.8</option>
               <option value="copper_gold" data-entry="2.0"  data-exit="0.25" data-stop="3.0">Copper / Gold ⭐ score 21.3</option>
               <option value="ftse_sp500"  data-entry="2.0"  data-exit="1.0"  data-stop="3.0">FTSE / S&amp;P 500 ⭐ score 17.1</option>
-              <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5" data-stop="3.0">Nikkei / S&amp;P 500 ⭐ score 107</option>
+              <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5" data-stop="3.0">TOPIX / S&amp;P 500 ⭐ score 107</option>
               <option value="asx_sp500"   data-entry="1.5"  data-exit="0.5"  data-stop="3.0">ASX / S&amp;P 500 ⭐ score 23.6</option>
               <option value="usdcad_wti"  data-entry="1.25" data-exit="0.75" data-stop="3.0">USD/CAD vs WTI ⭐ score 57.2</option>
             </optgroup>
@@ -690,7 +690,7 @@ const S = {
     {name:'USD/JPY',   epic:'CS.D.USDJPY.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💴'},
     {name:'EUR/GBP',   epic:'CS.D.EURGBP.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💱'},
     {name:'CAC 40',    epic:'IX.D.CAC.DAILY.IP',     price:'—',change:'—',pos:true,icon:'🇫🇷'},
-    {name:'Nikkei 225',epic:'IX.D.NIKKEI.DAILY.IP',  price:'—',change:'—',pos:true,icon:'🇯🇵'},
+    {name:'Tokyo First Section',epic:'IX.D.TPXC.DAILY.IP',  price:'—',change:'—',pos:true,icon:'🇯🇵'},
     {name:'Nasdaq',    epic:'IX.D.NASDAQ.CASH.IP',   price:'—',change:'—',pos:true,icon:'💻'},
   ]
 };
@@ -1544,9 +1544,9 @@ const PAIRS_CONFIG = [
   { id:'ftse_sp500',  name:'FTSE / S&P 500',   a:'FTSE 100',  b:'S&P 500',   type:'ratio', tier:'deploy',
     lookbackDays:60, entryZ:2.0,  exitZ:1.0,  score:17.10, winRate:70.6, expectancy:1.44,
     description:'UK vs US equity divergence — clean mean-reversion at 2σ ⭐' },
-  { id:'nikkei_sp500', name:'Nikkei / S&P 500', a:'Japan 225', b:'S&P 500',  type:'ratio', tier:'deploy',
-    lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:82.8, expectancy:2.71,
-    description:'Yen dynamics + risk divergence — 82.8% WR, 29 trades, score 107 ⭐' },
+  { id:'nikkei_sp500', name:'TOPIX / S&P 500', a:'Tokyo First Section', b:'S&P 500',  type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:85.2, expectancy:2.33,
+    description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR, 27 trades ⭐' },
   { id:'asx_sp500',   name:'ASX / S&P 500',    a:'Australia 200', b:'S&P 500', type:'ratio', tier:'deploy',
     lookbackDays:45, entryZ:1.5,  exitZ:0.5,  score:23.57, winRate:84.8, expectancy:1.12,
     description:'Time-zone gap divergences — 84.8% WR, 33 trades, most reliable result ⭐' },
@@ -1593,7 +1593,7 @@ async function loadPairsData() {
       'Dow Jones':'IX.D.DOW.DAILY.IP',  'CAC 40':'IX.D.CAC.DAILY.IP',
       'GBP/USD':'CS.D.GBPUSD.TODAY.IP', 'EUR/USD':'CS.D.EURUSD.TODAY.IP',
       'EUR/GBP':'CS.D.EURGBP.TODAY.IP', 'USD/JPY':'CS.D.USDJPY.TODAY.IP',
-      'Japan 225':'IX.D.NIKKEI.DAILY.IP',
+      'Tokyo First Section':'IX.D.TPXC.DAILY.IP',
       'Australia 200':'IX.D.ASX.DAILY.IP',
       'USD/CAD':'CS.D.USDCAD.TODAY.IP',
       'WTI Oil':'CS.D.USCRUDE.TODAY.IP',
@@ -1642,7 +1642,7 @@ async function loadPairsData() {
       'IX.D.FTSE.DAILY.IP':'FTSE 100',   'IX.D.DAX.DAILY.IP':'DAX 40',
       'IX.D.SPTRD.DAILY.IP':'S&P 500',   'IX.D.DOW.DAILY.IP':'Dow Jones',
       'IX.D.NASDAQ.CASH.IP':'Nasdaq',    'IX.D.CAC.DAILY.IP':'CAC 40',
-      'IX.D.NIKKEI.DAILY.IP':'Japan 225','IX.D.ASX.DAILY.IP':'Australia 200',
+      'IX.D.TPXC.DAILY.IP':'Tokyo First Section','IX.D.ASX.DAILY.IP':'Australia 200',
       'CS.D.GBPUSD.TODAY.IP':'GBP/USD',  'CS.D.EURUSD.TODAY.IP':'EUR/USD',
       'CS.D.USDJPY.TODAY.IP':'USD/JPY',  'CS.D.EURGBP.TODAY.IP':'EUR/GBP',
       'CS.D.USDCAD.TODAY.IP':'USD/CAD',
