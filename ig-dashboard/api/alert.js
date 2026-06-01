@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     `;
     if (cacheRow.rows.length > 0) {
       const age = Date.now() - new Date(cacheRow.rows[0].created_at).getTime();
-      if (age < 4 * 60 * 60 * 1000) { // 4 hours — reduces TD API calls from ~800/day to ~32/day
+      if (age < 3 * 60 * 60 * 1000) { // 3 hours — cron runs every 4-5 hours so this always allows fetch
         L(`Cache fresh (${Math.round(age/60000)}m old) — skipping TD fetch`);
         return res.status(200).json({ action: 'cache_fresh', ageMinutes: Math.round(age/60000), log });
       }
