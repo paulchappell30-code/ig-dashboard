@@ -1,4 +1,4 @@
-// Automated Trading Engine v4
+// Automated Trading Engine v4 
 // Features: Price history DB, regime detection, news sentiment, time filter,
 // active position management, Kelly sizing, portfolio heat, sentiment divergence
 const fetch = require('node-fetch');
