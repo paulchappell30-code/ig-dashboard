@@ -1698,15 +1698,18 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
       L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
 
-      // ── COOLDOWN: don't re-enter a pair within 24h of a stop-loss close ──────
+      // ── COOLDOWN: don't re-enter a pair within cooldown period ──────────────
       const recentStops = await pSql`
-        SELECT pair_id, closed_at FROM pairs_trades
+        SELECT pair_id, close_reason, closed_at FROM pairs_trades
         WHERE status = 'closed'
-        AND close_reason IN ('stop_loss','daily_loss','manual_stop')
-        AND closed_at > NOW() - INTERVAL '24 hours'
+        AND (
+          (close_reason IN ('stop_loss','daily_loss','manual_stop') AND closed_at > NOW() - INTERVAL '24 hours')
+          OR
+          (close_reason = 'mean_revert' AND closed_at > NOW() - INTERVAL '12 hours')
+        )
       `.catch(()=>({rows:[]}));
       const cooledOutPairs = new Set(recentStops.rows.map(r=>r.pair_id));
-      if(cooledOutPairs.size > 0) L(`Pairs cooldown active (24h post-stop): ${[...cooledOutPairs].join(', ')}`);
+      if(cooledOutPairs.size > 0) L(`Pairs cooldown active: ${[...cooledOutPairs].join(', ')}`);
 
     // ── EUR/USD TRIANGULATION LAG DETECTOR ──────────────────────────────────
     // Finding 5: EUR/USD lags GBP/USD by ~30min due to triangular relationship
