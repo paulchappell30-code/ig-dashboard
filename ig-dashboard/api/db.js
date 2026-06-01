@@ -61,59 +61,6 @@ module.exports = async (req, res) => {
         } catch(e) { return res.status(200).json({ error: e.message, candles: [] }); }
       }
 
-      if (action === 'pairs_trades') {
-        const limit = parseInt(req.query.limit) || 50;
-        try {
-          const result = await sql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
-            size_a, size_b, deal_id_a, deal_id_b, entry_z, stop_z, target_z, close_z,
-            close_reason, ai_confidence, status, opened_at, closed_at
-            FROM pairs_trades ORDER BY opened_at DESC LIMIT ${limit}`;
-          return res.status(200).json({ pairs_trades: result.rows });
-        } catch(e) { return res.status(200).json({ error: e.message, pairs_trades: [] }); }
-      }
-
-      if (action === 'open_pairs_trade') {
-        if (req.method !== 'POST') return res.status(405).json({ error: 'POST required' });
-        try {
-          const b = req.body || {};
-          const result = await sql`INSERT INTO pairs_trades
-            (pair_id, instr_a, instr_b, epic_a, epic_b, direction_a, direction_b,
-             size_a, size_b, entry_z, stop_z, target_z, ai_confidence, status, opened_at)
-            VALUES (${b.pair_id}, ${b.instr_a}, ${b.instr_b}, ${b.epic_a}, ${b.epic_b},
-             ${b.direction_a}, ${b.direction_b}, ${b.size_a}, ${b.size_b},
-             ${b.entry_z}, ${b.stop_z}, ${b.target_z}, ${b.ai_confidence}, 'open', NOW())
-            RETURNING id`;
-          return res.status(200).json({ success: true, id: result.rows[0].id });
-        } catch(e) { return res.status(500).json({ error: e.message }); }
-      }
-
-      if (action === 'close_pairs_trade') {
-        const id = req.query.id;
-        const close_z = req.query.close_z || null;
-        const close_reason = req.query.close_reason || 'manual';
-        if (!id) return res.status(400).json({ error: 'id required' });
-        try {
-          await sql`UPDATE pairs_trades SET status='closed', close_reason=${close_reason},
-            close_z=${close_z}, closed_at=NOW() WHERE id=${id}`;
-          return res.status(200).json({ success: true, id, close_reason });
-        } catch(e) { return res.status(500).json({ error: e.message }); }
-      }
-
-      if (action === 'update_pairs_trade') {
-        const id = req.query.id;
-        if (!id) return res.status(400).json({ error: 'id required' });
-        try {
-          const b = req.method === 'POST' ? (req.body || {}) : req.query;
-          await sql`UPDATE pairs_trades SET
-            deal_id_a = COALESCE(${b.deal_id_a || null}, deal_id_a),
-            deal_id_b = COALESCE(${b.deal_id_b || null}, deal_id_b),
-            size_a = COALESCE(${b.size_a ? parseFloat(b.size_a) : null}, size_a),
-            size_b = COALESCE(${b.size_b ? parseFloat(b.size_b) : null}, size_b)
-            WHERE id = ${id}`;
-          return res.status(200).json({ success: true, id });
-        } catch(e) { return res.status(500).json({ error: e.message }); }
-      }
-
       if (action === 'tdcache') {
         try {
           const row = await sql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
@@ -198,6 +145,75 @@ module.exports = async (req, res) => {
         const params = await getOptimizedParams();
         return res.status(200).json(params);
       }
+
+      // ── PAIRS TRADES — GET actions ─────────────────────────────────────────
+      if (action === 'pairs_trades') {
+        const limit = parseInt(req.query.limit) || 50;
+        try {
+          const result = await sql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
+            size_a, size_b, deal_id_a, deal_id_b, entry_z, stop_z, target_z, close_z,
+            close_reason, ai_confidence, status, opened_at, closed_at
+            FROM pairs_trades ORDER BY opened_at DESC LIMIT ${limit}`;
+          return res.status(200).json({ pairs_trades: result.rows });
+        } catch(e) { return res.status(200).json({ error: e.message, pairs_trades: [] }); }
+      }
+
+      if (action === 'close_pairs_trade') {
+        const id = req.query.id;
+        const close_z = req.query.close_z || null;
+        const close_reason = req.query.close_reason || 'manual';
+        if (!id) return res.status(400).json({ error: 'id required' });
+        try {
+          await sql`UPDATE pairs_trades SET status='closed', close_reason=${close_reason},
+            close_z=${close_z}, closed_at=NOW() WHERE id=${id}`;
+          return res.status(200).json({ success: true, id, close_reason });
+        } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (action === 'update_pairs_trade') {
+        const id = req.query.id;
+        if (!id) return res.status(400).json({ error: 'id required' });
+        try {
+          const b = req.body || req.query;
+          await sql`UPDATE pairs_trades SET
+            deal_id_a = COALESCE(${b.deal_id_a || null}, deal_id_a),
+            deal_id_b = COALESCE(${b.deal_id_b || null}, deal_id_b),
+            size_a = COALESCE(${b.size_a ? parseFloat(b.size_a) : null}, size_a),
+            size_b = COALESCE(${b.size_b ? parseFloat(b.size_b) : null}, size_b)
+            WHERE id = ${id}`;
+          return res.status(200).json({ success: true, id });
+        } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (action === 'open_pairs_trade') {
+        try {
+          const b = req.body || {};
+          const result = await sql`INSERT INTO pairs_trades
+            (pair_id, instr_a, instr_b, epic_a, epic_b, direction_a, direction_b,
+             size_a, size_b, entry_z, stop_z, target_z, ai_confidence, status, opened_at)
+            VALUES (${b.pair_id}, ${b.instr_a}, ${b.instr_b}, ${b.epic_a||null}, ${b.epic_b||null},
+             ${b.direction_a}, ${b.direction_b}, ${b.size_a}, ${b.size_b},
+             ${b.entry_z}, ${b.stop_z}, ${b.target_z}, ${b.ai_confidence||null}, 'open', NOW())
+            RETURNING id`;
+          return res.status(200).json({ success: true, id: result.rows[0].id });
+        } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
+    }
+
+    // ── PAIRS TRADES — POST actions (work with both GET and POST) ─────────────
+    if (req.query.action === 'open_pairs_trade') {
+      try {
+        const b = req.body || {};
+        const result = await sql`INSERT INTO pairs_trades
+          (pair_id, instr_a, instr_b, epic_a, epic_b, direction_a, direction_b,
+           size_a, size_b, entry_z, stop_z, target_z, ai_confidence, status, opened_at)
+          VALUES (${b.pair_id}, ${b.instr_a}, ${b.instr_b}, ${b.epic_a||null}, ${b.epic_b||null},
+           ${b.direction_a}, ${b.direction_b}, ${b.size_a}, ${b.size_b},
+           ${b.entry_z}, ${b.stop_z}, ${b.target_z}, ${b.ai_confidence||null}, 'open', NOW())
+          RETURNING id`;
+        return res.status(200).json({ success: true, id: result.rows[0].id });
+      } catch(e) { return res.status(500).json({ error: e.message }); }
     }
 
     if (req.method === 'POST') {
