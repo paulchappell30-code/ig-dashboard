@@ -152,7 +152,7 @@ module.exports = async (req, res) => {
         try {
           const result = await sql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
             size_a, size_b, deal_id_a, deal_id_b, entry_z, stop_z, target_z, close_z,
-            close_reason, ai_confidence, status, opened_at, closed_at
+            close_reason, ai_confidence, status, profit_loss, opened_at, closed_at
             FROM pairs_trades ORDER BY opened_at DESC LIMIT ${limit}`;
           return res.status(200).json({ pairs_trades: result.rows });
         } catch(e) { return res.status(200).json({ error: e.message, pairs_trades: [] }); }
@@ -162,10 +162,11 @@ module.exports = async (req, res) => {
         const id = req.query.id;
         const close_z = req.query.close_z || null;
         const close_reason = req.query.close_reason || 'manual';
+        const profit_loss = req.query.profit_loss != null ? parseFloat(req.query.profit_loss) : null;
         if (!id) return res.status(400).json({ error: 'id required' });
         try {
           await sql`UPDATE pairs_trades SET status='closed', close_reason=${close_reason},
-            close_z=${close_z}, closed_at=NOW() WHERE id=${id}`;
+            close_z=${close_z}, profit_loss=${profit_loss}, closed_at=NOW() WHERE id=${id}`;
           return res.status(200).json({ success: true, id, close_reason });
         } catch(e) { return res.status(500).json({ error: e.message }); }
       }
@@ -183,6 +184,15 @@ module.exports = async (req, res) => {
             WHERE id = ${id}`;
           return res.status(200).json({ success: true, id });
         } catch(e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (action === 'delete_trades') {
+        try {
+          const ids = req.body?.ids || [];
+          if(!ids.length) return res.status(400).json({error:'ids required'});
+          await sql`DELETE FROM trades WHERE id = ANY(${ids})`;
+          return res.status(200).json({success:true, deleted: ids.length});
+        } catch(e) { return res.status(500).json({error: e.message}); }
       }
 
       if (action === 'open_pairs_trade') {
