@@ -153,6 +153,10 @@ const DEFAULT_CONFIG = {
   pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
   // Note: pairs risk is split across two legs so effective single-leg risk is 2%
   // At 4% with £526 balance = £21 risk per pairs trade
+  // Trailing profit stop
+  pairsTrailActivationPct: 2.0,  // activate when UPL >= 2% of account balance
+  pairsTrailRetreatPct:   25.0,  // close if UPL retreats 25% from peak (e.g. £20 peak → close at £15)
+  pairsDominantLegRatio:   3.0,  // leg is dominant if size > other leg * this ratio → use IG trailing stop
 };
 
 const priceCache = {};
@@ -1741,8 +1745,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       )`.catch(()=>{});
       await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false`.catch(()=>{});
       await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS profit_loss DECIMAL(10,2)`.catch(()=>{});
-      const openPairs = await pSql`SELECT pair_id, instr_a, instr_b, direction_a, deal_id_a, deal_id_b,
-        entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
+      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS peak_upl DECIMAL(10,2)`.catch(()=>{});
+      const openPairs = await pSql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
+        size_a, size_b, deal_id_a, deal_id_b,
+        entry_z, stop_z, target_z, opened_at, peak_upl
+        FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
       L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
 
@@ -1751,7 +1758,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         SELECT pair_id, close_reason, closed_at FROM pairs_trades
         WHERE status = 'closed'
         AND (
-          (close_reason IN ('stop_loss','daily_loss','manual_stop','orphaned_leg') AND closed_at > NOW() - INTERVAL '24 hours')
+          (close_reason IN ('stop_loss','daily_loss','manual_stop','orphaned_leg','trail_stop') AND closed_at > NOW() - INTERVAL '24 hours')
           OR
           (close_reason = 'mean_revert' AND closed_at > NOW() - INTERVAL '12 hours')
         )
@@ -1805,6 +1812,100 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const pairDaysHeld = pt.opened_at
           ? (Date.now() - new Date(pt.opened_at).getTime()) / (1000*60*60*24) : 0;
         const pairMaxHold = 90; // safety limit — backtest shows 56d was still a winner
+
+        // ── TRAILING PROFIT STOP ─────────────────────────────────────────────
+        // Calculate current combined UPL from both legs
+        let currentUpl = 0;
+        let uplCalcOk = false;
+        try {
+          const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+          const posD = await posR.json();
+          for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
+            const pos = (posD.positions||[]).find(p=>p.position.dealId===dealId);
+            if(pos) {
+              const dir = pos.position.direction;
+              const sz = pos.position.size || pos.position.dealSize;
+              const openLvl = pos.position.openLevel;
+              const curLvl = pos.market.bid || openLvl;
+              currentUpl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+              uplCalcOk = true;
+            }
+          }
+        } catch(e) { L('UPL calc error: ' + e.message); }
+
+        if(uplCalcOk) {
+          const activationThreshold = balance * (cfg.pairsTrailActivationPct / 100);
+          const peakUpl = parseFloat(pt.peak_upl || 0);
+
+          // Update peak if current UPL is higher
+          if(currentUpl > peakUpl) {
+            await pSql`UPDATE pairs_trades SET peak_upl=${parseFloat(currentUpl.toFixed(2))} WHERE id=${pt.id}`.catch(()=>{});
+            if(currentUpl >= activationThreshold && peakUpl < activationThreshold) {
+              L(`Pairs trail activated: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} >= activation £${activationThreshold.toFixed(2)}`);
+
+              // Determine if there's a dominant leg (size ratio >= 3×)
+              const sizeA = parseFloat(pt.size_a || 0);
+              const sizeB = parseFloat(pt.size_b || 0);
+              const isDominantA = sizeA >= sizeB * cfg.pairsDominantLegRatio;
+              const isDominantB = sizeB >= sizeA * cfg.pairsDominantLegRatio;
+              const dominantDealId = isDominantA ? pt.deal_id_a : isDominantB ? pt.deal_id_b : null;
+
+              if(dominantDealId) {
+                // Set IG trailing stop on dominant leg — real-time protection
+                try {
+                  const posR2 = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+                  const posD2 = await posR2.json();
+                  const domPos = (posD2.positions||[]).find(p=>p.position.dealId===dominantDealId);
+                  if(domPos) {
+                    const curPrice = domPos.market.bid || domPos.position.openLevel;
+                    const trailDist = Math.round(curPrice * 0.003); // 0.3% of price as trail distance
+                    const updateBody = { trailingStop: true, trailingStopDistance: trailDist, trailingStopIncrement: 1 };
+                    const ur = await fetch(`${igBase}/positions/otc/${dominantDealId}`, {
+                      method: 'PUT', headers:{...igH,'Version':'2'}, body:JSON.stringify(updateBody)
+                    });
+                    const ud = await ur.json();
+                    if(ud.dealReference) L(`Pairs trail: IG trailing stop set on dominant leg ${dominantDealId} dist:${trailDist}pts`);
+                  }
+                } catch(e) { L('IG trailing stop error: ' + e.message); }
+              }
+            }
+          }
+
+          // Check if trail retreat triggered (engine-based for non-dominant or equal pairs)
+          const newPeak = Math.max(currentUpl, peakUpl);
+          const retreatThreshold = newPeak * (1 - cfg.pairsTrailRetreatPct / 100);
+          const trailTriggered = newPeak >= activationThreshold && currentUpl < retreatThreshold && currentUpl > 0;
+
+          if(trailTriggered && !shouldClose) {
+            L(`Pairs trail triggered: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} retreated from peak £${newPeak.toFixed(2)} (close level £${retreatThreshold.toFixed(2)})`);
+            // Close both legs
+            let totalPnl = 0;
+            try {
+              const posR3 = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+              const posD3 = await posR3.json();
+              for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
+                const pos = (posD3.positions||[]).find(p=>p.position.dealId===dealId);
+                if(pos) {
+                  const dir = pos.position.direction;
+                  const sz = pos.position.size || pos.position.dealSize;
+                  const openLvl = pos.position.openLevel;
+                  const curLvl = pos.market.bid || openLvl;
+                  totalPnl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+                  const closeBody={epic:pos.market.epic,direction:dir==='BUY'?'SELL':'BUY',
+                    size:sz,orderType:'MARKET',expiry:'DFB',
+                    guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
+                  await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
+                }
+              }
+            } catch(e) { L('Trail close error: ' + e.message); }
+            await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ},
+              close_reason='trail_stop', profit_loss=${parseFloat(totalPnl.toFixed(2))}, closed_at=NOW()
+              WHERE id=${pt.id}`.catch(()=>{});
+            L(`Pairs trail closed: ${pt.pair_id} P&L:£${totalPnl.toFixed(2)}`);
+            continue; // skip normal close logic
+          }
+          L(`Pairs trail: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} peak £${newPeak.toFixed(2)} activation £${activationThreshold.toFixed(2)}${newPeak >= activationThreshold ? ` close@£${retreatThreshold.toFixed(2)}` : ''}`);
+        }
 
         const shouldClose =
           (pt.direction_a==='BUY' && (currentZ >= -pairExitZ || currentZ <= -pairStopZ)) ||
