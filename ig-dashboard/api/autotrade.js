@@ -186,7 +186,7 @@ async function sendNotify(type, subject, body) {
   } catch(e) { console.log('[sendNotify]', e.message); }
 }
 
-async function closeAll(igBase, igH) {
+async function closeAll(igBase, igH, skipPairs = true) {
   try {
     const pr = await fetch(`${igBase}/positions`, { headers: { ...igH, 'Version': '1' } });
     const pd = await pr.json();
@@ -194,16 +194,21 @@ async function closeAll(igBase, igH) {
 
     // Only close engine-opened positions — skip manual trades
     let engineDealIds = new Set();
+    let pairsDealIds = new Set();
+    let pairsEpics = new Set();
     try {
       const {sql: caSql} = require('@vercel/postgres');
       const [dirRows, pairRows] = await Promise.all([
         caSql`SELECT deal_id FROM trades WHERE status='open'`.catch(()=>({rows:[]})),
-        caSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
+        caSql`SELECT deal_id_a, deal_id_b, epic_a, epic_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
       ]);
       dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
       pairRows.rows.forEach(r => {
-        if(r.deal_id_a) engineDealIds.add(r.deal_id_a);
-        if(r.deal_id_b) engineDealIds.add(r.deal_id_b);
+        if(r.deal_id_a) { engineDealIds.add(r.deal_id_a); pairsDealIds.add(r.deal_id_a); }
+        if(r.deal_id_b) { engineDealIds.add(r.deal_id_b); pairsDealIds.add(r.deal_id_b); }
+        // Also track by epic for when deal IDs are null
+        if(r.epic_a) pairsEpics.add(r.epic_a);
+        if(r.epic_b) pairsEpics.add(r.epic_b);
       });
     } catch(e) { console.log('[closeAll] DB filter error:', e.message); }
 
@@ -212,12 +217,21 @@ async function closeAll(igBase, igH) {
     for (const p of positions) {
       try {
         const dealId = p.position.dealId;
+        const epic = p.market.epic;
+
         // Skip manual positions not tracked by engine
         if (engineDealIds.size > 0 && !engineDealIds.has(dealId)) {
           console.log('[closeAll] Skipping manual position:', p.market.instrumentName);
           continue;
         }
-        const epic = p.market.epic;
+
+        // Skip pairs legs — they manage their own close via Z-score logic
+        // Match by deal ID first, then by epic as fallback when deal IDs are null
+        if (skipPairs && (pairsDealIds.has(dealId) || pairsEpics.has(epic))) {
+          console.log('[closeAll] Skipping pairs leg:', p.market.instrumentName);
+          continue;
+        }
+
         const dir = p.position.direction === 'BUY' ? 'SELL' : 'BUY';
         const size = p.position.dealSize || p.position.size;
         const ob = { epic, direction: dir, size, orderType: 'MARKET', expiry: 'DFB',
@@ -229,15 +243,13 @@ async function closeAll(igBase, igH) {
         if (d.dealReference) { closed++; closedDealIds.push(dealId); }
       } catch(e) { console.log('[closeAll]', e.message); }
     }
-    // Mark any pairs_trades containing closed deal IDs as closed with daily_loss reason
+    // Mark any directional pairs_trades containing closed deal IDs as closed
     if(closedDealIds.length > 0) {
       try {
         const {sql: caSql} = require('@vercel/postgres');
-        await caSql`UPDATE pairs_trades SET status='closed', close_reason='daily_loss', closed_at=NOW()
-          WHERE status='open' AND (deal_id_a = ANY(${closedDealIds}) OR deal_id_b = ANY(${closedDealIds}))`;
-        // Also close any open pairs where the pair had positions closed (by pair_id match)
-        // This catches cases where deal_id_a/b are null but positions were physically closed
-      } catch(e) { console.log('[closeAll] pairs_trades update error:', e.message); }
+        await caSql`UPDATE trades SET status='closed', close_reason='daily_loss', closed_at=NOW()
+          WHERE deal_id = ANY(${closedDealIds}) AND status='open'`;
+      } catch(e) { console.log('[closeAll] trades update error:', e.message); }
     }
     return closed;
   } catch(e) { return 0; }
@@ -700,6 +712,42 @@ module.exports = async (req,res) => {
       const pairsLegCount = openPos.filter(p => pairsDealIds.has(p.position.dealId)).length;
       directionalOpen = openPos.length - pairsLegCount;
       L(`Open: ${directionalOpen}/${cfg.maxPositions} directional | ${Math.round(pairsLegCount/2)}/${cfg.pairsMaxSlots} pairs | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
+
+      // ── ORPHANED LEG DETECTION ──────────────────────────────────────────────
+      // If one leg of a pairs trade is missing from open positions, close the other
+      try {
+        const {sql: orphSql} = require('@vercel/postgres');
+        const openPairsRows = await orphSql`SELECT id, pair_id, deal_id_a, deal_id_b, epic_a, epic_b,
+          direction_a, direction_b, size_a, size_b FROM pairs_trades WHERE status='open'`;
+        const openDealIdSet = new Set(openPos.map(p => p.position.dealId));
+        for(const pt of openPairsRows.rows) {
+          const hasA = !pt.deal_id_a || openDealIdSet.has(pt.deal_id_a);
+          const hasB = !pt.deal_id_b || openDealIdSet.has(pt.deal_id_b);
+          if(pt.deal_id_a && pt.deal_id_b && !hasA && hasB) {
+            // Leg A gone — close leg B
+            L(`Orphaned leg detected: ${pt.pair_id} leg A missing — closing leg B`);
+            const legB = openPos.find(p => p.position.dealId === pt.deal_id_b);
+            if(legB) {
+              const ob = {epic:legB.market.epic, direction:legB.position.direction==='BUY'?'SELL':'BUY',
+                size:legB.position.size||legB.position.dealSize, orderType:'MARKET', expiry:'DFB',
+                guaranteedStop:false, forceOpen:false, currencyCode:'GBP', dealType:'SPREADBET'};
+              await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(ob)});
+              await orphSql`UPDATE pairs_trades SET status='closed', close_reason='orphaned_leg', closed_at=NOW() WHERE id=${pt.id}`;
+            }
+          } else if(pt.deal_id_a && pt.deal_id_b && hasA && !hasB) {
+            // Leg B gone — close leg A
+            L(`Orphaned leg detected: ${pt.pair_id} leg B missing — closing leg A`);
+            const legA = openPos.find(p => p.position.dealId === pt.deal_id_a);
+            if(legA) {
+              const ob = {epic:legA.market.epic, direction:legA.position.direction==='BUY'?'SELL':'BUY',
+                size:legA.position.size||legA.position.dealSize, orderType:'MARKET', expiry:'DFB',
+                guaranteedStop:false, forceOpen:false, currencyCode:'GBP', dealType:'SPREADBET'};
+              await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(ob)});
+              await orphSql`UPDATE pairs_trades SET status='closed', close_reason='orphaned_leg', closed_at=NOW() WHERE id=${pt.id}`;
+            }
+          }
+        }
+      } catch(e) { L('Orphaned leg check error: ' + e.message); }
     } catch(e) { L('Engine position filter error: ' + e.message); }
 
     await managePositions(openPos,igBase,igH,cfg,balance,L);
@@ -1688,11 +1736,11 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         size_a DECIMAL(10,4), size_b DECIMAL(10,4), deal_id_a VARCHAR(50), deal_id_b VARCHAR(50),
         entry_z DECIMAL(8,4), stop_z DECIMAL(8,4), target_z DECIMAL(8,4), close_z DECIMAL(8,4),
         close_reason VARCHAR(30), ai_confidence INTEGER, status VARCHAR(20) DEFAULT 'open',
-        partial_close BOOLEAN DEFAULT false,
+        partial_close BOOLEAN DEFAULT false, profit_loss DECIMAL(10,2),
         opened_at TIMESTAMPTZ DEFAULT NOW(), closed_at TIMESTAMPTZ
       )`.catch(()=>{});
-      // Add partial_close to existing tables that predate this column
       await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false`.catch(()=>{});
+      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS profit_loss DECIMAL(10,2)`.catch(()=>{});
       const openPairs = await pSql`SELECT pair_id, instr_a, instr_b, direction_a, deal_id_a, deal_id_b,
         entry_z, stop_z, target_z, opened_at FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
@@ -1703,7 +1751,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         SELECT pair_id, close_reason, closed_at FROM pairs_trades
         WHERE status = 'closed'
         AND (
-          (close_reason IN ('stop_loss','daily_loss','manual_stop') AND closed_at > NOW() - INTERVAL '24 hours')
+          (close_reason IN ('stop_loss','daily_loss','manual_stop','orphaned_leg') AND closed_at > NOW() - INTERVAL '24 hours')
           OR
           (close_reason = 'mean_revert' AND closed_at > NOW() - INTERVAL '12 hours')
         )
@@ -1767,20 +1815,29 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           const reason = pairDaysHeld >= pairMaxHold ? 'max_hold'
             : Math.abs(currentZ) <= pairExitZ ? 'mean_revert' : 'stop_loss';
           L(`Pairs close: ${pt.instr_a}/${pt.instr_b} Z=${currentZ.toFixed(2)} (${reason})`);
-          // Close both legs
+          // Close both legs and calculate actual P&L
+          let totalPnl = 0;
           for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
             const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
             const posD = await posR.json();
             const pos = (posD.positions||[]).find(p=>p.position.dealId===dealId);
             if(pos) {
-              const closeBody={epic:pos.market.epic,direction:pos.position.direction==='BUY'?'SELL':'BUY',
-                size:pos.position.size,orderType:'MARKET',expiry:'DFB',
+              const dir = pos.position.direction;
+              const sz = pos.position.size || pos.position.dealSize;
+              const openLvl = pos.position.openLevel;
+              const curLvl = pos.market.bid || openLvl;
+              const upl = dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+              totalPnl += upl;
+              const closeBody={epic:pos.market.epic,direction:dir==='BUY'?'SELL':'BUY',
+                size:sz,orderType:'MARKET',expiry:'DFB',
                 guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
               await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
             }
           }
-          await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ}, close_reason=${reason}, closed_at=NOW() WHERE pair_id=${pt.pair_id} AND status='open'`.catch(()=>{});
-          L(`Pairs closed: ${pt.instr_a}/${pt.instr_b} reason:${reason}`);
+          await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ}, close_reason=${reason},
+            profit_loss=${parseFloat(totalPnl.toFixed(2))}, closed_at=NOW()
+            WHERE pair_id=${pt.pair_id} AND status='open'`.catch(()=>{});
+          L(`Pairs closed: ${pt.instr_a}/${pt.instr_b} reason:${reason} P&L:£${totalPnl.toFixed(2)}`);
         }
       }
 
