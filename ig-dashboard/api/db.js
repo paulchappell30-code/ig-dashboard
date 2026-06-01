@@ -1,4 +1,4 @@
-// Database API v4
+// Database API v4 
 // GET  /api/db?action=init         — initialise/migrate tables
 // GET  /api/db?action=trades       — get trade history
 // GET  /api/db?action=equity       — get equity curve
