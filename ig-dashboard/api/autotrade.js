@@ -208,6 +208,7 @@ async function closeAll(igBase, igH) {
     } catch(e) { console.log('[closeAll] DB filter error:', e.message); }
 
     let closed = 0;
+    const closedDealIds = [];
     for (const p of positions) {
       try {
         const dealId = p.position.dealId;
@@ -225,8 +226,18 @@ async function closeAll(igBase, igH) {
           method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(ob)
         });
         const d = await r.json();
-        if (d.dealReference) closed++;
+        if (d.dealReference) { closed++; closedDealIds.push(dealId); }
       } catch(e) { console.log('[closeAll]', e.message); }
+    }
+    // Mark any pairs_trades containing closed deal IDs as closed with daily_loss reason
+    if(closedDealIds.length > 0) {
+      try {
+        const {sql: caSql} = require('@vercel/postgres');
+        await caSql`UPDATE pairs_trades SET status='closed', close_reason='daily_loss', closed_at=NOW()
+          WHERE status='open' AND (deal_id_a = ANY(${closedDealIds}) OR deal_id_b = ANY(${closedDealIds}))`;
+        // Also close any open pairs where the pair had positions closed (by pair_id match)
+        // This catches cases where deal_id_a/b are null but positions were physically closed
+      } catch(e) { console.log('[closeAll] pairs_trades update error:', e.message); }
     }
     return closed;
   } catch(e) { return 0; }
@@ -1687,6 +1698,16 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
       L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
 
+      // ── COOLDOWN: don't re-enter a pair within 24h of a stop-loss close ──────
+      const recentStops = await pSql`
+        SELECT pair_id, closed_at FROM pairs_trades
+        WHERE status = 'closed'
+        AND close_reason IN ('stop_loss','daily_loss','manual_stop')
+        AND closed_at > NOW() - INTERVAL '24 hours'
+      `.catch(()=>({rows:[]}));
+      const cooledOutPairs = new Set(recentStops.rows.map(r=>r.pair_id));
+      if(cooledOutPairs.size > 0) L(`Pairs cooldown active (24h post-stop): ${[...cooledOutPairs].join(', ')}`);
+
     // ── EUR/USD TRIANGULATION LAG DETECTOR ──────────────────────────────────
     // Finding 5: EUR/USD lags GBP/USD by ~30min due to triangular relationship
     // When GBP/USD moves significantly, EUR/USD should follow — trade the lag
@@ -1764,6 +1785,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       if(openPairs.rows.length < cfg.pairsMaxSlots) {
         for(const pair of PAIRS_DEFINITIONS) {
           if(openPairIds.has(pair.id)) continue; // already open
+          if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in 24h cooldown after stop-loss — skipping`); continue; }
           const pz = pairsZScores[pair.instrA];
           if(!pz || pz.n < pair.minDays) continue;
           const absZ = Math.abs(pz.zscore);
