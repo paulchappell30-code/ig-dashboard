@@ -1809,7 +1809,7 @@ function renderPairsGrid() {
   grid.innerHTML = '';
   selector.innerHTML = '';
 
-  const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
+  const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc','Tokyo First Section','Japan 225']);
   PAIRS_CONFIG.forEach(pair => {
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
