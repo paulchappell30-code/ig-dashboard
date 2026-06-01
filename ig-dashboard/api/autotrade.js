@@ -46,7 +46,7 @@ const CORRELATION_GROUPS = {
   'IX.D.FTSE.DAILY.IP':'indices','IX.D.SPTRD.DAILY.IP':'indices',
   'IX.D.DAX.DAILY.IP':'indices','IX.D.DOW.DAILY.IP':'indices',
   'IX.D.CAC.DAILY.IP':'indices',
-  'IX.D.TPXC.DAILY.IP':'indices',        // Tokyo First Section (TOPIX)
+  'IX.D.NIKKEI.DAILY.IP':'indices',       // Tokyo First Section / Japan 225
   'IX.D.NASDAQ.CASH.IP':'indices',
   'IX.D.ASX.DAILY.IP':'indices',        // Australia 200
   'CC.D.LCO.USS.IP':'commodities',
@@ -106,7 +106,7 @@ const PAIRS_DEFINITIONS = [
   // Switched to TOPIX (Tokyo First Section) — same relationship, 16× smaller price = workable sizing
   // TOPIX backtest: 85.2% WR | 2.33% exp | 27 trades | PF 6.08 — comparable to Nikkei
   { id:'nikkei_sp500', instrA:'Tokyo First Section', instrB:'S&P 500',
-    epicA:'IX.D.TPXC.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+    epicA:'IX.D.NIKKEI.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
     description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR ⭐' },
   // Universe search: score 23.57 | 84.8% WR | 1.12% exp | 33 trades over 500d
