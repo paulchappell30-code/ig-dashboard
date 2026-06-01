@@ -152,10 +152,20 @@ module.exports = async (req, res) => {
         try {
           const result = await sql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
             size_a, size_b, deal_id_a, deal_id_b, entry_z, stop_z, target_z, close_z,
-            close_reason, ai_confidence, status, profit_loss, opened_at, closed_at
+            close_reason, ai_confidence, status, opened_at, closed_at,
+            COALESCE(profit_loss, NULL) as profit_loss,
+            COALESCE(peak_upl, NULL) as peak_upl
             FROM pairs_trades ORDER BY opened_at DESC LIMIT ${limit}`;
           return res.status(200).json({ pairs_trades: result.rows });
-        } catch(e) { return res.status(200).json({ error: e.message, pairs_trades: [] }); }
+        } catch(e) {
+          try {
+            const result2 = await sql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
+              size_a, size_b, deal_id_a, deal_id_b, entry_z, stop_z, target_z, close_z,
+              close_reason, ai_confidence, status, opened_at, closed_at
+              FROM pairs_trades ORDER BY opened_at DESC LIMIT ${limit}`;
+            return res.status(200).json({ pairs_trades: result2.rows });
+          } catch(e2) { return res.status(200).json({ error: e2.message, pairs_trades: [] }); }
+        }
       }
 
       if (action === 'close_pairs_trade') {
@@ -188,10 +198,26 @@ module.exports = async (req, res) => {
 
       if (action === 'delete_trades') {
         try {
-          const ids = req.body?.ids || [];
+          const ids = (req.body?.ids || req.query.ids?.split(',') || []).map(Number).filter(Boolean);
           if(!ids.length) return res.status(400).json({error:'ids required'});
           await sql`DELETE FROM trades WHERE id = ANY(${ids})`;
           return res.status(200).json({success:true, deleted: ids.length});
+        } catch(e) { return res.status(500).json({error: e.message}); }
+      }
+
+      if (action === 'update_trade') {
+        const dealId = req.query.deal_id;
+        if(!dealId) return res.status(400).json({error:'deal_id required'});
+        try {
+          const b = req.body || req.query;
+          await sql`UPDATE trades SET
+            close_level = COALESCE(${b.close_level ? parseFloat(b.close_level) : null}, close_level),
+            closed_at = COALESCE(${b.closed_at || null}, closed_at),
+            profit_loss = COALESCE(${b.profit_loss != null ? parseFloat(b.profit_loss) : null}, profit_loss),
+            status = COALESCE(${b.status || null}, status),
+            close_reason = COALESCE(${b.close_reason || null}, close_reason)
+            WHERE deal_id = ${dealId}`;
+          return res.status(200).json({success:true, deal_id: dealId});
         } catch(e) { return res.status(500).json({error: e.message}); }
       }
 
