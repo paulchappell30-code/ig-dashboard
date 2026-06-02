@@ -951,7 +951,8 @@ async function initTables() {
 
 async function getStats() {
   try {
-    const [totalRes, winRes, pnlRes, bestRes, worstRes, recentRes, aiRes] = await Promise.all([
+    const [totalRes, winRes, pnlRes, bestRes, worstRes, recentRes, aiRes,
+           pairsTotalRes, pairsWinRes, pairsPnlRes] = await Promise.all([
       sql`SELECT COUNT(*) as total FROM trades WHERE status = 'closed'`,
       sql`SELECT COUNT(*) as wins FROM trades WHERE status = 'closed' AND profit_loss > 0`,
       sql`SELECT SUM(profit_loss) as total_pnl, AVG(profit_loss) as avg_pnl FROM trades WHERE status = 'closed'`,
@@ -959,20 +960,32 @@ async function getStats() {
       sql`SELECT instrument, profit_loss FROM trades WHERE status = 'closed' ORDER BY profit_loss ASC LIMIT 1`,
       sql`SELECT * FROM daily_stats LIMIT 30`,
       sql`SELECT AVG(CASE WHEN ai_was_correct THEN 1.0 ELSE 0.0 END) as ai_accuracy, COUNT(*) as ai_total FROM trades WHERE status = 'closed' AND ai_was_correct IS NOT NULL`,
+      sql`SELECT COUNT(*) as total FROM pairs_trades WHERE status='closed' AND profit_loss IS NOT NULL`.catch(()=>({rows:[{total:0}]})),
+      sql`SELECT COUNT(*) as wins FROM pairs_trades WHERE status='closed' AND profit_loss > 0`.catch(()=>({rows:[{wins:0}]})),
+      sql`SELECT COALESCE(SUM(profit_loss),0) as total_pnl FROM pairs_trades WHERE status='closed' AND profit_loss IS NOT NULL`.catch(()=>({rows:[{total_pnl:0}]})),
     ]);
 
-    const total = parseInt(totalRes.rows[0]?.total || 0);
-    const wins = parseInt(winRes.rows[0]?.wins || 0);
+    const dirTotal = parseInt(totalRes.rows[0]?.total || 0);
+    const dirWins = parseInt(winRes.rows[0]?.wins || 0);
+    const pairsTotal = parseInt(pairsTotalRes.rows[0]?.total || 0);
+    const pairsWins = parseInt(pairsWinRes.rows[0]?.wins || 0);
+    // Combined win rate across directional + pairs trades
+    const total = dirTotal + pairsTotal;
+    const wins = dirWins + pairsWins;
     const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+    const dirPnl = parseFloat(pnlRes.rows[0]?.total_pnl || 0);
+    const pairsPnl = parseFloat(pairsPnlRes.rows[0]?.total_pnl || 0);
     const aiAccuracy = aiRes.rows[0]?.ai_accuracy ? (parseFloat(aiRes.rows[0].ai_accuracy) * 100).toFixed(1) : null;
 
     return {
       totalTrades: total, winningTrades: wins, losingTrades: total - wins,
-      winRate: parseFloat(winRate), totalPnL: parseFloat(pnlRes.rows[0]?.total_pnl || 0),
-      avgPnL: parseFloat(pnlRes.rows[0]?.avg_pnl || 0),
+      winRate: parseFloat(winRate),
+      totalPnL: dirPnl + pairsPnl,
+      avgPnL: total > 0 ? ((dirPnl + pairsPnl) / total) : 0,
       bestTrade: bestRes.rows[0] || null, worstTrade: worstRes.rows[0] || null,
       dailyStats: recentRes.rows,
-      aiAccuracy, aiTotal: parseInt(aiRes.rows[0]?.ai_total || 0)
+      aiAccuracy, aiTotal: parseInt(aiRes.rows[0]?.ai_total || 0),
+      pairsStats: { total: pairsTotal, wins: pairsWins, pnl: pairsPnl }
     };
   } catch(e) { return { error: e.message }; }
 }
