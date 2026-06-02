@@ -27,10 +27,10 @@ const CONTRACT_PRICE_SCALE = {
   'CS.D.EURGBP.TODAY.IP': 10000,
   // Yahoo commodities stored in different units to IG — scale for stop sizing
   // Yahoo Copper ~6.5 USD/lb, IG ~13700 pence/lb → ratio ~2108
-  // Yahoo Silver ~32 USD/oz, IG ~2500 pence/oz → ratio ~78
+  // Yahoo Silver ~75 USD/oz, IG ~2500 pence/oz → ratio ~33
   // Yahoo Brent ~95 USD/bbl, IG ~9500 pence/bbl → ratio ~100
   'CS.D.COPPER.TODAY.IP': 2108,
-  'CS.D.USCSI.TODAY.IP':  78,
+  'CS.D.USCSI.TODAY.IP':  33,
   'CC.D.LCO.USS.IP':      100,
 };
 
@@ -111,9 +111,9 @@ const PAIRS_DEFINITIONS = [
     epicA:'CS.D.USCSI.TODAY.IP', epicB:'CS.D.COPPER.TODAY.IP',
     minDays:60, lookbackDays:60, entryZ:1.5, exitZ:0.75, stopZ:3.0,
     // Both stored in Yahoo USD/oz and USD/lb respectively — cross-commodity ratio
-    // IG Silver ~2500 pence/oz vs Yahoo ~32 USD/oz → scale = 32/2500 ≈ 0.0128
+    // IG Silver ~2500 pence/oz vs Yahoo ~75 USD/oz → scale = 75/2500 ≈ 0.030
     // IG Copper ~13700 pence/lb vs Yahoo ~6.5 USD/lb → scale = 0.000474
-    liveToDbScaleA: 0.0128,
+    liveToDbScaleA: 0.030,
     liveToDbScaleB: 0.000474,
     description:'Silver vs Copper — precious/industrial ratio, 86.7% WR, 3.56% exp ⭐' },
   // Clean data backtest 02/06/2026: score 46.02 | 70% WR | 5.25% exp | 10 trades
