@@ -94,6 +94,11 @@ const PAIRS_DEFINITIONS = [
     minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.25, stopZ:3.0,
     dbPriceScaleA: 1.0,   // Copper DB price ~636 pence/lb — close to IG units, use as-is
     dbPriceScaleB: 0.073, // Gold DB price ~4524 USD/oz → ×0.073 ≈ 330 pence/oz (approx GBP/100)
+    // Live-to-DB scale: converts IG live prices to Yahoo DB units for Z-score consistency
+    // IG Copper ~13,700 pence/lb vs Yahoo ~636 USc/lb → scale = 636/13700 ≈ 0.0464
+    // IG Gold ~4,540 pence/oz vs Yahoo ~4,524 USD/oz → ~1:1 (both approx USD/GBP parity at ~1.0)
+    liveToDbScaleA: 0.0464,
+    liveToDbScaleB: 1.0,
     description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
   // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
   // lookbackDays 60: confirmed optimal in lookback sweep (score 17.1 vs 1.27 at 90d)
@@ -987,7 +992,35 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
 
         const mean = ratios.reduce((a,b) => a+b, 0) / ratios.length;
         const std = Math.sqrt(ratios.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ratios.length);
-        const current = ratios[ratios.length - 1];
+
+        // Try to get live IG prices for more current Z-score
+        // For commodity pairs, apply dbPriceScale to convert Yahoo units to IG units
+        let current = ratios[ratios.length - 1]; // default: last DB candle
+        let liveZUsed = false;
+        try {
+          const snapA = await fetch(`${igBase}/markets/${pair.epicA}`, {headers:{...igH,'Version':'3'}});
+          const snapB = await fetch(`${igBase}/markets/${pair.epicB}`, {headers:{...igH,'Version':'3'}});
+          if(snapA.ok && snapB.ok) {
+            const dataA = await snapA.json();
+            const dataB = await snapB.json();
+            const priceA = dataA.snapshot?.bid;
+            const priceB = dataB.snapshot?.bid;
+            if(priceA > 0 && priceB > 0) {
+              // Convert IG live prices to same units as DB candles using scale factors
+              const scaleA = pair.liveToDbScaleA || 1.0;
+              const scaleB = pair.liveToDbScaleB || 1.0;
+              const scaledA = priceA * scaleA;
+              const scaledB = priceB * scaleB;
+              const liveRatio = scaledA / scaledB;
+              // Sanity check: live ratio should be within 30% of DB mean
+              if(Math.abs(liveRatio - mean) / mean < 0.3) {
+                current = liveRatio;
+                liveZUsed = true;
+              }
+            }
+          }
+        } catch(e) { /* live price fetch failed — use DB candle */ }
+
         const zscore = std > 0 ? (current - mean) / std : 0;
 
         // Store for both instruments in the pair
@@ -996,7 +1029,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const volRatioA = 1.0; // volA not available from date-aligned query — volume confluence uses B only
         const volRatioB = calcVolumeRatio(volsB.slice(-lb), 20);
         pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
-          mean, std, current,
+          mean, std, current, liveZUsed,
           _volumesA: volsA, _volumesB: volsB,
           volRatioA, volRatioB,
           signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
@@ -1006,9 +1039,9 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
 
         if(Math.abs(zscore) >= 1.0) {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d) (${pairsZScores[pair.instrA].signal})`);
+          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d)${liveZUsed?' [live]':''} (${pairsZScores[pair.instrA].signal})`);
         } else {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d) (neutral)`);
+          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d)${liveZUsed?' [live]':''} (neutral)`);
         }
       } catch(e) { /* skip pair on error */ }
     }
