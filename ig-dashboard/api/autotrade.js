@@ -71,6 +71,10 @@ const PAIRS_DEFINITIONS = [
   { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
     epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
     minDays:60, lookbackDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
+    // IG Brent ~9,500 pence/bbl vs Yahoo ~95 USD/bbl → scale = 95/9500 ≈ 0.01
+    // IG Gold ~3,300 USD/oz vs Yahoo Gold (IG) ~3,300 USD/oz → 1:1
+    liveToDbScaleA: 0.01,
+    liveToDbScaleB: 1.0,
     description:'Brent vs Gold — hold until 1σ reversion, exit early loses edge' },
   // Backtest: 75% WR, +1.03% exp at 2.5σ — re-enabled at extreme entry only
   // stopZ 3.5: wider stop on slow-moving EUR triangular — 3.0σ stops out trades that revert
@@ -95,9 +99,9 @@ const PAIRS_DEFINITIONS = [
     dbPriceScaleA: 1.0,   // Copper DB price ~636 pence/lb — close to IG units, use as-is
     dbPriceScaleB: 0.073, // Gold DB price ~4524 USD/oz → ×0.073 ≈ 330 pence/oz (approx GBP/100)
     // Live-to-DB scale: converts IG live prices to Yahoo DB units for Z-score consistency
-    // IG Copper ~13,700 pence/lb vs Yahoo ~636 USc/lb → scale = 636/13700 ≈ 0.0464
-    // IG Gold ~4,540 pence/oz vs Yahoo ~4,524 USD/oz → ~1:1 (both approx USD/GBP parity at ~1.0)
-    liveToDbScaleA: 0.0464,
+    // IG Copper ~13,700 pence/lb vs Yahoo ~6.5 USD/lb → scale = 6.5/13700 ≈ 0.000474
+    // IG Gold ~3,300 USD/oz vs Yahoo Gold (IG) ~3,300 USD/oz → 1:1
+    liveToDbScaleA: 0.000474,
     liveToDbScaleB: 1.0,
     description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
   // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
