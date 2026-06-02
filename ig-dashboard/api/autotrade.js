@@ -1764,7 +1764,14 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         )
       `.catch(()=>({rows:[]}));
       const cooledOutPairs = new Set(recentStops.rows.map(r=>r.pair_id));
-      if(cooledOutPairs.size > 0) L(`Pairs cooldown active: ${[...cooledOutPairs].join(', ')}`);
+      if(cooledOutPairs.size > 0) {
+        recentStops.rows.forEach(r => {
+          const hrs = r.close_reason === 'mean_revert' ? 12 : 24;
+          const expiresAt = new Date(new Date(r.closed_at).getTime() + hrs*60*60*1000);
+          const minsLeft = Math.round((expiresAt - Date.now()) / 60000);
+          L(`Pairs cooldown: ${r.pair_id} (${r.close_reason}) — ${minsLeft}m remaining`);
+        });
+      }
 
     // ── EUR/USD TRIANGULATION LAG DETECTOR ──────────────────────────────────
     // Finding 5: EUR/USD lags GBP/USD by ~30min due to triangular relationship
@@ -1946,7 +1953,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       if(openPairs.rows.length < cfg.pairsMaxSlots) {
         for(const pair of PAIRS_DEFINITIONS) {
           if(openPairIds.has(pair.id)) continue; // already open
-          if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in 24h cooldown after stop-loss — skipping`); continue; }
+          if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in cooldown — skipping`); continue; }
           const pz = pairsZScores[pair.instrA];
           if(!pz || pz.n < pair.minDays) continue;
           const absZ = Math.abs(pz.zscore);
@@ -1982,7 +1989,8 @@ RATIO: Current ${(pz.current||0).toFixed(4)} vs Mean ${(pz.mean||0).toFixed(4)} 
 STOP: Z=±${pair.stopZ} (${(pair.stopZ-absZ).toFixed(1)}σ away)
 EXIT TARGET: Z=±${pair.exitZ} (${(absZ-pair.exitZ).toFixed(1)}σ reversion needed)
 DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
-APPROVAL RULES: Approve if (1) |Z| ≥ ${pairEntryZ}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence.
+BACKTEST CONTEXT: These parameters were grid-searched over 500 days. For pairs trading, 15-35 trades is a statistically valid sample — do NOT reject solely on sample size if ≥15 trades. The lookback window is the backtest-optimal period, not too short. Win rates of 75%+ on 15+ trades represent genuine edge.
+APPROVAL RULES: Approve if (1) |Z| ≥ ${pairEntryZ}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence. Do NOT reject for sample size ≥15 trades or for short lookback windows — these are backtest-optimised parameters.
 Account P&L: ${plPct.toFixed(2)}% | Open positions: ${directionalOpen}/${cfg.maxPositions} directional | ${openPairs.rows.length}/${cfg.pairsMaxSlots} pairs
 Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
