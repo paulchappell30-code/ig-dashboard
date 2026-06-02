@@ -2014,7 +2014,10 @@ function renderPairsChart(pairId) {
   const windowedSpreads = spreads.length > lb ? spreads.slice(-lb) : spreads;
   const { mean, std } = calcZScore(windowedSpreads, lb);
   const values = windowedSpreads.map(s => s.spread);
-  const dates = windowedSpreads.map(s => s.date.substring(5));
+  const dates = windowedSpreads.map(s => {
+    const parts = s.date.substring(5).split('-'); // MM-DD
+    return parts.length === 2 ? `${parts[1]}/${parts[0]}` : s.date.substring(5);
+  });
   const upper2 = mean + 2*std;
   const lower2 = mean - 2*std;
   const upper1 = mean + std;
@@ -2064,9 +2067,9 @@ function renderPairsChart(pairId) {
   drawLine(lower1, 'rgba(52,152,219,0.5)', [2,4]);
 
   // Y axis labels — larger font, value + sigma label
-  ctx.font = '12px sans-serif'; ctx.fillStyle = 'var(--text2)'; ctx.textAlign = 'right';
+  ctx.font = '12px sans-serif'; ctx.fillStyle = 'var(--color-text-secondary)'; ctx.textAlign = 'right';
   [[mean,'Mean',''],[upper2,'+2σ',''],[lower2,'-2σ',''],[upper1,'+1σ',''],[lower1,'-1σ','']].forEach(([v,sigma,_]) => {
-    ctx.fillStyle = sigma==='+2σ'||sigma==='-2σ' ? 'var(--text1)' : 'var(--text2)';
+    ctx.fillStyle = sigma==='+2σ'||sigma==='-2σ' ? '#e8e6e0' : '#b0ada6';
     ctx.font = sigma==='+2σ'||sigma==='-2σ'||sigma==='Mean' ? 'bold 11px sans-serif' : '10px sans-serif';
     ctx.fillText(`${sigma} ${v.toFixed(4)}`, pad.l-8, yS(v)+4);
   });
@@ -2094,20 +2097,20 @@ function renderPairsChart(pairId) {
   });
 
   // X axis labels — larger, more readable
-  ctx.fillStyle = 'var(--text2)'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillStyle = '#b0ada6'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
   const step = Math.max(1, Math.floor(dates.length/8));
   dates.forEach((d,i) => { if(i%step===0) ctx.fillText(d, xS(i), H-8); });
 
   // X axis title
-  ctx.font = '11px sans-serif'; ctx.fillStyle = 'var(--text2)'; ctx.textAlign = 'center';
+  ctx.font = '11px sans-serif'; ctx.fillStyle = '#b0ada6'; ctx.textAlign = 'center';
   ctx.fillText('Date', pad.l + cw/2, H-2);
 
   // Title with current Z-score
   const currentZ = std > 0 ? ((values[values.length-1] - mean) / std).toFixed(2) : '—';
   const zSign = parseFloat(currentZ) > 0 ? '+' : '';
-  ctx.fillStyle = 'var(--text1)'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#e8e6e0'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(`${pair.name} spread ratio`, pad.l, 18);
-  ctx.fillStyle = Math.abs(parseFloat(currentZ)) >= 2 ? '#e74c3c' : 'var(--text2)';
+  ctx.fillStyle = Math.abs(parseFloat(currentZ)) >= 2 ? '#e74c3c' : '#b0ada6';
   ctx.font = '12px sans-serif'; ctx.textAlign = 'right';
   ctx.fillText(`Z-score: ${zSign}${currentZ}σ  |  ${lb}d lookback`, W - pad.r, 18);
 }
