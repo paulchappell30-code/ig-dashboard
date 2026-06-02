@@ -95,21 +95,34 @@ const PAIRS_DEFINITIONS = [
     epicA:'IX.D.DOW.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:60, lookbackDays:60, entryZ:2.25, exitZ:0.75, stopZ:3.0,
     description:'Dow vs S&P 500 — US mega-cap divergence, 81.8% WR at 2.25σ ⭐' },
-  // Grid search: score 21.33 | 72.7% WR | 3.17% exp | 11 trades over 500d
-  // lookbackDays 90: lookback sweep shows 90d score 39.66 vs 21.33 at 60d — macro cycle pair
-  // dbPriceScale: Yahoo stores Copper in USc/lb (*100 vs IG pence/lb), Gold in USD/oz (×100 for pence)
-  // Ratio is internally consistent for Z-score but live IG prices must be used for sizing
+  // Clean data backtest 02/06/2026: score 58.21 | 77.8% WR | 3.34% exp | 18 trades
+  // Updated from 2.0σ/0.25σ/90d → 1.75σ/0.25σ/45d on clean Yahoo data
   { id:'copper_gold', instrA:'Copper', instrB:'Gold',
     epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.25, stopZ:3.0,
-    dbPriceScaleA: 1.0,   // Copper DB price ~636 pence/lb — close to IG units, use as-is
-    dbPriceScaleB: 0.073, // Gold DB price ~4524 USD/oz → ×0.073 ≈ 330 pence/oz (approx GBP/100)
-    // Live-to-DB scale: converts IG live prices to Yahoo DB units for Z-score consistency
-    // IG Copper ~13,700 pence/lb vs Yahoo ~6.5 USD/lb → scale = 6.5/13700 ≈ 0.000474
-    // IG Gold ~3,300 USD/oz vs Yahoo Gold (IG) ~3,300 USD/oz → 1:1
+    minDays:45, lookbackDays:45, entryZ:1.75, exitZ:0.25, stopZ:3.0,
+    dbPriceScaleA: 1.0,
+    dbPriceScaleB: 0.073,
     liveToDbScaleA: 0.000474,
     liveToDbScaleB: 1.0,
-    description:'Copper vs Gold — risk sentiment proxy, 72.7% WR, 3.17% exp ⭐' },
+    description:'Copper vs Gold — industrial vs safe-haven, 77.8% WR, 3.34% exp ⭐' },
+  // Clean data backtest 02/06/2026: score 72.68 | 86.7% WR | 3.56% exp | 15 trades
+  // Silver tracks Copper industrially but also has safe-haven properties like Gold
+  { id:'silver_copper', instrA:'Silver', instrB:'Copper',
+    epicA:'CS.D.USCSI.TODAY.IP', epicB:'CS.D.COPPER.TODAY.IP',
+    minDays:60, lookbackDays:60, entryZ:1.5, exitZ:0.75, stopZ:3.0,
+    // Both stored in Yahoo USD/oz and USD/lb respectively — cross-commodity ratio
+    // IG Silver ~2500 pence/oz vs Yahoo ~32 USD/oz → scale = 32/2500 ≈ 0.0128
+    // IG Copper ~13700 pence/lb vs Yahoo ~6.5 USD/lb → scale = 0.000474
+    liveToDbScaleA: 0.0128,
+    liveToDbScaleB: 0.000474,
+    description:'Silver vs Copper — precious/industrial ratio, 86.7% WR, 3.56% exp ⭐' },
+  // Clean data backtest 02/06/2026: score 46.02 | 70% WR | 5.25% exp | 10 trades
+  // Paper trade only — thin sample, highest expectancy of any commodity pair
+  // { id:'brent_copper', instrA:'Brent Oil', instrB:'Copper',
+  //   epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.COPPER.TODAY.IP',
+  //   minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.75, stopZ:3.0,
+  //   liveToDbScaleA: 0.01, liveToDbScaleB: 0.000474,
+  //   description:'Brent vs Copper — energy/industrial ratio, 70% WR, 5.25% exp (paper)' },
   // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
   // lookbackDays 60: confirmed optimal in lookback sweep (score 17.1 vs 1.27 at 90d)
   { id:'ftse_sp500', instrA:'FTSE 100', instrB:'S&P 500',
