@@ -2114,11 +2114,11 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           if(!priceA || !priceB){ L(`Pairs: could not get prices for ${pair.instrA}/${pair.instrB} — skipping`); continue; }
 
-          // Safety: if using scaled DB prices for a commodity pair, skip execution
-          // DB unit scaling is approximate — only trade with confirmed live IG prices
+          // Safety: never execute trades using DB fallback prices — only live IG prices
+          // DB prices are in Yahoo units with approximate scaling, unsuitable for stop sizing
           const usingDbFallback = (!priceFeedA?.snapshot?.bid || !priceFeedB?.snapshot?.bid);
-          if(usingDbFallback && (pair.dbPriceScaleA !== undefined || pair.dbPriceScaleB !== undefined)) {
-            L(`Pairs: ${pair.instrA}/${pair.instrB} — commodity pair requires live IG prices for sizing, skipping until market open`);
+          if(usingDbFallback) {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — market closed or prices unavailable, skipping until live prices available`);
             continue;
           }
 
