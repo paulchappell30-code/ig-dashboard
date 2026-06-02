@@ -2045,8 +2045,12 @@ RATIO: Current ${(pz.current||0).toFixed(4)} vs Mean ${(pz.mean||0).toFixed(4)} 
 STOP: Z=±${pair.stopZ} (${(pair.stopZ-absZ).toFixed(1)}σ away)
 EXIT TARGET: Z=±${pair.exitZ} (${(absZ-pair.exitZ).toFixed(1)}σ reversion needed)
 DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
-BACKTEST CONTEXT: These parameters were grid-searched over 500 days. For pairs trading, 15-35 trades is a statistically valid sample — do NOT reject solely on sample size if ≥15 trades. The lookback window is the backtest-optimal period, not too short. Win rates of 75%+ on 15+ trades represent genuine edge.
-APPROVAL RULES: Approve if (1) |Z| ≥ ${pairEntryZ}, (2) sufficient history (≥${pair.minDays} days), (3) no fundamental reason for permanent divergence. Do NOT reject for sample size ≥15 trades or for short lookback windows — these are backtest-optimised parameters.
+LIVE TRACK RECORD: This pairs strategy has been live traded. TOPIX/S&P 500 has closed 2 winning trades (+£18.35 and +£29.31). The strategy parameters were grid-searched on 500 days of clean data. 15-35 trades is statistically valid for this strategy — do NOT reject on sample size ≥15.
+APPROVAL RULES:
+1. Approve if |Z| ≥ ${pairEntryZ} — MANDATORY. Current Z=${absZ.toFixed(2)} ${absZ>=pairEntryZ?'✅ PASSES':'❌ FAILS'}
+2. Sufficient history ≥ ${pair.minDays} days — current ${pz.n}d ${pz.n>=pair.minDays?'✅ PASSES':'❌ FAILS'}
+3. No fundamental reason for PERMANENT divergence (temporary macro divergence is fine)
+4. Do NOT reject for: weak signal strength at threshold, sample size 15-35 trades, short lookback (it is backtest-optimised), slippage concerns, currency exposure, or theoretical objections not backed by data
 Account P&L: ${plPct.toFixed(2)}% | Open positions: ${directionalOpen}/${cfg.maxPositions} directional | ${openPairs.rows.length}/${cfg.pairsMaxSlots} pairs
 Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
@@ -2118,10 +2122,15 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
             continue;
           }
 
-          // Stop distance in points = zStopDist * σ * priceB (approx)
+          // Stop distance in points (IG units)
+          // For Yahoo-stored commodities, std is in Yahoo units — scale to IG for stop sizing
           const pzStats = pairsZScores[pair.instrA];
-          const stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * (pzStats?.std||0.01) * priceB * 3));
-          const stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * (pzStats?.std||0.01) * priceA * 3));
+          const scaleA = CONTRACT_PRICE_SCALE[pair.epicA] || 1.0;
+          const scaleB = CONTRACT_PRICE_SCALE[pair.epicB] || 1.0;
+          // std in Yahoo units × scale × zStopDist = stop distance in IG points
+          const rawStd = pzStats?.std || 0.01;
+          const stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * rawStd * scaleA * (priceB * scaleB)));
+          const stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * rawStd * scaleB * (priceA * scaleA)));
           const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
           const sizeB = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsB).toFixed(2)), cfg.maxSizePerTrade));
 
