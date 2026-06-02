@@ -11,12 +11,11 @@ const IG_BASES = {
 
 // Maps trading epic -> DB stored epic (candles stored under old MINI epics)
 const DB_EPIC_MAP = {
-  // MINI epics used for historical DB storage — Yahoo backfill uses TODAY epics directly
-  // so these mappings only apply if MINI candles exist (older data)
-  // 'CS.D.GBPUSD.TODAY.IP': 'CS.D.GBPUSD.MINI.IP',
-  // 'CS.D.EURUSD.TODAY.IP': 'CS.D.EURUSD.MINI.IP',
-  // 'CS.D.USDJPY.TODAY.IP': 'CS.D.USDJPY.MINI.IP',
-  // 'CS.D.EURGBP.TODAY.IP': 'CS.D.EURGBP.MINI.IP',
+  // Instruments now stored under Yahoo epics after IG candle cleanup
+  // Directional engine uses IG epic from EPIC_MAP, but DB has Yahoo epic
+  'CS.D.COPPER.TODAY.IP': 'YAHOO:HG=F',   // Copper — Yahoo USD/lb
+  'CS.D.USCSI.TODAY.IP':  'YAHOO:SI=F',   // Silver — Yahoo USD/oz
+  'CC.D.LCO.USS.IP':      'YAHOO:BZ=F',   // Brent Oil — Yahoo USD/bbl
 };
 
 // TODAY FX contracts are priced in pips*10000 not decimal
@@ -26,6 +25,13 @@ const CONTRACT_PRICE_SCALE = {
   'CS.D.EURUSD.TODAY.IP': 10000,
   'CS.D.USDJPY.TODAY.IP': 100,
   'CS.D.EURGBP.TODAY.IP': 10000,
+  // Yahoo commodities stored in different units to IG — scale for stop sizing
+  // Yahoo Copper ~6.5 USD/lb, IG ~13700 pence/lb → ratio ~2108
+  // Yahoo Silver ~32 USD/oz, IG ~2500 pence/oz → ratio ~78
+  // Yahoo Brent ~95 USD/bbl, IG ~9500 pence/bbl → ratio ~100
+  'CS.D.COPPER.TODAY.IP': 2108,
+  'CS.D.USCSI.TODAY.IP':  78,
+  'CC.D.LCO.USS.IP':      100,
 };
 
 const EPIC_MAP = {
