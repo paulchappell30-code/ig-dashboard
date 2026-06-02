@@ -554,7 +554,13 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     </div>
 
     <div class="card">
-      <h3 style="margin:0 0 12px;font-size:15px">📊 Spread History</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">📊 Spread History</h3>
+        <div style="display:flex;gap:6px">
+          <button id="chart-lb-opt" onclick="setChartLookback('optimal')" class="btn btn-sm active" style="font-size:11px;padding:3px 10px">Optimal LB</button>
+          <button id="chart-lb-500" onclick="setChartLookback('500')" class="btn btn-sm" style="font-size:11px;padding:3px 10px">500 days</button>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
       <canvas id="pairs-chart" height="320" style="width:100%"></canvas>
     </div>
@@ -1982,6 +1988,15 @@ function renderPairsGrid() {
   });
 }
 
+let chartLookbackMode = 'optimal'; // 'optimal' or '500'
+
+function setChartLookback(mode) {
+  chartLookbackMode = mode;
+  document.getElementById('chart-lb-opt').classList.toggle('active', mode === 'optimal');
+  document.getElementById('chart-lb-500').classList.toggle('active', mode === '500');
+  if(selectedPair) renderPairsChart(selectedPair);
+}
+
 function selectPair(id) {
   selectedPair = id;
   renderPairsGrid();
@@ -2011,8 +2026,11 @@ function renderPairsChart(pairId) {
   }
 
   const lb = pair.lookbackDays || 60;
-  const windowedSpreads = spreads.length > lb ? spreads.slice(-lb) : spreads;
-  const { mean, std } = calcZScore(windowedSpreads, lb);
+  // Chart window: optimal lookback or full 500-day history
+  const chartDays = chartLookbackMode === '500' ? 500 : lb;
+  const windowedSpreads = spreads.length > chartDays ? spreads.slice(-chartDays) : spreads;
+  // Z-score always calculated on optimal lookback window regardless of chart display
+  const { mean, std } = calcZScore(spreads.length > lb ? spreads.slice(-lb) : spreads, lb);
   const values = windowedSpreads.map(s => s.spread);
   const dates = windowedSpreads.map(s => {
     const parts = s.date.substring(5).split('-'); // MM-DD
