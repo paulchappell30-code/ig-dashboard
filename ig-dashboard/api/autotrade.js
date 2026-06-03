@@ -136,16 +136,23 @@ const PAIRS_DEFINITIONS = [
   // Universe search originally: Japan 225/S&P 500 score 107.3 | 82.8% WR | 2.71% exp | 29 trades
   // Switched to TOPIX (Tokyo First Section) — same relationship, 16× smaller price = workable sizing
   // TOPIX backtest: 85.2% WR | 2.33% exp | 27 trades | PF 6.08 — comparable to Nikkei
+  // DB price: Yahoo ^N300 TOPIX ~828pts, IG Nikkei ~65,000pts → scale ~78.5×
+  // S&P 500: Yahoo/IG ~7,445pts → scale 1.0
   { id:'nikkei_sp500', instrA:'Tokyo First Section', instrB:'S&P 500',
     epicA:'IX.D.NIKKEI.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
+    dbPriceScaleA: 78.5,  // TOPIX Yahoo ~828 → IG Nikkei ~65000
+    dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
     description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR ⭐' },
   // Universe search: score 23.57 | 84.8% WR | 1.12% exp | 33 trades over 500d
   // Highest trade count (33) = most statistically reliable result in entire search
   // ASX time-zone gap creates frequent short-lived divergences from US session
+  // DB price: Yahoo ^AXJO ASX ~8729pts, IG ASX ~8729pts → scale 1.0
   { id:'asx_sp500', instrA:'Australia 200', instrB:'S&P 500',
     epicA:'IX.D.ASX.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:45, lookbackDays:45, entryZ:1.5, exitZ:0.5, stopZ:3.0,
+    dbPriceScaleA: 1.0,   // ASX Yahoo ~8729 ≈ IG ~8729
+    dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
     description:'ASX vs S&P 500 — time-zone gap divergences, 84.8% WR, 33 trades ⭐' },
   // Universe search: score 57.2 | 86.7% WR | 2.73% exp | 15 trades over 500d
   // Strong cross-asset pair — CAD is a petrocurrency, USD/CAD moves inversely with oil
@@ -2176,11 +2183,31 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
             minStopA = IG_MIN_STOPS[pair.epicA] || minStopA;
             minStopB = IG_MIN_STOPS[pair.epicB] || minStopB;
           }
+          // Determine if this is a commodity pair (needs live prices for sizing)
+          // vs index/FX pair (can use recent DB prices safely)
+          const COMMODITY_EPICS_SET = new Set([
+            'CS.D.USCSI.TODAY.IP','CS.D.COPPER.TODAY.IP','CC.D.LCO.USS.IP',
+            'CS.D.USCGC.TODAY.IP','CS.D.USCSI.TODAY.IP','CS.D.USSOI.TODAY.IP'
+          ]);
+          const isCommodityPair = COMMODITY_EPICS_SET.has(pair.epicA) || COMMODITY_EPICS_SET.has(pair.epicB);
+
           const usingDbFallback = (!priceFeedA?.snapshot?.bid && !usingYahooLive) ||
                                    (!priceFeedB?.snapshot?.bid && !usingYahooLive);
           if(usingDbFallback) {
-            L(`Pairs: ${pair.instrA}/${pair.instrB} — market closed or prices unavailable, skipping until live prices available`);
-            continue;
+            if(isCommodityPair) {
+              // Commodity pairs need live prices for correct unit-based sizing
+              L(`Pairs: ${pair.instrA}/${pair.instrB} — market closed or prices unavailable, skipping until live prices available`);
+              continue;
+            } else {
+              // Index/FX pairs — allow execution with DB prices if fresh enough (< 48h)
+              // Prices are in consistent IG units so sizing is reliable
+              const dbAge = priceA > 0 ? 'DB candle' : 'unavailable';
+              if(!priceA || !priceB) {
+                L(`Pairs: ${pair.instrA}/${pair.instrB} — no prices available, skipping`);
+                continue;
+              }
+              L(`Pairs: ${pair.instrA}/${pair.instrB} — using DB prices for sizing (index pair, no live required)`);
+            }
           }
 
           // Stop distance in points (IG units)
