@@ -1527,44 +1527,36 @@ async function runPairsBacktest(req, res) {
   const L = msg => { console.log('[PairsBT]', msg); log.push(msg); };
 
   const PAIRS_CONFIG = [
-    { id:'ftse_dax',      name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40'   },
-    { id:'gold_silver',   name:'Gold / Silver',      a:'Gold',      b:'Silver'   },
-    { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD',  b:'EUR/USD'  },
-    { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD',  b:'EUR/GBP'  },
-    { id:'brent_gold',    name:'Brent / Gold',       a:'Brent Oil', b:'Gold'     },
-    { id:'nasdaq_gold',   name:'Nasdaq / Gold',      a:'Nasdaq',    b:'Gold'     },
-    { id:'nasdaq_sp500',  name:'Nasdaq / S&P 500',   a:'Nasdaq',    b:'S&P 500'  },
-    { id:'dax_cac',       name:'DAX / CAC 40',       a:'DAX 40',    b:'CAC 40'   },
-    { id:'ftse_sp500',    name:'FTSE / S&P 500',     a:'FTSE 100',  b:'S&P 500'  },
-    { id:'gbpusd_usdjpy', name:'GBP/USD vs USD/JPY', a:'GBP/USD',  b:'USD/JPY'  },
-    { id:'silver_gold',   name:'Silver / Gold ratio', a:'Silver',   b:'Gold'     },
-    { id:'copper_gold',   name:'Copper / Gold',      a:'Copper',    b:'Gold'     },
-    { id:'sp500_brent',   name:'S&P 500 / Brent',    a:'S&P 500',  b:'Brent Oil'},
-    { id:'dow_sp500',     name:'Dow / S&P 500',      a:'Dow Jones', b:'S&P 500'  },
-    { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY', a:'EUR/USD',  b:'USD/JPY'  },
-    // Universe search deploy tier — added 27/05/2026
-    { id:'nikkei_sp500',  name:'TOPIX / S&P 500',    a:'Tokyo First Section', b:'S&P 500'  },
-    { id:'asx_sp500',     name:'ASX / S&P 500',       a:'Australia 200',  b:'S&P 500'  },
-    { id:'usdcad_wti',    name:'USD/CAD vs WTI Oil',  a:'USD/CAD',        b:'WTI Oil'  },
+    { id:'ftse_dax',      name:'FTSE / DAX',         a:'FTSE 100',  b:'DAX 40'   },
+    { id:'gold_silver',   name:'Gold / Silver',       a:'Gold',      b:'Silver'   },
+    { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD',  a:'GBP/USD',   b:'EUR/USD'  },
+    { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP',  a:'EUR/USD',   b:'EUR/GBP'  },
+    { id:'brent_gold',    name:'Brent / Gold',        a:'Brent Oil', b:'Gold'     },
+    { id:'nasdaq_sp500',  name:'Nasdaq / S&P 500',    a:'Nasdaq',    b:'S&P 500'  },
+    { id:'dax_cac',       name:'DAX / CAC 40',        a:'DAX 40',    b:'CAC 40'   },
+    { id:'ftse_sp500',    name:'FTSE / S&P 500',      a:'FTSE 100',  b:'S&P 500'  },
+    { id:'gbpusd_usdjpy', name:'GBP/USD vs USD/JPY',  a:'GBP/USD',   b:'USD/JPY'  },
+    { id:'silver_gold',   name:'Silver / Gold',       a:'Silver',    b:'Gold'     },
+    { id:'copper_gold',   name:'Copper / Gold',       a:'Copper',    b:'Gold'     },
+    { id:'silver_copper', name:'Silver / Copper',     a:'Silver',    b:'Copper'   },
+    { id:'brent_copper',  name:'Brent / Copper',      a:'Brent Oil', b:'Copper'   },
+    { id:'sp500_brent',   name:'S&P 500 / Brent',     a:'S&P 500',   b:'Brent Oil'},
+    { id:'dow_sp500',     name:'Dow / S&P 500',       a:'Dow Jones', b:'S&P 500'  },
+    { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY',  a:'EUR/USD',   b:'USD/JPY'  },
+    { id:'nikkei_sp500',  name:'TOPIX / S&P 500',     a:'Tokyo First Section', b:'S&P 500' },
+    { id:'asx_sp500',     name:'ASX / S&P 500',       a:'Australia 200',       b:'S&P 500' },
+    { id:'usdcad_wti',    name:'USD/CAD vs WTI',      a:'USD/CAD',   b:'WTI Oil'  },
   ];
 
   const pairId   = req.query.pair || 'ftse_dax';
-  const entryZ   = parseFloat(req.query.entryZ   || '1.5');
-  const exitZ    = parseFloat(req.query.exitZ    || '0.5');
-  const stopZ    = parseFloat(req.query.stopZ    || '3.0');
-  const lookback = parseInt(req.query.lookback   || '60');
+  const entryZ   = parseFloat(req.query.entryZ   || '1.5');  // Z-score to enter
+  const exitZ    = parseFloat(req.query.exitZ    || '0.5');  // Z-score to exit (mean revert)
+  const stopZ    = parseFloat(req.query.stopZ    || '3.0');  // Z-score stop loss
+  const lookback = parseInt(req.query.lookback   || '60');   // rolling window for mean/std
   const days     = parseInt(req.query.days       || '500');
 
-  // Support dynamic pairs via instrA/instrB query params (for universe grid search)
-  // Falls back to hardcoded PAIRS_CONFIG if not provided
-  let pair;
-  if(req.query.instrA && req.query.instrB) {
-    pair = { id: pairId, name: `${req.query.instrA} / ${req.query.instrB}`,
-             a: req.query.instrA, b: req.query.instrB };
-  } else {
-    pair = PAIRS_CONFIG.find(p => p.id === pairId);
-    if(!pair) return res.status(400).json({ error: 'Unknown pair: ' + pairId });
-  }
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return res.status(400).json({ error: 'Unknown pair: ' + pairId });
 
   L(`Pairs backtest: ${pair.name} | entry Z≥${entryZ} | exit Z≤${exitZ} | stop Z≥${stopZ} | lookback ${lookback}d`);
 
