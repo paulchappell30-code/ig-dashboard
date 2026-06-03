@@ -1697,6 +1697,32 @@ async function loadPairsData() {
       }
     }
 
+    // Fetch Yahoo live prices for commodities not available via IG (server-side to avoid CORS)
+    // These are in Yahoo units (USD/oz, USD/lb, USD/bbl) matching DB candle units
+    const YAHOO_LIVE = [
+      {symbol:'SI=F',  instr:'Silver',   scale:1.0},
+      {symbol:'HG=F',  instr:'Copper',   scale:1.0},
+      {symbol:'BZ=F',  instr:'Brent Oil',scale:1.0},
+      {symbol:'GC=F',  instr:'Gold',     scale:1.0},
+      {symbol:'CL=F',  instr:'WTI Oil',  scale:1.0},
+    ];
+    try {
+      const yahooResults = await Promise.all(YAHOO_LIVE.map(async ({symbol, instr, scale}) => {
+        try {
+          const r = await fetch(`/api/prices?action=quote&symbol=${encodeURIComponent(symbol)}`);
+          if(!r.ok) return null;
+          const d = await r.json();
+          return {instr, price: d.price ? d.price * scale : null};
+        } catch(e) { return null; }
+      }));
+      yahooResults.forEach(r => {
+        if(r && r.price > 0) {
+          livePrices[r.instr] = r.price;
+          console.log(`[Pairs] Yahoo live: ${r.instr} = ${r.price}`);
+        }
+      });
+    } catch(e) { console.warn('[Pairs] Yahoo live fetch error:', e.message); }
+
     pairsLivePrices = livePrices;
     console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
     setTimeout(calcPairSizing, 100); // Update sizing calculator
@@ -1827,7 +1853,9 @@ function renderPairsGrid() {
   grid.innerHTML = '';
   selector.innerHTML = '';
 
-  const COMMODITY_INSTRUMENTS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc','Tokyo First Section','Japan 225']);
+  const COMMODITY_INSTRUMENTS = new Set(['Tokyo First Section','Japan 225']);
+  // Note: Silver, Copper, Brent Oil, Gold, WTI now use Yahoo live prices
+  // which are in the same units as DB candles — safe to use for Z-score
   PAIRS_CONFIG.forEach(pair => {
     const candlesA = pairsData[pair.a] || [];
     const candlesB = pairsData[pair.b] || [];
