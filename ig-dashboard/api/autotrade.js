@@ -76,6 +76,7 @@ const PAIRS_DEFINITIONS = [
   // stopZ 2.5: tighter stop on volatile Brent/Gold ratio — PF drops significantly at 3.0σ
   { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
     epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
+    yahooSymbolA:'BZ=F', yahooSymbolB:'GC=F',
     minDays:60, lookbackDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
     // IG Brent ~9,500 pence/bbl vs Yahoo ~95 USD/bbl → scale = 95/9500 ≈ 0.01
     // IG Gold ~3,300 USD/oz vs Yahoo Gold (IG) ~3,300 USD/oz → 1:1
@@ -99,6 +100,7 @@ const PAIRS_DEFINITIONS = [
   // Updated from 2.0σ/0.25σ/90d → 1.75σ/0.25σ/45d on clean Yahoo data
   { id:'copper_gold', instrA:'Copper', instrB:'Gold',
     epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
+    yahooSymbolA:'HG=F', yahooSymbolB:'GC=F',
     minDays:45, lookbackDays:45, entryZ:1.75, exitZ:0.25, stopZ:3.0,
     dbPriceScaleA: 1.0,
     dbPriceScaleB: 0.073,
@@ -109,6 +111,7 @@ const PAIRS_DEFINITIONS = [
   // Silver tracks Copper industrially but also has safe-haven properties like Gold
   { id:'silver_copper', instrA:'Silver', instrB:'Copper',
     epicA:'CS.D.USCSI.TODAY.IP', epicB:'CS.D.COPPER.TODAY.IP',
+    yahooSymbolA:'SI=F', yahooSymbolB:'HG=F',
     minDays:60, lookbackDays:60, entryZ:1.5, exitZ:0.75, stopZ:3.0,
     // Both stored in Yahoo USD/oz and USD/lb respectively — cross-commodity ratio
     // IG Silver ~2500 pence/oz vs Yahoo ~75 USD/oz → scale = 75/2500 ≈ 0.030
@@ -1016,8 +1019,8 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const mean = ratios.reduce((a,b) => a+b, 0) / ratios.length;
         const std = Math.sqrt(ratios.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ratios.length);
 
-        // Try to get live IG prices for more current Z-score
-        // For commodity pairs, apply dbPriceScale to convert Yahoo units to IG units
+        // Try to get live prices for more current Z-score
+        // First try IG snapshot, fall back to Yahoo Finance for commodity pairs
         let current = ratios[ratios.length - 1]; // default: last DB candle
         let liveZUsed = false;
         try {
@@ -1029,16 +1032,34 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
             const priceA = dataA.snapshot?.bid;
             const priceB = dataB.snapshot?.bid;
             if(priceA > 0 && priceB > 0) {
-              // Convert IG live prices to same units as DB candles using scale factors
               const scaleA = pair.liveToDbScaleA || 1.0;
               const scaleB = pair.liveToDbScaleB || 1.0;
               const scaledA = priceA * scaleA;
               const scaledB = priceB * scaleB;
               const liveRatio = scaledA / scaledB;
-              // Sanity check: live ratio should be within 30% of DB mean
               if(Math.abs(liveRatio - mean) / mean < 0.3) {
                 current = liveRatio;
                 liveZUsed = true;
+              }
+            }
+          } else if(pair.yahooSymbolA || pair.yahooSymbolB) {
+            // IG snapshot blocked — try Yahoo Finance for commodity pairs
+            const yahooFetches = [];
+            if(pair.yahooSymbolA) yahooFetches.push(
+              fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(pair.yahooSymbolA)}?interval=1d&range=1d`, {headers:{'User-Agent':'Mozilla/5.0'}})
+                .then(r=>r.json()).then(d=>d.chart?.result?.[0]?.meta?.regularMarketPrice||null).catch(()=>null)
+            );
+            if(pair.yahooSymbolB) yahooFetches.push(
+              fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(pair.yahooSymbolB)}?interval=1d&range=1d`, {headers:{'User-Agent':'Mozilla/5.0'}})
+                .then(r=>r.json()).then(d=>d.chart?.result?.[0]?.meta?.regularMarketPrice||null).catch(()=>null)
+            );
+            const [yahooPriceA, yahooPriceB] = await Promise.all(yahooFetches);
+            if(yahooPriceA > 0 && yahooPriceB > 0) {
+              const liveRatio = yahooPriceA / yahooPriceB;
+              if(Math.abs(liveRatio - mean) / mean < 0.3) {
+                current = liveRatio;
+                liveZUsed = true;
+                L(`Pairs: ${pair.instrA}/${pair.instrB} live Z via Yahoo (${yahooPriceA.toFixed(2)}/${yahooPriceB.toFixed(2)})`);
               }
             }
           }
@@ -2086,10 +2107,39 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           ]);
           let priceA = priceFeedA?.snapshot?.bid || 0;
           let priceB = priceFeedB?.snapshot?.bid || 0;
-          const minStopA = priceFeedA?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
-          const minStopB = priceFeedB?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
+          let minStopA = priceFeedA?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
+          let minStopB = priceFeedB?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
+          let usingYahooLive = false;
 
-          // Fallback to last DB candle close if IG snapshot unavailable
+          // If IG snapshot blocked, try Yahoo Finance for live prices (commodity pairs)
+          if((!priceA || !priceB) && (pair.yahooSymbolA || pair.yahooSymbolB)) {
+            try {
+              const fetchYahoo = async (sym) => {
+                const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                  {headers:{'User-Agent':'Mozilla/5.0'}});
+                const d = await r.json();
+                return d.chart?.result?.[0]?.meta?.regularMarketPrice || null;
+              };
+              if(!priceA && pair.yahooSymbolA) {
+                const yp = await fetchYahoo(pair.yahooSymbolA);
+                if(yp > 0) {
+                  priceA = yp; // Yahoo price already in same units as DB
+                  usingYahooLive = true;
+                  L(`Pairs: ${pair.instrA} live price from Yahoo ${yp.toFixed(2)} (IG snapshot blocked)`);
+                }
+              }
+              if(!priceB && pair.yahooSymbolB) {
+                const yp = await fetchYahoo(pair.yahooSymbolB);
+                if(yp > 0) {
+                  priceB = yp;
+                  usingYahooLive = true;
+                  L(`Pairs: ${pair.instrB} live price from Yahoo ${yp.toFixed(2)} (IG snapshot blocked)`);
+                }
+              }
+            } catch(e) { L(`Pairs: Yahoo price fallback error — ${e.message}`); }
+          }
+
+          // Fallback to last DB candle close if still no price
           if(!priceA || !priceB) {
             try {
               const {sql: priceSql} = require('@vercel/postgres');
@@ -2114,9 +2164,20 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           if(!priceA || !priceB){ L(`Pairs: could not get prices for ${pair.instrA}/${pair.instrB} — skipping`); continue; }
 
-          // Safety: never execute trades using DB fallback prices — only live IG prices
-          // DB prices are in Yahoo units with approximate scaling, unsuitable for stop sizing
-          const usingDbFallback = (!priceFeedA?.snapshot?.bid || !priceFeedB?.snapshot?.bid);
+          // When using Yahoo prices, set sensible IG minimum stops for commodity pairs
+          if(usingYahooLive) {
+            // IG minimum stops for commodity spread bets (in IG price points)
+            const IG_MIN_STOPS = {
+              'CS.D.USCSI.TODAY.IP': 50,   // Silver ~50 points min stop
+              'CS.D.COPPER.TODAY.IP': 100, // Copper ~100 points min stop
+              'CC.D.LCO.USS.IP': 50,       // Brent ~50 points min stop
+              'CS.D.USCGC.TODAY.IP': 30,   // Gold ~30 points min stop
+            };
+            minStopA = IG_MIN_STOPS[pair.epicA] || minStopA;
+            minStopB = IG_MIN_STOPS[pair.epicB] || minStopB;
+          }
+          const usingDbFallback = (!priceFeedA?.snapshot?.bid && !usingYahooLive) ||
+                                   (!priceFeedB?.snapshot?.bid && !usingYahooLive);
           if(usingDbFallback) {
             L(`Pairs: ${pair.instrA}/${pair.instrB} — market closed or prices unavailable, skipping until live prices available`);
             continue;
