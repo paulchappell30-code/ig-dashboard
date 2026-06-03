@@ -148,12 +148,13 @@ const PAIRS_DEFINITIONS = [
   // Highest trade count (33) = most statistically reliable result in entire search
   // ASX time-zone gap creates frequent short-lived divergences from US session
   // DB price: Yahoo ^AXJO ASX ~8729pts, IG ASX ~8729pts → scale 1.0
-  { id:'asx_sp500', instrA:'Australia 200', instrB:'S&P 500',
-    epicA:'IX.D.ASX.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:45, lookbackDays:45, entryZ:1.5, exitZ:0.5, stopZ:3.0,
-    dbPriceScaleA: 1.0,   // ASX Yahoo ~8729 ≈ IG ~8729
-    dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
-    description:'ASX vs S&P 500 — time-zone gap divergences, 84.8% WR, 33 trades ⭐' },
+  // ASX/S&P 500 — disabled auto-execution: IX.D.ASX.DAILY.IP rejected by IG API
+  // Keep as paper trade — manual entry only
+  // { id:'asx_sp500', instrA:'Australia 200', instrB:'S&P 500',
+  //   epicA:'IX.D.ASX.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+  //   minDays:45, lookbackDays:45, entryZ:1.5, exitZ:0.5, stopZ:3.0,
+  //   dbPriceScaleA: 1.0, dbPriceScaleB: 1.0,
+  //   description:'ASX vs S&P 500 — time-zone gap divergences, 84.8% WR, 33 trades ⭐' },
   // Universe search: score 57.2 | 86.7% WR | 2.73% exp | 15 trades over 500d
   // Strong cross-asset pair — CAD is a petrocurrency, USD/CAD moves inversely with oil
   // DB prices: USD/CAD from Yahoo (USDCAD=X), WTI from Yahoo (CL=F) — commodity pair
