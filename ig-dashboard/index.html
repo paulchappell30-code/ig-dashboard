@@ -1961,15 +1961,27 @@ function renderPairsGrid() {
             sizeA = parseFloat(openTrade.size_a) || 0;
             sizeB = parseFloat(openTrade.size_b) || 0;
             const zReversion = Math.max(0, absZ - exitZ);
-            // Points each leg moves as Z reverts: zReversion × std × price of OTHER leg
             if(priceA > 0 && priceB > 0) {
-              // Exact calculation using live IG prices for both legs
-              const legAProfit = zReversion * effectiveStd * priceB * sizeA;
-              const legBProfit = zReversion * effectiveStd * priceA * sizeB;
-              estProfit = legAProfit + legBProfit;
+              // Get IG prices for scale factor calculation
+              const findIgPrice = (instrName) => {
+                const m = (S.markets||[]).find(m => {
+                  const e = m.epic||'';
+                  if(instrName==='Silver')    return e.includes('USCSI');
+                  if(instrName==='Copper')    return e.includes('COPPER');
+                  if(instrName==='Gold')      return e.includes('USCGC');
+                  if(instrName==='Brent Oil') return e.includes('LCO');
+                  return false;
+                });
+                return m ? parseFloat(String(m.price||0).replace(/,/g,'')) : 0;
+              };
+              const igPA = findIgPrice(pair.a) || priceA;
+              const scaleA = priceA > 0 ? igPA / priceA : 1;
+              // Dominant leg: leg A moves std × priceB × scaleA IG points per σ
+              // Add 50% for partial contribution from leg B
+              const legAptPerSigma = effectiveStd * priceB * scaleA;
+              estProfit = zReversion * legAptPerSigma * sizeA;
             } else {
-              // Fallback: scale expectancy by remaining Z reversion proportion
-              const zRatio = zReversion / Math.max(0.01, Math.abs(parseFloat(openTrade.entry_z)||entryZ) - exitZ);
+              const zRatio = zReversion / Math.max(0.01, Math.abs(parseFloat(openTrade.entry_z)||absZ) - exitZ);
               estProfit = zRatio * (pair.expectancy/100) * riskAmt;
             }
             profitLabel = `open: Z ${absZ.toFixed(2)}→${exitZ}σ`;
