@@ -2184,14 +2184,23 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           }
 
           // Stop distance in points (IG units)
-          // For Yahoo-stored commodities, std is in Yahoo units — scale to IG for stop sizing
           const pzStats = pairsZScores[pair.instrA];
-          const scaleA = CONTRACT_PRICE_SCALE[pair.epicA] || 1.0;
-          const scaleB = CONTRACT_PRICE_SCALE[pair.epicB] || 1.0;
-          // std in Yahoo units × scale × zStopDist = stop distance in IG points
-          const rawStd = pzStats?.std || 0.01;
-          const stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * rawStd * scaleA * (priceB * scaleB)));
-          const stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * rawStd * scaleB * (priceA * scaleA)));
+          let stopPtsA, stopPtsB;
+
+          if(usingYahooLive) {
+            // Yahoo prices in commodity units — use IG minimum stops directly
+            // minStopA/B already set to IG-appropriate values above
+            stopPtsA = Math.round(minStopA * 2.0); // 2× minimum for reasonable stop
+            stopPtsB = Math.round(minStopB * 2.0);
+          } else {
+            // IG prices — derive stop from Z-score std × price scale
+            const scaleA = CONTRACT_PRICE_SCALE[pair.epicA] || 1.0;
+            const scaleB = CONTRACT_PRICE_SCALE[pair.epicB] || 1.0;
+            const rawStd = pzStats?.std || 0.01;
+            stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * rawStd * scaleA * (priceB * scaleB)));
+            stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * rawStd * scaleB * (priceA * scaleA)));
+          }
+
           const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
           const sizeB = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsB).toFixed(2)), cfg.maxSizePerTrade));
 
@@ -2202,7 +2211,10 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           try {
             const bodyA = {epic:pair.epicA,direction:dirA,size:sizeA,orderType:'MARKET',
               expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
-              dealType:'SPREADBET',stopDistance:stopPtsA*3}; // 3× safety stop on IG
+              dealType:'SPREADBET'};
+            // Only attach stop distance when using IG prices (in correct IG units)
+            // Yahoo-priced pairs use Z-score engine stop instead of IG attached stop
+            if(!usingYahooLive) bodyA.stopDistance = stopPtsA * 3;
             const rA = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyA)});
             const dA = await rA.json();
             if(dA.dealReference){
@@ -2218,7 +2230,8 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           try {
             const bodyB = {epic:pair.epicB,direction:dirB,size:sizeB,orderType:'MARKET',
               expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
-              dealType:'SPREADBET',stopDistance:stopPtsB*3};
+              dealType:'SPREADBET'};
+            if(!usingYahooLive) bodyB.stopDistance = stopPtsB * 3;
             const rB = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyB)});
             const dB = await rB.json();
             if(dB.dealReference){
