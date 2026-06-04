@@ -679,20 +679,46 @@ module.exports = async (req,res) => {
   }catch(e){L('Account error: '+e.message);return res.status(200).json({log});}
 
   const plPct=balance>0?(dailyPL/balance)*100:0;
-  L(`P&L: ${plPct.toFixed(2)}% | Lock: +${cfg.dailyProfitLock}% | Limit: -${cfg.dailyLossLimit}%`);
 
-  // Daily limits
-  if(plPct<=-cfg.dailyLossLimit){
-    L(`LOSS LIMIT HIT (${plPct.toFixed(2)}%) — closing all`);
+  // Calculate pairs UPL separately to exclude from daily loss limit
+  // Pairs trades need time to revert — shouldn't trigger engine shutdown
+  let pairsUPL = 0;
+  try {
+    const {sql: pUplSql} = require('@vercel/postgres');
+    const openPairsForUPL = await pUplSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
+    const pairsDealIds = new Set();
+    openPairsForUPL.rows.forEach(r => { if(r.deal_id_a) pairsDealIds.add(r.deal_id_a); if(r.deal_id_b) pairsDealIds.add(r.deal_id_b); });
+    if(pairsDealIds.size > 0) {
+      const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+      const posD = await posR.json();
+      (posD.positions||[]).forEach(p => {
+        if(pairsDealIds.has(p.position.dealId)) {
+          const dir = p.position.direction;
+          const sz = p.position.size || p.position.dealSize;
+          const openLvl = p.position.openLevel;
+          const curLvl = p.market.bid || openLvl;
+          pairsUPL += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+        }
+      });
+    }
+  } catch(e) { /* non-critical */ }
+
+  // Directional P&L only (exclude pairs UPL from loss limit)
+  const directionalPL = dailyPL - pairsUPL;
+  const directionalPlPct = balance > 0 ? (directionalPL/balance)*100 : 0;
+  L(`P&L: ${plPct.toFixed(2)}% (directional: ${directionalPlPct.toFixed(2)}%) | Lock: +${cfg.dailyProfitLock}% | Limit: -${cfg.dailyLossLimit}%`);
+
+  // Daily limits — based on DIRECTIONAL P&L only, pairs excluded
+  if(directionalPlPct<=-cfg.dailyLossLimit){
+    L(`LOSS LIMIT HIT (directional: ${directionalPlPct.toFixed(2)}%) — closing directional positions only`);
     const closed=await closeAll(igBase,igH);
-    await sendNotify('error','🛑 Daily Loss Limit Hit',`P&L: ${plPct.toFixed(2)}%\nClosed: ${closed} positions\nBalance: £${balance}`);
+    await sendNotify('error','🛑 Daily Loss Limit Hit',`Directional P&L: ${directionalPlPct.toFixed(2)}%\nTotal P&L: ${plPct.toFixed(2)}% (pairs excluded)\nClosed: ${closed} directional positions\nBalance: £${balance}`);
     return res.status(200).json({action:'loss_limit_hit',closed,log});
   }
   let profitLockActive = false;
-  if(plPct>=cfg.dailyProfitLock){
+  if(directionalPlPct>=cfg.dailyProfitLock){
     profitLockActive = true;
-    L(`PROFIT LOCK ACTIVE (${plPct.toFixed(2)}%) — continuing with reduced risk (0.5%)`);
-    // Only send email once per day
+    L(`PROFIT LOCK ACTIVE (directional: ${directionalPlPct.toFixed(2)}%) — continuing with reduced risk (0.5%)`);
     try {
       const {sql:plSql} = require('@vercel/postgres');
       const todayStr = new Date().toISOString().split('T')[0];
@@ -703,7 +729,7 @@ module.exports = async (req,res) => {
         LIMIT 1
       `;
       if (alreadyNotified.rows.length === 0) {
-        await sendNotify('dca','✅ Daily Profit Locked',`P&L: +${plPct.toFixed(2)}%\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
+        await sendNotify('dca','✅ Daily Profit Locked',`Directional P&L: +${directionalPlPct.toFixed(2)}%\nTotal P&L: +${plPct.toFixed(2)}% (pairs excluded)\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
         await plSql`INSERT INTO engine_events (event_type, details, created_at) VALUES ('profit_lock_notified', ${JSON.stringify({pct:plPct.toFixed(2)})}, NOW())`;
         L('Profit lock email sent');
       } else {
@@ -2039,6 +2065,17 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         for(const pair of PAIRS_DEFINITIONS) {
           if(openPairIds.has(pair.id)) continue; // already open
           if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in cooldown — skipping`); continue; }
+
+          // Conflict check — don't open if any instrument is already in an open pairs trade
+          // e.g. don't open Copper/Gold if Silver/Copper is already open (double Copper exposure)
+          const conflictingPair = openPairs.rows.find(op =>
+            op.instr_a === pair.instrA || op.instr_b === pair.instrA ||
+            op.instr_a === pair.instrB || op.instr_b === pair.instrB
+          );
+          if(conflictingPair) {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — instrument conflict with open ${conflictingPair.pair_id} (${conflictingPair.instr_a}/${conflictingPair.instr_b}) — skipping`);
+            continue;
+          }
           const pz = pairsZScores[pair.instrA];
           if(!pz || pz.n < pair.minDays) continue;
           const absZ = Math.abs(pz.zscore);
