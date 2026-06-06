@@ -1193,17 +1193,25 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       message:'19:30 UTC witching hour — no new positions' });
   }
 
-  // Cooldown: block re-entry on same instrument within 4 hours of a stop loss
+  // Cooldown: block re-entry on same instrument within 4 hours of a stop loss or trail stop
   const recentlyStoppedEpics = new Set();
   try {
     const {sql:coolSql} = require('@vercel/postgres');
     const stoppedRows = await coolSql`
       SELECT epic FROM trades
       WHERE status = 'closed'
-      AND close_reason = 'stop_loss'
+      AND close_reason IN ('stop_loss','trail_stop','partial_close')
       AND closed_at > NOW() - INTERVAL '4 hours'
     `.catch(() => ({ rows: [] }));
     stoppedRows.rows.forEach(r => recentlyStoppedEpics.add(r.epic));
+    // Also add any positions that disappeared from IG this run (just-fired stops)
+    // by checking which DB open trades are no longer in IG positions
+    try {
+      const {sql: chkSql} = require('@vercel/postgres');
+      const dbOpen = await chkSql`SELECT deal_id, epic FROM trades WHERE status='open'`.catch(()=>({rows:[]}));
+      const igOpenIds = new Set(openPos.map(p=>p.position.dealId));
+      dbOpen.rows.forEach(t => { if(!igOpenIds.has(t.deal_id)) recentlyStoppedEpics.add(t.epic); });
+    } catch(e) { /* non-critical */ }
     if(recentlyStoppedEpics.size > 0){
       L(`Cooldown active for: ${[...recentlyStoppedEpics].join(', ')}`);
     }
