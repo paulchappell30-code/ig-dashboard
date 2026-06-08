@@ -81,6 +81,40 @@ module.exports = async (req, res) => {
     }
   }
 
+  // POST — backfill historical candles from Yahoo Finance
+  if (req.body?.action === 'backfill') {
+    const { instrument, symbol, days = 500 } = req.body;
+    if (!instrument || !symbol) return res.status(400).json({ error: 'instrument and symbol required' });
+    try {
+      const { sql: bSql } = require('@vercel/postgres');
+      const range = days > 365 ? '2y' : days > 180 ? '1y' : '6mo';
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+      const yr = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!yr.ok) return res.status(500).json({ error: `Yahoo fetch failed: ${yr.status}` });
+      const yd = await yr.json();
+      const chart = yd.chart?.result?.[0];
+      if (!chart) return res.status(500).json({ error: `No chart data for ${symbol}` });
+      const timestamps = chart.timestamp || [];
+      const closes = (chart.indicators?.quote?.[0] || {}).close || [];
+      const yahooEpic = `YAHOO:${symbol}`;
+      let inserted = 0;
+      for (let i = 0; i < timestamps.length; i++) {
+        const close = closes[i];
+        if (!close || close <= 0) continue;
+        const dt = new Date(timestamps[i] * 1000).toISOString().substring(0, 10) + 'T00:00:00Z';
+        try {
+          await bSql`INSERT INTO price_history (epic, instrument, resolution, candle_time, close_price)
+            VALUES (${yahooEpic}, ${instrument}, 'DAY', ${dt}, ${close})
+            ON CONFLICT (epic, resolution, candle_time) DO UPDATE SET close_price = EXCLUDED.close_price`;
+          inserted++;
+        } catch(e) { /* skip */ }
+      }
+      return res.status(200).json({ success: true, instrument, symbol, inserted, total: timestamps.length });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   // POST — collect latest prices from IG and store
   const igBase = IG_BASES[process.env.IG_ENV || 'demo'];
   const log = [];
