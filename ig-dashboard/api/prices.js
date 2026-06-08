@@ -109,9 +109,9 @@ module.exports = async (req, res) => {
     'CST': cst, 'X-SECURITY-TOKEN': xst,
   };
 
-  // Initialise DB tables if needed
+  // Initialise DB — require sql at top level so it's accessible throughout
+  const { sql } = require('@vercel/postgres');
   try {
-    const { sql } = require('@vercel/postgres');
     await sql`
       CREATE TABLE IF NOT EXISTS price_history (
         id SERIAL PRIMARY KEY,
@@ -175,7 +175,6 @@ module.exports = async (req, res) => {
       }
 
       // Store each candle in DB
-      const { sql } = require('@vercel/postgres');
       let stored = 0;
 
       for (const candle of candles) {
@@ -323,7 +322,6 @@ module.exports = async (req, res) => {
 
   let yahooRefreshed = 0;
   try {
-    const { sql: ySql } = require('@vercel/postgres');
     for(const inst of YAHOO_DAILY_REFRESH) {
       try {
         const range = '1mo';
@@ -343,7 +341,7 @@ module.exports = async (req, res) => {
           if(!close || close <= 0) continue;
           const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10) + 'T00:00:00Z';
           try {
-            await ySql`INSERT INTO price_history (epic, instrument, resolution, candle_time, close_price)
+            await sql`INSERT INTO price_history (epic, instrument, resolution, candle_time, close_price)
               VALUES (${yahooEpic}, ${inst.instrument}, 'DAY', ${dt}, ${close})
               ON CONFLICT (epic, resolution, candle_time) DO UPDATE SET close_price = EXCLUDED.close_price`;
             inserted++;
