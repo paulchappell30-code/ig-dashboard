@@ -133,12 +133,21 @@ module.exports = async (req, res) => {
     addLog('DB init warning: ' + e.message);
   }
 
+  // Instruments to skip in IG collection — stored via Yahoo refresh instead
+  // (IG candles use different units/scale vs Yahoo, causing Z-score corruption)
+  const YAHOO_ONLY_INSTRUMENTS = new Set(['Silver', 'Gold', 'Copper', 'Brent Oil', 'WTI Oil']);
+
   // Fetch and store prices for each instrument
   const results = [];
   let totalStored = 0;
 
   for (const [name, epic] of Object.entries(INSTRUMENTS)) {
     try {
+      if(YAHOO_ONLY_INSTRUMENTS.has(name)) {
+        addLog(`${name}: skipped — using Yahoo as source of truth`);
+        results.push({ name, status: 'skipped', reason: 'yahoo_only' });
+        continue;
+      }
       // Skip if we already have today's candle — avoids burning IG allowance
       // Unless force=true is passed in the request body
       const forceRefresh = (req.body && req.body.force) || req.query.force === 'true';
