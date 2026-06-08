@@ -1,2654 +1,2459 @@
-// Automated Trading Engine v4 
-// Features: Price history DB, regime detection, news sentiment, time filter,
-// active position management, Kelly sizing, portfolio heat, sentiment divergence
-const fetch = require('node-fetch');
-const TD_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hour TD cache TTL — alert cron runs 3x/day (7am, 12pm, 4pm UTC)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IG Investment Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-size:14px;overflow:hidden}
+:root{
+  --bg0:#080c10;--bg1:#0d1117;--bg2:#161b22;--bg3:#1c2330;--bg4:#21262d;
+  --border:#30363d;--border2:#3d444d;
+  --text1:#e6edf3;--text2:#8b949e;--text3:#484f58;
+  --blue:#58a6ff;--blue2:#1f6feb;--blue-dim:#1a3560;
+  --green:#3fb950;--green-dim:#1a3a1f;
+  --red:#f85149;--red-dim:#3d1a1a;
+  --gold:#d29922;--gold-dim:#2d2105;
+  --radius:6px;--radius-lg:10px;
+  --font-mono:'JetBrains Mono',monospace;
+}
+body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg0);color:var(--text1);line-height:1.5;-webkit-font-smoothing:antialiased;}
+#app{display:none;flex-direction:column;height:100vh;overflow:hidden}
+/* Header */
+#header{display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:52px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;z-index:10;}
+#header-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;color:var(--text1);}
+#header-logo .logo-mark{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,var(--blue2),var(--blue));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;}
+#header-right{display:flex;align-items:center;gap:12px}
+#conn-badge{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:var(--bg3);border:1px solid var(--border);font-size:12px;color:var(--text2);}
+#conn-dot{width:6px;height:6px;border-radius:50%;background:var(--text3)}
+#header-balance{font-size:13px;font-weight:600;font-family:var(--font-mono)}
+#header-pl{font-size:12px;padding:3px 8px;border-radius:4px;font-weight:500}
+#header-pl.pos{color:var(--green);background:var(--green-dim)}
+#header-pl.neg{color:var(--red);background:var(--red-dim)}
+/* Nav */
+#nav{display:flex;align-items:center;gap:2px;padding:0 16px;height:40px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;scrollbar-width:none;}
+#nav::-webkit-scrollbar{display:none}
+.nav-tab{padding:6px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .15s;border:1px solid transparent;}
+.nav-tab:hover{color:var(--text1);background:var(--bg3)}
+.nav-tab.active{color:var(--text1);background:var(--bg3);border-color:var(--border);}
+/* Live bar */
+#live-bar{display:flex;align-items:center;gap:16px;padding:0 20px;height:32px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;overflow:hidden;}
+.live-item{display:flex;align-items:center;gap:8px;font-size:12px;white-space:nowrap;}
+.live-item .name{color:var(--text2)}.live-item .price{color:var(--text1);font-weight:600;font-family:var(--font-mono)}
+.live-item .chg{font-family:var(--font-mono);font-size:11px}.live-item .chg.up{color:var(--green)}.live-item .chg.dn{color:var(--red)}
+/* Content */
+#content{flex:1;overflow-y:auto;padding:20px 20px 80px;min-height:0;max-height:calc(100vh - 136px)}
+.tab-content{display:none}.tab-content.active{display:block;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.loading{animation:pulse 1.5s infinite}
+/* Cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.card-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text2)}
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.metric-grid.cols-3{grid-template-columns:repeat(3,1fr)}.metric-grid.cols-2{grid-template-columns:repeat(2,1fr)}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;}
+.metric .label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.metric .value{font-size:20px;font-weight:700;font-family:var(--font-mono);color:var(--text1)}
+.metric .sub{font-size:11px;color:var(--text2);margin-top:2px}
+.metric .value.pos{color:var(--green)}.metric .value.neg{color:var(--red)}.metric .value.gold{color:var(--gold)}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:start}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
+/* Tables */
+.data-table{width:100%;border-collapse:collapse}
+.data-table th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);}
+.data-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid var(--border);color:var(--text1);}
+.data-table tr:last-child td{border-bottom:none}.data-table tr:hover td{background:var(--bg3)}
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:.3px;}
+.badge-buy{background:var(--green-dim);color:var(--green);border:1px solid rgba(63,185,80,.2)}
+.badge-sell{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,81,73,.2)}
+.badge-neutral{background:var(--bg4);color:var(--text2);border:1px solid var(--border)}
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);color:var(--text1);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn:hover{border-color:var(--border2);background:var(--bg4)}
+.btn-primary{background:var(--blue2);border-color:var(--blue2);color:#fff}.btn-primary:hover{background:#1a7ef5}
+.btn-danger{background:var(--red-dim);border-color:rgba(248,81,73,.3);color:var(--red)}
+.btn-sm{padding:4px 10px;font-size:12px}
+/* Forms */
+input[type=text],input[type=number],input[type=password],select,textarea{background:var(--bg3);border:1px solid var(--border);color:var(--text1);border-radius:var(--radius);padding:7px 10px;font-size:13px;width:100%;transition:border-color .15s;font-family:inherit;}
+input:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(88,166,255,.1);}
+label{font-size:12px;color:var(--text2);display:block;margin-bottom:5px}
+.form-row{margin-bottom:12px}
+/* Toggle */
+.toggle{position:relative;width:36px;height:20px;cursor:pointer;background:var(--bg4);border:1px solid var(--border);border-radius:10px;transition:all .2s;flex-shrink:0;}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text3);transition:all .2s;}
+.toggle.on{background:var(--blue2);border-color:var(--blue2)}.toggle.on::after{left:18px;background:#fff}
+/* Status row */
+.status-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
+.status-row:last-child{border-bottom:none}
+/* Log */
+.log-entry{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:12px;}
+.log-entry:last-child{border-bottom:none}
+.log-time{color:var(--text3);font-family:var(--font-mono);flex-shrink:0}.log-msg{color:var(--text2)}
+/* Position card */
+.position-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+/* Watchlist */
+.watchlist-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.watch-item{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;cursor:pointer;transition:border-color .15s;}
+.watch-item:hover{border-color:var(--border2)}
+.watch-item .w-name{font-size:11px;color:var(--text2);margin-bottom:3px}
+.watch-item .w-price{font-size:16px;font-weight:700;font-family:var(--font-mono);color:var(--text1)}
+.watch-item .w-chg{font-size:11px;font-family:var(--font-mono);margin-top:2px}
+.watch-item .w-chg.up{color:var(--green)}.watch-item .w-chg.dn{color:var(--red)}
+/* Signals */
+.signal-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.signal-item:last-child{border-bottom:none}
+/* Range */
+input[type=range]{-webkit-appearance:none;background:var(--bg4);height:4px;border-radius:2px;border:none;padding:0;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--blue);cursor:pointer;}
+/* Progress */
+.progress-bar{height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;}
+.progress-fill{height:100%;border-radius:2px;transition:width .5s}
+/* Alerts */
+.alert{padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.alert-warn{background:var(--gold-dim);border:1px solid rgba(210,153,34,.2);color:var(--gold)}
+.alert-info{background:var(--blue-dim);border:1px solid rgba(88,166,255,.2);color:var(--blue)}
+.alert-success{background:var(--green-dim);border:1px solid rgba(63,185,80,.2);color:var(--green)}
+.empty{text-align:center;padding:32px;color:var(--text3);font-size:13px;}
+code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2px 6px;border-radius:3px;color:var(--blue);}
+.pos{color:var(--green)!important}.neg{color:var(--red)!important}
+@media(max-width:900px){.metric-grid{grid-template-columns:repeat(2,1fr)}.two-col,.three-col{grid-template-columns:1fr}.watchlist-grid{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
 
-const IG_BASES = {
-  live: 'https://api.ig.com/gateway/deal',
-  demo: 'https://demo-api.ig.com/gateway/deal',
+<!-- LOGIN -->
+<div id="login-screen" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg0)">
+  <div style="width:360px">
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--blue2),var(--blue));display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:#fff;margin-bottom:14px">IG</div>
+      <div style="font-size:22px;font-weight:700">Investment Dashboard</div>
+      <div style="font-size:13px;color:var(--text2);margin-top:4px">Automated Trading System v4</div>
+    </div>
+    <div class="card">
+      <div class="form-row"><label>Environment</label>
+        <select id="login-env"><option value="live">Live Account</option><option value="demo">Demo Account</option></select>
+      </div>
+      <div class="form-row"><label>Username / Email</label><input type="text" id="login-user" placeholder="IG username or email" autocomplete="username"></div>
+      <div class="form-row" style="margin-bottom:16px"><label>Password</label><input type="password" id="login-pass" placeholder="IG password" autocomplete="current-password"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Sign In</button>
+      <div id="login-error" style="color:var(--red);font-size:12px;margin-top:10px;text-align:center;display:none"></div>
+    </div>
+    <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--text3)">Live orders will be placed on your IG account</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <!-- Header -->
+  <div id="header">
+    <div id="header-logo">
+      <div class="logo-mark">IG</div>
+      Investment Dashboard
+      <span style="font-size:10px;color:var(--text3);font-weight:400;background:var(--bg3);padding:2px 6px;border-radius:3px;border:1px solid var(--border)">v4</span>
+    </div>
+    <div id="header-right">
+      <div id="conn-badge"><div id="conn-dot"></div><span id="conn-label">Connecting...</span></div>
+      <div id="header-balance" style="font-family:var(--font-mono)">—</div>
+      <div id="header-pl">—</div>
+      <button class="btn btn-sm" onclick="runHealthCheck()">🔍 Health Check</button>
+      <button class="btn btn-sm" onclick="doLogout()">Sign Out</button>
+    </div>
+  </div>
+  <!-- Nav -->
+  <div id="nav">
+    <div class="nav-tab active" onclick="switchTab('overview',this)">Overview</div>
+    <div class="nav-tab" onclick="switchTab('autotrade',this)">⚡ Auto-Trade</div>
+    <div class="nav-tab" onclick="switchTab('journal',this)">📖 Journal</div>
+
+    <div class="nav-tab" onclick="switchTab('backtest',this)">🔬 Backtest</div>
+    <div class="nav-tab" onclick="switchTab('ai',this)">🤖 AI Analyst</div>
+    <div class="nav-tab" onclick="switchTab('orders',this)">Orders</div>
+    <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
+    <div class="nav-tab" onclick="switchTab('research',this)">🧬 Research</div>
+    <div class="nav-tab" onclick="switchTab('pairs',this)">⚖️ Pairs</div>
+  </div>
+  <!-- Live bar -->
+  <div id="live-bar" style="display:none"></div>
+  <!-- Content -->
+  <div id="content">
+
+    <!-- OVERVIEW -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="metric-grid" style="margin-bottom:16px">
+        <div class="metric"><div class="label">Account Balance</div><div class="value" id="m-balance">—</div><div class="sub" id="m-available">Available: —</div></div>
+        <div class="metric"><div class="label">Daily P&L</div><div class="value" id="m-pnl">—</div><div class="sub" id="m-pnl-pct">0.00% today</div></div>
+        <div class="metric"><div class="label">Open Positions</div><div class="value" id="m-positions">0</div><div class="sub">of 3 max</div></div>
+        <div class="metric"><div class="label">Engine Status</div><div class="value gold" id="m-engine">Active</div><div class="sub">Cron: every 5 min</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Open Positions</div><button class="btn btn-sm" onclick="loadPositions()">↻</button></div>
+          <div id="positions-list"><div class="empty">No open positions</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Live Prices</div>
+            <div style="font-size:11px;color:var(--green);display:flex;align-items:center;gap:4px"><div style="width:5px;height:5px;border-radius:50%;background:var(--green)"></div>Lightstreamer</div>
+          </div>
+          <div class="watchlist-grid" id="watchlist-grid"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Portfolio Performance (30d)</div><div style="font-size:11px;color:var(--text3)" id="pnl-chart-note">Loading...</div></div>
+        <svg id="pnl-svg" viewBox="0 0 600 80" preserveAspectRatio="none" style="width:100%;height:80px">
+          <defs><linearGradient id="pnl-grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#58a6ff" stop-opacity="0.3"/><stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/></linearGradient></defs>
+          <polygon id="pnl-fill" fill="url(#pnl-grad)"/>
+          <polyline id="pnl-line" fill="none" stroke="#58a6ff" stroke-width="1.5" stroke-linejoin="round" points="4,40 300,40 596,40"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- AUTO-TRADE -->
+    <div class="tab-content" id="tab-autotrade">
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div id="at-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text3)"></div>
+            <div><div style="font-weight:600" id="at-status-label">Auto-Trading: Loading...</div><div style="font-size:12px;color:var(--text2)" id="at-status-sub">Checking...</div></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="checkAutoTradeStatus()">Check Status</button>
+            <button class="btn btn-danger btn-sm" onclick="stopAutoTrade()">⏹ Stop</button>
+            <button class="btn btn-primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
+          </div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">Configuration</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div class="form-row"><label>Daily Profit Lock %</label><input type="number" id="at-profit-lock" value="3" min="0.1" max="20" step="0.1"></div>
+            <div class="form-row"><label>Daily Loss Limit %</label><input type="number" id="at-loss-limit" value="1" min="0.1" max="10" step="0.1" style="border-color:rgba(248,81,73,.3)"></div>
+            <div class="form-row"><label>Max Positions</label><input type="number" id="at-max-pos" value="3" min="1" max="10"></div>
+            <div class="form-row"><label>Max Size (£/point)</label><input type="number" id="at-size" value="5" min="0.01" max="10" step="0.01"><div style="font-size:11px;color:var(--text2);margin-top:3px">Cap only — actual size from 1% risk / ATR</div></div>
+          </div>
+          <div class="status-row"><div><div style="font-size:13px;font-weight:500">AI Confirmation</div><div style="font-size:12px;color:var(--text2)">Claude approves before execution</div></div><button class="toggle on" id="at-ai-toggle" onclick="this.classList.toggle('on')"></button></div>
+          <div class="status-row"><div><div style="font-size:13px;font-weight:500">Calendar Filter</div><div style="font-size:12px;color:var(--text2)">Skip trades near major events</div></div><button class="toggle on" id="at-cal-toggle" onclick="this.classList.toggle('on')"></button></div>
+          <div class="status-row"><div><div style="font-size:13px;font-weight:500">End-of-Day Close</div><div style="font-size:12px;color:var(--text2)">Close all positions at 4:15pm UTC</div></div><button class="toggle on" id="at-eod-toggle" onclick="this.classList.toggle('on')"></button></div>
+          <div style="margin-top:14px"><label style="margin-bottom:6px;display:flex;justify-content:space-between"><span>Min AI Confidence</span><span id="at-confidence-val" style="color:var(--text1);font-weight:500">60%</span></label><input type="range" min="50" max="95" value="60" oninput="document.getElementById('at-confidence-val').textContent=this.value+'%'"></div>
+          <div style="margin-top:12px"><label style="margin-bottom:6px;display:flex;justify-content:space-between"><span>Signal Threshold</span><span id="at-thresh-val" style="color:var(--text1);font-weight:500">2</span></label><input type="range" id="at-threshold" min="1" max="7" value="2" oninput="document.getElementById('at-thresh-val').textContent=this.value"></div>
+          <div class="form-row" style="margin-top:14px"><label>Cron Secret</label><input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET"></div>
+          <div class="alert alert-warn" style="margin-top:12px;font-size:12px">⚠️ To fully stop, pause cron at <a href="https://cron-job.org" target="_blank" style="color:var(--gold)">cron-job.org</a></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="saveAutoTradeConfig()">Generate Vercel Config</button>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:12px">Today's Performance</div>
+            <div class="metric-grid cols-2" style="margin-bottom:12px">
+              <div class="metric"><div class="label">Daily P&L</div><div class="value" id="at-daily-pl">—</div></div>
+              <div class="metric"><div class="label">P&L %</div><div class="value" id="at-daily-pct">—</div></div>
+            </div>
+            <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span id="at-loss-label">Loss: -1%</span><span id="at-profit-label">Lock: +2%</span></div>
+            <div class="progress-bar"><div id="at-pl-bar" class="progress-fill" style="background:var(--green);width:0;margin-left:50%"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Engine Log</div><button class="btn btn-sm" onclick="document.getElementById('at-log').innerHTML='<div class=empty>Cleared</div>'">Clear</button></div>
+            <div id="at-log" style="max-height:240px;overflow-y:auto"><div class="empty">No activity yet — click Run Now</div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Economic Calendar -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><div class="card-title">Economic Calendar</div><button class="btn btn-sm" onclick="loadCalendarData()">↻ Refresh</button></div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">High-impact events — scores adjust after releases. Add <code>FINNHUB_API_KEY</code> to Vercel (free at finnhub.io).</div>
+        <div class="two-col">
+          <div><div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Upcoming Events</div><div id="cal-upcoming"><div class="empty loading">Loading...</div></div></div>
+          <div><div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text2);margin-bottom:8px">Recent Surprises</div><div id="cal-surprises"><div class="empty">No recent releases</div></div></div>
+        </div>
+      </div>
+      <div class="alert alert-info" style="margin-top:16px"><span>ℹ</span><span><strong>Correlation filter active</strong> — max 1 index, 1 commodity, 1 FX pair at a time. Kelly Criterion sizing scales with account balance.</span></div>
+    </div>
+
+    <!-- JOURNAL -->
+    <div class="tab-content" id="tab-journal">
+      <div class="metric-grid" style="margin-bottom:16px">
+        <div class="metric"><div class="label">Total Trades</div><div class="value" id="j-total">—</div><div class="sub" id="j-winrate">Win rate: —</div></div>
+        <div class="metric"><div class="label">Total P&L</div><div class="value" id="j-pnl">—</div><div class="sub" id="j-avgpnl">Avg: —</div></div>
+        <div class="metric"><div class="label">Best Trade</div><div class="value pos" id="j-best">—</div><div class="sub" id="j-best-instr">—</div></div>
+        <div class="metric"><div class="label">Worst Trade</div><div class="value neg" id="j-worst">—</div><div class="sub" id="j-worst-instr">—</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card"><div class="card-header"><div class="card-title">Equity Curve</div><button class="btn btn-sm" onclick="loadJournal()">↻</button></div><canvas id="equity-chart" style="width:100%;height:180px"></canvas><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px"><span id="eq-from">—</span><span id="eq-to">Today</span></div></div>
+        <div class="card"><div class="card-title" style="margin-bottom:12px">Daily Performance</div><div id="daily-stats"><div class="empty">Load journal</div></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Trade History</div><div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="sendWeeklyReport()">📧 Report</button><button class="btn btn-sm" onclick="initDb()">⚙ Init DB</button><button class="btn btn-sm" onclick="loadJournal()">↻</button></div></div>
+        <div id="journal-status" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
+        <table class="data-table"><thead><tr><th>Date</th><th>Instrument</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>P&L</th><th>AI%</th><th>Status</th></tr></thead><tbody id="journal-body"><tr><td colspan="9" class="empty">Click ↻ to load</td></tr></tbody></table>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <div class="card-title">⚖️ Pairs Trade History</div>
+          <div id="pairs-journal-status" style="font-size:11px;color:var(--text2)"></div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Opened</th><th>Pair</th><th>Direction</th><th>Entry Z</th><th>Close Z</th><th>Days</th><th>P&amp;L</th><th>AI%</th><th>Exit</th><th>Status</th></tr></thead>
+          <tbody id="pairs-journal-body"><tr><td colspan="10" class="empty">Click ↻ to load journal</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CHARTS -->
+    <!-- BACKTEST -->
+    <div class="tab-content" id="tab-backtest">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:14px">🔬 Strategy Backtest</div>
+        <p style="font-size:12px;color:var(--text2);margin:0 0 14px">
+          Simulates strategy rules on historical data. Compares results across filter levels to validate signal quality.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px">
+          <div class="form-row"><label>Instrument</label>
+            <select id="bt-instrument" style="width:100%">
+              <option value="IX.D.FTSE.DAILY.IP">FTSE 100</option>
+              <option value="IX.D.SPTRD.DAILY.IP">S&P 500</option>
+              <option value="IX.D.DAX.DAILY.IP">DAX 40</option>
+              <option value="IX.D.DOW.DAILY.IP">Dow Jones</option>
+              <option value="IX.D.NASDAQ.CASH.IP">Nasdaq</option>
+              <option value="CC.D.LCO.USS.IP">Brent Oil</option>
+              <option value="CS.D.USCGC.TODAY.IP">Gold</option>
+              <option value="CS.D.USCSI.TODAY.IP">Silver</option>
+              <option value="CS.D.GBPUSD.TODAY.IP">GBP/USD</option>
+              <option value="CS.D.EURUSD.TODAY.IP">EUR/USD</option>
+              <option value="CS.D.EURGBP.TODAY.IP">EUR/GBP</option>
+              <option value="CS.D.USDJPY.TODAY.IP">USD/JPY</option>
+              <option value="CS.D.COPPER.TODAY.IP">Copper</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Resolution</label>
+            <select id="bt-resolution" onchange="btResolutionChanged()" style="width:100%">
+              <option value="DAY">Daily (500 days)</option>
+              <option value="HOUR">Hourly (60 days)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>History</label>
+            <select id="bt-days" style="width:100%">
+              <option value="100">100 days</option>
+              <option value="250">250 days (1 year)</option>
+              <option value="500" selected>500 days (2 years)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>RSI Entry Threshold</label>
+            <select id="bt-threshold" style="width:100%">
+              <option value="1">28 — Very strict</option>
+              <option value="2">30 — Strict</option>
+              <option value="3" selected>32 — Current system</option>
+              <option value="4">34 — Moderate</option>
+              <option value="5">36 — Lenient</option>
+              <option value="6">38 — Very lenient</option>
+              <option value="7">40 — Maximum</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Hold (days)</label>
+            <select id="bt-hold" style="width:100%">
+              <option value="3">3 days</option>
+              <option value="5" selected>5 days</option>
+              <option value="10">10 days</option>
+              <option value="20">20 days</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Strategy</label>
+            <select id="bt-strategy" style="width:100%">
+              <option value="mr">Mean Reversion (RSI)</option>
+              <option value="sma">SMA Crossover (trend)</option>
+              <option value="momentum">Momentum (5-day)</option>
+              <option value="breakout">20-day Breakout</option>
+              <option value="all">All strategies</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="runBacktest()">▶ Run Backtest</button>
+        <span id="bt-loading" style="display:none;font-size:12px;color:var(--text2);margin-left:12px">Running simulation...</span>
+      </div>
+      <div id="bt-results" style="display:none">
+        <div class="metric-grid" style="margin-bottom:16px">
+          <div class="metric"><div class="label">Trades</div><div class="value" id="bt-trades">—</div><div class="sub" id="bt-filter-used">full filter</div></div>
+          <div class="metric"><div class="label">Win Rate</div><div class="value" id="bt-winrate">—</div></div>
+          <div class="metric"><div class="label">Expectancy</div><div class="value" id="bt-pnl">—</div></div>
+          <div class="metric"><div class="label">Profit Factor</div><div class="value" id="bt-pf">—</div></div>
+        </div>
+        <!-- Filter comparison table -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title" style="margin-bottom:12px">Filter Comparison</div>
+          <div style="overflow-x:auto">
+            <table class="data-table" id="bt-filter-table">
+              <thead><tr>
+                <th>Filter</th><th style="text-align:center">Trades</th>
+                <th style="text-align:center">Win Rate</th><th style="text-align:center">Avg Win</th>
+                <th style="text-align:center">Avg Loss</th><th style="text-align:center">Expectancy</th>
+              </tr></thead>
+              <tbody id="bt-filter-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="card"><div class="card-title" style="margin-bottom:12px">By Regime</div><div id="bt-regime"></div></div>
+          <div class="card"><div class="card-title" style="margin-bottom:12px">Recent Trades</div>
+            <table class="data-table"><thead><tr><th>Date</th><th>Dir</th><th>RSI</th><th>Entry</th><th>Exit</th><th>P&L%</th><th>Exit</th></tr></thead>
+            <tbody id="bt-trade-list"></tbody></table>
+          </div>
+        </div>
+        <div class="card"><div class="card-title" style="margin-bottom:10px">Interpretation</div><div id="bt-interpretation" style="font-size:13px;line-height:1.7;color:var(--text2)"></div></div>
+      </div>
+      <div id="bt-error" style="display:none"><div class="alert alert-warn" id="bt-error-msg"></div></div>
+    </div>
+
+    <!-- AI ANALYST -->
+    <div class="tab-content" id="tab-ai">
+      <div class="two-col" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Quick Analysis</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <button class="btn" onclick="runAI('portfolio')">📊 Portfolio</button>
+            <button class="btn" onclick="runAI('market')">🌍 Market</button>
+            <button class="btn" onclick="runAI('journal')">📖 Journal</button>
+            <button class="btn" onclick="runAI('risk')">⚠️ Risk</button>
+          </div>
+          <div style="display:flex;gap:8px"><input type="text" id="ai-custom-q" placeholder="Ask anything..."><button class="btn btn-primary" onclick="runAICustom()">Ask</button></div>
+        </div>
+        <div class="card"><div class="card-title" style="margin-bottom:8px">Model</div><div style="font-size:13px;color:var(--text2);line-height:1.7">Using <strong style="color:var(--text1)">Claude Sonnet</strong> for analysis.</div><button class="btn btn-sm" style="margin-top:10px" onclick="clearAI()">Clear</button></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px">Conversation</div>
+        <div id="ai-history" style="max-height:400px;overflow-y:auto;margin-bottom:12px"><div class="empty">Select an analysis type to begin</div></div>
+        <div id="ai-loading" style="display:none;font-size:13px;color:var(--text2)"><span class="loading">Claude is thinking...</span></div>
+      </div>
+    </div>
+
+    <!-- ORDERS -->
+    <div class="tab-content" id="tab-orders">
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:14px">Manual Order</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="form-row"><label>Instrument</label><select id="ord-instr"><option>FTSE 100</option><option>S&P 500</option><option>DAX 40</option><option>Dow Jones</option><option>Brent Oil</option><option>Gold</option><option>Silver</option><option>Copper</option><option>GBP/USD</option><option>EUR/USD</option><option>USD/JPY</option><option>EUR/GBP</option><option>CAC 40</option><option>Nikkei 225</option><option>Nasdaq</option></select></div>
+            <div class="form-row"><label>Direction</label><select id="ord-dir"><option>Buy</option><option>Sell</option></select></div>
+            <div class="form-row"><label>Size (£/point)</label><input type="number" id="ord-size" value="0.01" min="0.01" step="0.01"></div>
+            <div class="form-row"><label>Order Type</label><select id="ord-type"><option>Market</option><option>Limit</option></select></div>
+          </div>
+          <div class="form-row"><label>Limit Price (optional)</label><input type="number" id="ord-price" placeholder="Leave blank for market"></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="placeManualOrder()">Place Order</button>
+          <div class="alert alert-warn" style="margin-top:10px;font-size:12px">⚠️ Manual orders bypass AI and execute immediately on your live account.</div>
+        </div>
+        <div class="card"><div class="card-title" style="margin-bottom:12px">Recent Orders</div><table class="data-table"><thead><tr><th>Time</th><th>Instrument</th><th>Dir</th><th>Size</th><th>Price</th><th>Status</th></tr></thead><tbody id="orders-body"><tr><td colspan="6" class="empty">No orders yet</td></tr></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="tab-content" id="tab-log">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Activity Log</div>
+          <div style="display:flex;gap:8px">
+            <select id="log-filter" onchange="renderLog()" style="width:auto"><option value="all">All</option><option value="order">Orders</option><option value="system">System</option><option value="error">Errors</option></select>
+            <button class="btn btn-sm" onclick="S.log=[];renderLog()">Clear</button>
+          </div>
+        </div>
+        <div id="activity-log" style="max-height:600px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- RESEARCH -->
+    <div class="tab-content" id="tab-research">
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div><div style="font-weight:600;margin-bottom:4px">AI Pattern Discovery</div><div style="font-size:12px;color:var(--text2)">Claude Sonnet analyses trade history to find patterns. Requires 30+ closed trades.</div></div>
+          <button class="btn btn-primary" onclick="runResearch()">▶ Run Analysis</button>
+        </div>
+      </div>
+      <div id="research-status" style="margin-bottom:16px"></div>
+      <div id="research-results"></div>
+    </div>
+
+
+  <!-- PAIRS TRADING TAB -->
+  <div id="tab-pairs" class="tab-content" style="padding:16px;max-width:900px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">⚖️ Pairs / Spread Monitor</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="pairs-updated" style="font-size:11px;color:var(--text2)"></span>
+          <button onclick="loadPairsData()" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Refresh</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 16px">
+        Z-score measures how many standard deviations the current spread is from its historical mean. 
+        <strong>±2.0</strong> = significant divergence. <strong>±1.5</strong> = watch zone.
+      </p>
+      <div id="pairs-grid" style="display:grid;gap:12px"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin:0 0 12px;font-size:15px">🧮 Pairs Trade Sizing</h3>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 12px">
+        Calculates correct size for each leg so notional exposure is equal. 
+        Select a pair and enter your risk amount.
+      </p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Pair</div>
+          <select id="sizing-pair" onchange="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <optgroup label="── Legacy pairs">
+              <option value="ftse_dax">FTSE / DAX</option>
+              <option value="gbpusd_eurusd">GBP/USD vs EUR/USD</option>
+              <option value="eurusd_eurgbp">EUR/USD vs EUR/GBP</option>
+              <option value="gold_silver">Gold / Silver</option>
+              <option value="brent_gold">Brent / Gold</option>
+            </optgroup>
+            <optgroup label="── Deploy ⭐">
+              <option value="dow_sp500">Dow / S&amp;P 500</option>
+              <option value="copper_gold">Copper / Gold</option>
+              <option value="ftse_sp500">FTSE / S&amp;P 500</option>
+              <option value="nikkei_sp500">TOPIX / S&amp;P 500</option>
+              <option value="asx_sp500">ASX / S&amp;P 500</option>
+              <option value="usdcad_wti">USD/CAD vs WTI</option>
+            </optgroup>
+            <optgroup label="── Paper trade">
+              <option value="sp500_brent">S&amp;P 500 / Brent</option>
+              <option value="gbpusd_usdjpy">GBP/USD vs USD/JPY</option>
+              <option value="eurusd_usdjpy">EUR/USD vs USD/JPY</option>
+            </optgroup>
+            <optgroup label="── Reject">
+              <option value="nasdaq_sp500">Nasdaq / S&amp;P 500</option>
+              <option value="dax_cac">DAX / CAC 40</option>
+            </optgroup>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Risk amount (£)</div>
+          <input id="sizing-risk" type="number" value="5" min="1" max="100" step="1"
+            oninput="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px;width:80px">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Stop distance (σ)</div>
+          <select id="sizing-stop" onchange="calcPairSizing()"
+            style="padding:6px 10px;background:var(--bg2);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <option value="1.0">1.0σ (tight)</option>
+            <option value="1.5" selected>1.5σ (standard)</option>
+            <option value="2.0">2.0σ (wide)</option>
+            <option value="3.0">3.0σ (very wide)</option>
+          </select>
+        </div>
+      </div>
+      <div id="sizing-result" style="background:var(--bg1);border-radius:8px;padding:14px;font-size:13px"></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:15px">📊 Spread History</h3>
+        <div style="display:flex;gap:6px">
+          <button id="chart-lb-opt" onclick="setChartLookback('optimal')" class="btn btn-sm active" style="font-size:11px;padding:3px 10px">Optimal LB</button>
+          <button id="chart-lb-500" onclick="setChartLookback('500')" class="btn btn-sm" style="font-size:11px;padding:3px 10px">500 days</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap" id="pairs-selector"></div>
+      <canvas id="pairs-chart" height="320" style="width:100%"></canvas>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin:0 0 12px;font-size:15px">🔬 Pairs Backtest</h3>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 14px">Tests Z-score entry/exit rules on historical spread data. Uses stored daily candles.</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+        <div class="form-row"><label>Pair</label>
+          <select id="pbt-pair" style="width:100%" onchange="prefillPbtParams()">
+            <optgroup label="── Legacy pairs">
+              <option value="gbpusd_eurusd" data-entry="2.0" data-exit="0.25" data-stop="3.0">GBP/USD vs EUR/USD</option>
+              <option value="brent_gold"    data-entry="1.75" data-exit="0.75" data-stop="2.5">Brent / Gold</option>
+              <option value="gold_silver"   data-entry="2.0" data-exit="0.5"  data-stop="3.0">Gold / Silver</option>
+              <option value="ftse_dax"      data-entry="2.0" data-exit="0.5"  data-stop="3.0">FTSE / DAX</option>
+              <option value="eurusd_eurgbp" data-entry="2.0" data-exit="0.25" data-stop="3.0">EUR/USD vs EUR/GBP</option>
+            </optgroup>
+            <optgroup label="── Deploy ⭐">
+              <option value="dow_sp500"    data-entry="2.5"  data-exit="0.5"  data-stop="3.0" data-lb="60">Dow / S&amp;P 500 ⭐ score 36.9</option>
+              <option value="copper_gold"  data-entry="1.75" data-exit="0.25" data-stop="3.0" data-lb="45">Copper / Gold ⭐ score 58.2</option>
+              <option value="silver_copper" data-entry="1.5" data-exit="0.75" data-stop="3.0" data-lb="60">Silver / Copper ⭐ score 72.7</option>
+              <option value="ftse_sp500"   data-entry="2.0"  data-exit="1.0"  data-stop="3.0" data-lb="45">FTSE / S&amp;P 500 ⭐ score 11.5</option>
+              <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5"  data-stop="3.0" data-lb="60">TOPIX / S&amp;P 500 ⭐ score 107</option>
+              <option value="asx_sp500"    data-entry="1.5"  data-exit="0.5"  data-stop="3.0" data-lb="45">ASX / S&amp;P 500 ⭐ score 23.6</option>
+              <option value="usdcad_wti"   data-entry="1.25" data-exit="0.75" data-stop="3.0" data-lb="90">USD/CAD vs WTI ⭐ score 57.2</option>
+              <option value="gbpusd_eurusd" data-entry="2.0" data-exit="0.25" data-stop="3.5" data-lb="60">GBP/USD vs EUR/USD ⭐ score 21.3</option>
+            </optgroup>
+            <optgroup label="── Paper trade">
+              <option value="brent_copper"   data-entry="2.0" data-exit="0.75" data-stop="3.0">Brent / Copper 👁 score 46.0</option>
+              <option value="sp500_brent"    data-entry="2.0" data-exit="0.25" data-stop="3.0">S&amp;P 500 / Brent (thin)</option>
+              <option value="gbpusd_usdjpy"  data-entry="1.5" data-exit="0.5"  data-stop="3.0">GBP/USD vs USD/JPY</option>
+              <option value="eurusd_usdjpy"  data-entry="2.0" data-exit="0.25" data-stop="3.0">EUR/USD vs USD/JPY (thin)</option>
+            </optgroup>
+            <optgroup label="── Reject">
+              <option value="silver_gold"   data-entry="1.5"  data-exit="0.5"  data-stop="3.0">Silver / Gold (low exp)</option>
+              <option value="nasdaq_sp500"  data-entry="1.75" data-exit="1.0"  data-stop="3.0">Nasdaq / S&amp;P 500</option>
+              <option value="dax_cac"       data-entry="1.0"  data-exit="0.75" data-stop="3.0">DAX / CAC 40</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-row"><label>Entry Z-score</label>
+          <select id="pbt-entry" style="width:100%">
+            <option value="1.0">1.0σ</option>
+            <option value="1.25">1.25σ</option>
+            <option value="1.5">1.5σ</option>
+            <option value="1.75">1.75σ</option>
+            <option value="2.0" selected>2.0σ</option>
+            <option value="2.25">2.25σ</option>
+            <option value="2.5">2.5σ</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Exit Z-score</label>
+          <select id="pbt-exit" style="width:100%">
+            <option value="0.0">0.0σ (full revert)</option>
+            <option value="0.25" selected>0.25σ</option>
+            <option value="0.5">0.5σ</option>
+            <option value="0.75">0.75σ</option>
+            <option value="1.0">1.0σ</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Stop Z-score</label>
+          <select id="pbt-stop" style="width:100%">
+            <option value="2.5">2.5σ</option>
+            <option value="3.0" selected>3.0σ</option>
+            <option value="3.5">3.5σ</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Lookback window</label>
+          <select id="pbt-lookback" style="width:100%">
+            <option value="30">30 days</option>
+            <option value="45">45 days</option>
+            <option value="60" selected>60 days</option>
+            <option value="90">90 days</option>
+          </select>
+        </div>
+        <div class="form-row"><label>History</label>
+          <select id="pbt-days" style="width:100%">
+            <option value="250">250 days</option>
+            <option value="500" selected>500 days</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="runPairsBacktest()">▶ Run Pairs Backtest</button>
+      <span id="pbt-loading" style="display:none;font-size:12px;color:var(--text2);margin-left:12px">Running...</span>
+      <div id="pbt-results" style="display:none;margin-top:16px">
+        <div class="metric-grid" style="margin-bottom:16px">
+          <div class="metric"><div class="label">Trades</div><div class="value" id="pbt-trades">—</div><div class="sub">avg hold: <span id="pbt-hold">—</span>d</div></div>
+          <div class="metric"><div class="label">Win Rate</div><div class="value" id="pbt-wr">—</div></div>
+          <div class="metric"><div class="label">Expectancy</div><div class="value" id="pbt-exp">—</div></div>
+          <div class="metric"><div class="label">Profit Factor</div><div class="value" id="pbt-pf">—</div></div>
+        </div>
+        <div class="two-col">
+          <div class="card"><div class="card-title" style="margin-bottom:12px">By Exit Reason</div><div id="pbt-exits"></div></div>
+          <div class="card"><div class="card-title" style="margin-bottom:12px">Recent Trades</div>
+            <table class="data-table"><thead><tr><th>Entry</th><th>Exit</th><th>Dir</th><th>Entry Z</th><th>Exit Z</th><th>Days</th><th>P&L%</th><th>Peak%</th></tr></thead>
+            <tbody id="pbt-trades-list"></tbody></table>
+          </div>
+        </div>
+        <div class="card"><div class="card-title" style="margin-bottom:8px">Interpretation</div><div id="pbt-interpretation" style="font-size:13px;line-height:1.7;color:var(--text2)"></div></div>
+      </div>
+      <div id="pbt-error" style="display:none;margin-top:12px"><div class="alert alert-warn" id="pbt-error-msg"></div></div>
+    </div>
+  </div>
+
+
+
+  </div><!-- /content -->
+
+  <!-- Health Check Modal -->
+  <div id="health-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:520px;max-width:95vw;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><div style="font-size:16px;font-weight:700">System Health Check</div><button class="btn btn-sm" onclick="document.getElementById('health-modal').style.display='none'">✕ Close</button></div>
+      <div id="health-results"><div class="empty loading">Running checks...</div></div>
+      <div style="margin-top:16px;font-size:11px;color:var(--text3);text-align:center" id="health-time"></div>
+    </div>
+  </div>
+</div><!-- /app -->
+
+<script src="lightstreamer.min.js"></script>
+<script>
+// ─── STATE ────────────────────────────────────────────────────────────────────
+const S = {
+  connected:false, env:'live', cst:null, xst:null, apiKey:null,
+  positions:[], orders:[], log:[], priceCache:{},
+  historicalBlocked:false,
+  markets:[
+    {name:'FTSE 100',  epic:'IX.D.FTSE.DAILY.IP',    price:'—',change:'—',pos:true,icon:'🇬🇧'},
+    {name:'S&P 500',   epic:'IX.D.SPTRD.DAILY.IP',   price:'—',change:'—',pos:true,icon:'🇺🇸'},
+    {name:'DAX 40',    epic:'IX.D.DAX.DAILY.IP',     price:'—',change:'—',pos:true,icon:'🇩🇪'},
+    {name:'Dow Jones', epic:'IX.D.DOW.DAILY.IP',     price:'—',change:'—',pos:true,icon:'🇺🇸'},
+    {name:'Brent Oil', epic:'CC.D.LCO.USS.IP',       price:'—',change:'—',pos:true,icon:'🛢️'},
+    {name:'Gold',      epic:'CS.D.USCGC.TODAY.IP',   price:'—',change:'—',pos:true,icon:'🥇'},
+    {name:'Silver',    epic:'CS.D.USCSI.TODAY.IP',   price:'—',change:'—',pos:true,icon:'🥈'},
+    {name:'Copper',    epic:'CS.D.COPPER.TODAY.IP',  price:'—',change:'—',pos:true,icon:'🟤'},
+    {name:'GBP/USD',   epic:'CS.D.GBPUSD.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💷'},
+    {name:'EUR/USD',   epic:'CS.D.EURUSD.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💶'},
+    {name:'USD/JPY',   epic:'CS.D.USDJPY.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💴'},
+    {name:'EUR/GBP',   epic:'CS.D.EURGBP.TODAY.IP',  price:'—',change:'—',pos:true,icon:'💱'},
+    {name:'CAC 40',    epic:'IX.D.CAC.DAILY.IP',     price:'—',change:'—',pos:true,icon:'🇫🇷'},
+    {name:'Tokyo First Section',epic:'IX.D.NIKKEI.DAILY.IP',  price:'—',change:'—',pos:true,icon:'🇯🇵'},
+    {name:'Nasdaq',    epic:'IX.D.NASDAQ.CASH.IP',   price:'—',change:'—',pos:true,icon:'💻'},
+  ]
 };
 
-// Maps trading epic -> DB stored epic (candles stored under old MINI epics)
-const DB_EPIC_MAP = {
-  // Instruments now stored under Yahoo epics after IG candle cleanup
-  // Directional engine uses IG epic from EPIC_MAP, but DB has Yahoo epic
-  'CS.D.COPPER.TODAY.IP': 'YAHOO:HG=F',   // Copper — Yahoo USD/lb
-  'CS.D.USCSI.TODAY.IP':  'YAHOO:SI=F',   // Silver — Yahoo USD/oz
-  'CC.D.LCO.USS.IP':      'YAHOO:BZ=F',   // Brent Oil — Yahoo USD/bbl
-};
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+let _lastLogin=0, _loginAttempts=0;
+async function doLogin(){
+  const now=Date.now();
+  if(now-_lastLogin<30000&&_loginAttempts>0){showLoginError('Please wait '+Math.round((30000-(now-_lastLogin))/1000)+'s');return;}
+  _lastLogin=now;_loginAttempts++;
+  const user=document.getElementById('login-user').value.trim();
+  const pass=document.getElementById('login-pass').value;
+  S.env=document.getElementById('login-env').value;
+  if(!user||!pass)return;
+  try{
+    const res=await fetch('/ig/session',{method:'POST',headers:{'Content-Type':'application/json','Version':'2'},body:JSON.stringify({identifier:user,password:pass})});
+    const cst=res.headers.get('CST');
+    console.log('Login response — status:',res.status,'CST:',cst);
+    if(res.ok&&cst){
+      S.cst=cst;S.xst=res.headers.get('X-SECURITY-TOKEN');S.connected=true;
+      S.igUser=user;S.igPass=pass;
+      sessionStorage.removeItem('ig_historical_blocked');
+      sessionStorage.removeItem('ig_blocked_time');
+      S.historicalBlocked=false;
+      const data=await res.json();
+      const sb=data.accounts&&data.accounts.find(a=>a.accountType==='SPREADBET');
+      S.accountId=sb?sb.accountId:(data.accountId||'CRTHL');
+      S.lsEndpoint=data.lightstreamerEndpoint||'https://apd.marketdatasystems.com';
+      _loginAttempts=0;
+      showApp();
+      setTimeout(()=>loadFromIG(),1500);
+    }else{showLoginError('Login failed — check credentials');}
+  }catch(e){showLoginError('Error: '+e.message);}
+}
+function showLoginError(msg){const el=document.getElementById('login-error');el.textContent=msg||'Login failed';el.style.display='block';}
+function showApp(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('conn-label').textContent=S.connected?'Connected — '+(S.env==='live'?'Live':'Demo'):'Not connected';
+  renderWatchlist();startPriceTicker();
+}
+function doLogout(){S.cst=null;S.connected=false;document.getElementById('app').style.display='none';document.getElementById('login-screen').style.display='flex';}
 
-// TODAY FX contracts are priced in pips*10000 not decimal
-// ATR from DB candles is in decimal (e.g. 0.0055) — multiply by 10000 for stop points
-const CONTRACT_PRICE_SCALE = {
-  'CS.D.GBPUSD.TODAY.IP': 10000,
-  'CS.D.EURUSD.TODAY.IP': 10000,
-  'CS.D.USDJPY.TODAY.IP': 100,
-  'CS.D.EURGBP.TODAY.IP': 10000,
-  // Yahoo commodities stored in different units to IG — scale for stop sizing
-  // Yahoo Copper ~6.5 USD/lb, IG ~13700 pence/lb → ratio ~2108
-  // Yahoo Silver ~75 USD/oz, IG ~2500 pence/oz → ratio ~33
-  // Yahoo Brent ~95 USD/bbl, IG ~9500 pence/bbl → ratio ~100
-  'CS.D.COPPER.TODAY.IP': 2108,
-  'CS.D.USCSI.TODAY.IP':  33,
-  'CC.D.LCO.USS.IP':      100,
-};
-
-const EPIC_MAP = {
-  'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP',
-  'DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP',
-  'Brent Oil':'CC.D.LCO.USS.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP',
-  'EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP',
-  'CAC 40':'IX.D.CAC.DAILY.IP',
-  'Tokyo First Section':'IX.D.TPXC.DAILY.IP',
-  'Nasdaq':'IX.D.NASDAQ.CASH.IP',
-  'Gold':'CS.D.USCGC.TODAY.IP',
-  'Silver':'CS.D.USCSI.TODAY.IP',
-  'Copper':'CS.D.COPPER.TODAY.IP',
-  'EUR/GBP':'CS.D.EURGBP.TODAY.IP',
-};
-
-const CORRELATION_GROUPS = {
-  'IX.D.FTSE.DAILY.IP':'indices','IX.D.SPTRD.DAILY.IP':'indices',
-  'IX.D.DAX.DAILY.IP':'indices','IX.D.DOW.DAILY.IP':'indices',
-  'IX.D.CAC.DAILY.IP':'indices',
-  'IX.D.NIKKEI.DAILY.IP':'indices',       // Tokyo First Section / Japan 225
-  'IX.D.NASDAQ.CASH.IP':'indices',
-  'IX.D.ASX.DAILY.IP':'indices',        // Australia 200
-  'CC.D.LCO.USS.IP':'commodities',
-  'CS.D.USCRUDE.TODAY.IP':'commodities', // WTI Oil
-  'CS.D.USCSI.TODAY.IP':'commodities',
-  'CS.D.COPPER.TODAY.IP':'commodities',
-  'CS.D.EURGBP.TODAY.IP':'fx',
-  'CS.D.USCGC.TODAY.IP':'commodities',
-  'CS.D.GBPUSD.TODAY.IP':'fx','CS.D.EURUSD.TODAY.IP':'fx','CS.D.USDJPY.TODAY.IP':'fx',
-  'CS.D.USDCAD.TODAY.IP':'fx',           // USD/CAD
-};
-
-// Pairs trading definitions — FX and indices only (live prices available)
-const PAIRS_DEFINITIONS = [
-  // Backtest: 92.3% WR, PF 13.0, +0.68% exp at 1.75σ entry — OPTIMAL
-  { id:'gbpusd_eurusd', instrA:'GBP/USD', instrB:'EUR/USD',
-    epicA:'CS.D.GBPUSD.TODAY.IP', epicB:'CS.D.EURUSD.TODAY.IP',
-    minDays:60, lookbackDays:60, entryZ:1.75, exitZ:0.25, stopZ:3.5,
-    description:'GBP/USD vs EUR/USD — dollar pairs, 92.3% WR at 1.75σ' },
-  // Backtest: 60% WR, PF 1.68, +2.02% exp — grid search optimal 1.75σ/1.0σ
-  // stopZ 2.5: tighter stop on volatile Brent/Gold ratio — PF drops significantly at 3.0σ
-  { id:'brent_gold', instrA:'Brent Oil', instrB:'Gold',
-    epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    yahooSymbolA:'BZ=F', yahooSymbolB:'GC=F',
-    minDays:60, lookbackDays:60, entryZ:1.75, exitZ:1.0, stopZ:2.5,
-    // IG Brent ~9,500 pence/bbl vs Yahoo ~95 USD/bbl → scale = 95/9500 ≈ 0.01
-    // IG Gold ~3,300 USD/oz vs Yahoo Gold (IG) ~3,300 USD/oz → 1:1
-    liveToDbScaleA: 0.01,
-    liveToDbScaleB: 1.0,
-    description:'Brent vs Gold — hold until 1σ reversion, exit early loses edge' },
-  // Backtest: 75% WR, +1.03% exp at 2.5σ — re-enabled at extreme entry only
-  // stopZ 3.5: wider stop on slow-moving EUR triangular — 3.0σ stops out trades that revert
-  { id:'eurusd_eurgbp', instrA:'EUR/USD', instrB:'EUR/GBP',
-    epicA:'CS.D.EURUSD.TODAY.IP', epicB:'CS.D.EURGBP.TODAY.IP',
-    minDays:60, lookbackDays:60, entryZ:2.5, exitZ:1.0, stopZ:3.5,
-    description:'EUR triangular relationship — only trade extreme 2.5σ dislocations' },
-  // ── GRID SEARCH DEPLOY TIER — added 27/05/2026 ────────────────────────────
-  // Grid search: score 26.79 | 81.8% WR | 0.81% exp | 11 trades over 500d
-  // lookbackDays 60: confirmed optimal in lookback sweep (score 26.79 vs 6.54 at 90d)
-  { id:'dow_sp500', instrA:'Dow Jones', instrB:'S&P 500',
-    epicA:'IX.D.DOW.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:60, lookbackDays:60, entryZ:2.25, exitZ:0.75, stopZ:3.0,
-    description:'Dow vs S&P 500 — US mega-cap divergence, 81.8% WR at 2.25σ ⭐' },
-  // Clean data backtest 02/06/2026: score 58.21 | 77.8% WR | 3.34% exp | 18 trades
-  // Updated from 2.0σ/0.25σ/90d → 1.75σ/0.25σ/45d on clean Yahoo data
-  { id:'copper_gold', instrA:'Copper', instrB:'Gold',
-    epicA:'CS.D.COPPER.TODAY.IP', epicB:'CS.D.USCGC.TODAY.IP',
-    yahooSymbolA:'HG=F', yahooSymbolB:'GC=F',
-    minDays:45, lookbackDays:45, entryZ:1.75, exitZ:0.25, stopZ:3.0,
-    dbPriceScaleA: 1.0,
-    dbPriceScaleB: 0.073,
-    liveToDbScaleA: 0.000474,
-    liveToDbScaleB: 1.0,
-    description:'Copper vs Gold — industrial vs safe-haven, 77.8% WR, 3.34% exp ⭐' },
-  // Clean data backtest 02/06/2026: score 72.68 | 86.7% WR | 3.56% exp | 15 trades
-  // Silver tracks Copper industrially but also has safe-haven properties like Gold
-  { id:'silver_copper', instrA:'Silver', instrB:'Copper',
-    epicA:'CS.D.USCSI.TODAY.IP', epicB:'CS.D.COPPER.TODAY.IP',
-    yahooSymbolA:'SI=F', yahooSymbolB:'HG=F',
-    minDays:60, lookbackDays:60, entryZ:1.5, exitZ:0.75, stopZ:3.0,
-    // Both stored in Yahoo USD/oz and USD/lb respectively — cross-commodity ratio
-    // IG Silver ~2500 pence/oz vs Yahoo ~75 USD/oz → scale = 75/2500 ≈ 0.030
-    // IG Copper ~13700 pence/lb vs Yahoo ~6.5 USD/lb → scale = 0.000474
-    liveToDbScaleA: 0.030,
-    liveToDbScaleB: 0.000474,
-    description:'Silver vs Copper — precious/industrial ratio, 86.7% WR, 3.56% exp ⭐' },
-  // Clean data backtest 02/06/2026: score 46.02 | 70% WR | 5.25% exp | 10 trades
-  // Paper trade only — thin sample, highest expectancy of any commodity pair
-  // { id:'brent_copper', instrA:'Brent Oil', instrB:'Copper',
-  //   epicA:'CC.D.LCO.USS.IP', epicB:'CS.D.COPPER.TODAY.IP',
-  //   minDays:90, lookbackDays:90, entryZ:2.0, exitZ:0.75, stopZ:3.0,
-  //   liveToDbScaleA: 0.01, liveToDbScaleB: 0.000474,
-  //   description:'Brent vs Copper — energy/industrial ratio, 70% WR, 5.25% exp (paper)' },
-  // Grid search: score 17.10 | 70.6% WR | 1.44% exp | 17 trades over 500d
-  // lookbackDays 60: confirmed optimal in lookback sweep (score 17.1 vs 1.27 at 90d)
-  { id:'ftse_sp500', instrA:'FTSE 100', instrB:'S&P 500',
-    epicA:'IX.D.FTSE.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:60, lookbackDays:60, entryZ:2.0, exitZ:1.0, stopZ:3.0,
-    description:'FTSE vs S&P 500 — UK/US equity divergence, 70.6% WR at 2σ ⭐' },
-  // ── UNIVERSE SEARCH DEPLOY TIER — added 27/05/2026 ───────────────────────
-  // Universe search originally: Japan 225/S&P 500 score 107.3 | 82.8% WR | 2.71% exp | 29 trades
-  // Switched to TOPIX (Tokyo First Section) — same relationship, 16× smaller price = workable sizing
-  // TOPIX backtest: 85.2% WR | 2.33% exp | 27 trades | PF 6.08 — comparable to Nikkei
-  // DB price: Yahoo ^N300 TOPIX ~828pts, IG Nikkei ~65,000pts → scale ~78.5×
-  // S&P 500: Yahoo/IG ~7,445pts → scale 1.0
-  { id:'nikkei_sp500', instrA:'Tokyo First Section', instrB:'S&P 500',
-    epicA:'IX.D.NIKKEI.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-    minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
-    dbPriceScaleA: 78.5,  // TOPIX Yahoo ~828 → IG Nikkei ~65000
-    dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
-    description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR ⭐' },
-  // Universe search: score 23.57 | 84.8% WR | 1.12% exp | 33 trades over 500d
-  // Highest trade count (33) = most statistically reliable result in entire search
-  // ASX time-zone gap creates frequent short-lived divergences from US session
-  // DB price: Yahoo ^AXJO ASX ~8729pts, IG ASX ~8729pts → scale 1.0
-  // ASX/S&P 500 — disabled auto-execution: IX.D.ASX.DAILY.IP rejected by IG API
-  // Keep as paper trade — manual entry only
-  // { id:'asx_sp500', instrA:'Australia 200', instrB:'S&P 500',
-  //   epicA:'IX.D.ASX.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
-  //   minDays:45, lookbackDays:45, entryZ:1.5, exitZ:0.5, stopZ:3.0,
-  //   dbPriceScaleA: 1.0, dbPriceScaleB: 1.0,
-  //   description:'ASX vs S&P 500 — time-zone gap divergences, 84.8% WR, 33 trades ⭐' },
-  // Universe search: score 57.2 | 86.7% WR | 2.73% exp | 15 trades over 500d
-  // Strong cross-asset pair — CAD is a petrocurrency, USD/CAD moves inversely with oil
-  // DB prices: USD/CAD from Yahoo (USDCAD=X), WTI from Yahoo (CL=F) — commodity pair
-  { id:'usdcad_wti', instrA:'USD/CAD', instrB:'WTI Oil',
-    epicA:'CS.D.USDCAD.TODAY.IP', epicB:'CS.D.USCRUDE.TODAY.IP',
-    minDays:90, lookbackDays:90, entryZ:1.25, exitZ:0.75, stopZ:3.0,
-    dbPriceScaleB: 0.787, // WTI Yahoo ~$88/bbl → ×0.787 ≈ 69 GBP/bbl (approx at 1.27 FX)
-    description:'USD/CAD vs WTI — petrocurrency relationship, 86.7% WR ⭐' },
-  // FTSE/DAX: 27.3% WR — permanently disabled
-];
-
-const TRADING_HOURS = {
-  indices:{open:7,close:21},    // Extended to 9pm UTC (10pm BST) — covers US session
-  us_indices:{open:13,close:21}, // US markets only: 2:30pm-9pm BST
-  nikkei:{open:0,close:6},
-  commodities:{open:1,close:23},
-  fx:{open:0,close:24},
-};
-
-const PREFERRED_WINDOWS = [{open:8,close:10},{open:13,close:15}];
-
-const DEFAULT_CONFIG = {
-  dailyProfitLock:3.0,dailyLossLimit:1.0,maxDrawdownPct:5.0, // profit lock raised to 3% to accommodate pairs trades
-  maxPositions:3,defaultSize:1,maxSizePerTrade:5,maxPortfolioHeat:300,
-  requireAIConfirm:true,aiConfidenceMin:60,enabled:true,
-  trailingStopPct:1.5,signalThreshold:2,useNewsFilter:true,
-  usePreferredWindow:false,useKellyCriterion:true,winRateLookback:20,
-  eodClose:true,eodCloseTime:{h:21,m:0},
-  // Pairs trading config
-  pairsEnabled:true,
-  pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
-  pairsZStop:3.5,       // Z-score stop loss level
-  pairsZTarget:0.5,     // Z-score target (close when reverts to this)
-  pairsMaxSlots:2,      // Max simultaneous pairs trades — separate from directional slots
-  pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
-  // Note: pairs risk is split across two legs so effective single-leg risk is 2%
-  // At 4% with £526 balance = £21 risk per pairs trade
-  // Trailing profit stop
-  pairsTrailActivationPct: 2.0,  // activate when UPL >= 2% of account balance
-  pairsTrailRetreatPct:   25.0,  // close if UPL retreats 25% from peak (e.g. £20 peak → close at £15)
-  pairsDominantLegRatio:   3.0,  // leg is dominant if size > other leg * this ratio → use IG trailing stop
-};
-
-const priceCache = {};
-const CACHE_TTL = 20*60*1000;
-const MAX_CANDLES_IG = 10;
-
-// ── HELPER FUNCTIONS ──────────────────────────────────────────────────────────
-async function saveToDb(type, data) {
-  try {
-    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    const r = await fetch(`${base}/api/db`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, data })
+// ─── IG API ───────────────────────────────────────────────────────────────────
+async function igFetch(path,opts={}){
+  const headers={'Content-Type':'application/json','CST':S.cst||'','X-SECURITY-TOKEN':S.xst||'','Version':'1',...(opts.headers||{})};
+  const res=await fetch('/ig/'+path,{...opts,headers});
+  const nc=res.headers.get('CST');const nx=res.headers.get('X-SECURITY-TOKEN');
+  if(nc)S.cst=nc;if(nx)S.xst=nx;
+  if(res.status===403&&S.igUser&&!opts._retry){const r=await refreshSession();if(r)return igFetch(path,{...opts,_retry:true});}
+  return res;
+}
+let _lastRefresh=0;
+async function refreshSession(){
+  if(Date.now()-_lastRefresh<30000)return false;_lastRefresh=Date.now();
+  try{const res=await fetch('/ig/session',{method:'POST',headers:{'Content-Type':'application/json','Version':'2'},body:JSON.stringify({identifier:S.igUser,password:S.igPass})});
+  const cst=res.headers.get('CST');if(res.ok&&cst){S.cst=cst;S.xst=res.headers.get('X-SECURITY-TOKEN');addLog('system','Session refreshed');return true;}}catch(e){}return false;
+}
+async function loadFromIG(){
+  addLog('system','Loading account data from IG...');
+  await loadAccount();await new Promise(r=>setTimeout(r,400));
+  await loadPositions();await new Promise(r=>setTimeout(r,400));
+  startLightstreamer();
+  setTimeout(async()=>{try{await renderPnLChart();}catch(e){}},2000);
+}
+async function loadAccount(){
+  try{
+    const res=await igFetch('accounts');if(!res.ok)return;
+    const data=await res.json();if(!data.accounts)return;
+    const a=data.accounts.find(x=>x.accountType==='SPREADBET')||data.accounts[0];
+    S.accountData=a;
+    const bal=a.balance.balance,pl=a.balance.profitLoss,avail=a.balance.available;
+    const plPct=bal>0?(pl/bal*100):0;const isPos=pl>=0;
+    setText('m-balance','£'+Number(bal).toLocaleString('en-GB',{minimumFractionDigits:2}));
+    setText('m-available','Available: £'+Number(avail).toLocaleString('en-GB',{minimumFractionDigits:2}));
+    setValCol('m-pnl',(isPos?'+':'')+'£'+Number(pl).toFixed(2),isPos);
+    setText('m-pnl-pct',(isPos?'+':'')+plPct.toFixed(2)+'% today');
+    setText('header-balance','£'+Number(bal).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}));
+    setValCol('header-pl',(isPos?'+':'')+'£'+Number(pl).toFixed(2),isPos);
+    setValCol('at-daily-pl',(isPos?'+':'')+'£'+Number(pl).toFixed(2),isPos);
+    setValCol('at-daily-pct',(isPos?'+':'')+plPct.toFixed(2)+'%',isPos);
+    updateDailyPLDisplay();
+    addLog('system','Account: £'+bal+' P&L: £'+pl);
+  }catch(e){addLog('system','Account error: '+e.message);}
+}
+async function loadPositions(){
+  try{
+    const res=await igFetch('positions');if(!res.ok)return;
+    const data=await res.json();
+    S.positions=(data.positions||[]).map((p,i)=>{
+      const open=p.position.openLevel,size=p.position.dealSize||p.position.size||1,dir=p.position.direction;
+      const cur=p.market.bid||open;
+      const upl=dir==='BUY'?(cur-open)*size:(open-cur)*size;
+      const notional=size*open;
+      return{id:i+1,dealId:p.position.dealId,name:p.market.instrumentName,epic:p.market.epic,
+        dir:dir==='BUY'?'Long':'Short',size,open,current:cur,upl,
+        pl:(upl>=0?'+':'')+'£'+upl.toFixed(2),
+        plPct:(upl>=0?'+':'')+(notional?(upl/notional*100).toFixed(2):'0.00')+'%'};
     });
-    if(!r.ok){
-      const txt = await r.text().catch(()=>'');
-      console.error(`[saveToDb] ${type} failed ${r.status}: ${txt.substring(0,200)}`);
-    }
-  } catch(e) { console.error('[saveToDb]', type, e.message); }
+    setText('m-positions',S.positions.length.toString());
+    renderPositions();
+    addLog('system',S.positions.length+' positions loaded');
+  }catch(e){addLog('system','Positions error: '+e.message);}
 }
 
-async function sendNotify(type, subject, body) {
-  try {
-    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    await fetch(`${base}/api/notify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, subject, body })
-    });
-  } catch(e) { console.log('[sendNotify]', e.message); }
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function setText(id,t){const el=document.getElementById(id);if(el)el.textContent=t;}
+function setValCol(id,t,isPos){const el=document.getElementById(id);if(!el)return;el.textContent=t;el.className='value '+(isPos?'pos':'neg');}
+
+function renderPositions(){
+  const el=document.getElementById('positions-list');if(!el)return;
+  if(!S.positions.length){el.innerHTML='<div class="empty">No open positions</div>';return;}
+  el.innerHTML=S.positions.map(p=>`<div class="position-card">
+    <div><div style="font-weight:600;font-size:14px">${p.name}</div><div style="font-size:12px;color:var(--text2)">${p.dir} · Open: ${p.open} · Current: ${p.current}</div></div>
+    <div style="text-align:right"><div style="font-weight:700;font-family:var(--font-mono);color:${p.upl>=0?'var(--green)':'var(--red)'}">${p.pl}</div><div style="font-size:12px;color:${p.upl>=0?'var(--green)':'var(--red)'};">${p.plPct}</div></div>
+    <button class="btn btn-sm btn-danger" style="margin-left:10px" onclick="closePos(${p.id})">Close</button>
+  </div>`).join('');
 }
 
-async function closeAll(igBase, igH, skipPairs = true) {
-  try {
-    const pr = await fetch(`${igBase}/positions`, { headers: { ...igH, 'Version': '1' } });
-    const pd = await pr.json();
-    const positions = pd.positions || [];
-
-    // Only close engine-opened positions — skip manual trades
-    let engineDealIds = new Set();
-    let pairsDealIds = new Set();
-    let pairsEpics = new Set();
-    try {
-      const {sql: caSql} = require('@vercel/postgres');
-      const [dirRows, pairRows] = await Promise.all([
-        caSql`SELECT deal_id FROM trades WHERE status='open'`.catch(()=>({rows:[]})),
-        caSql`SELECT deal_id_a, deal_id_b, epic_a, epic_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
-      ]);
-      dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
-      pairRows.rows.forEach(r => {
-        if(r.deal_id_a) { engineDealIds.add(r.deal_id_a); pairsDealIds.add(r.deal_id_a); }
-        if(r.deal_id_b) { engineDealIds.add(r.deal_id_b); pairsDealIds.add(r.deal_id_b); }
-        // Also track by epic for when deal IDs are null
-        if(r.epic_a) pairsEpics.add(r.epic_a);
-        if(r.epic_b) pairsEpics.add(r.epic_b);
-      });
-    } catch(e) { console.log('[closeAll] DB filter error:', e.message); }
-
-    let closed = 0;
-    const closedDealIds = [];
-    for (const p of positions) {
-      try {
-        const dealId = p.position.dealId;
-        const epic = p.market.epic;
-
-        // Skip manual positions not tracked by engine
-        if (engineDealIds.size > 0 && !engineDealIds.has(dealId)) {
-          console.log('[closeAll] Skipping manual position:', p.market.instrumentName);
-          continue;
-        }
-
-        // Skip pairs legs — they manage their own close via Z-score logic
-        // Match by deal ID first, then by epic as fallback when deal IDs are null
-        if (skipPairs && (pairsDealIds.has(dealId) || pairsEpics.has(epic))) {
-          console.log('[closeAll] Skipping pairs leg:', p.market.instrumentName);
-          continue;
-        }
-
-        const dir = p.position.direction === 'BUY' ? 'SELL' : 'BUY';
-        const size = p.position.dealSize || p.position.size;
-        const ob = { epic, direction: dir, size, orderType: 'MARKET', expiry: 'DFB',
-          guaranteedStop: false, forceOpen: false, currencyCode: 'GBP', dealType: 'SPREADBET' };
-        const r = await fetch(`${igBase}/positions/otc`, {
-          method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(ob)
-        });
-        const d = await r.json();
-        if (d.dealReference) { closed++; closedDealIds.push(dealId); }
-      } catch(e) { console.log('[closeAll]', e.message); }
-    }
-    // Mark any directional pairs_trades containing closed deal IDs as closed
-    if(closedDealIds.length > 0) {
-      try {
-        const {sql: caSql} = require('@vercel/postgres');
-        await caSql`UPDATE trades SET status='closed', close_reason='daily_loss', closed_at=NOW()
-          WHERE deal_id = ANY(${closedDealIds}) AND status='open'`;
-      } catch(e) { console.log('[closeAll] trades update error:', e.message); }
-    }
-    return closed;
-  } catch(e) { return 0; }
+function renderWatchlist(){
+  const el=document.getElementById('watchlist-grid');if(!el)return;
+  el.innerHTML=S.markets.map(m=>`<div class="watch-item" onclick="selectChartInstrument('${m.name}','${m.epic}',null)">
+    <div class="w-name">${m.icon} ${m.name}</div>
+    <div class="w-price" id="ws-price-${m.epic.replace(/\./g,'-')}">${m.price}</div>
+    <div class="w-chg ${m.pos?'up':'dn'}" id="ws-chg-${m.epic.replace(/\./g,'-')}">${m.change}</div>
+  </div>`).join('');
+  const lb=document.getElementById('live-bar');
+  if(lb){lb.style.display='flex';lb.innerHTML=S.markets.slice(0,6).map(m=>`<div class="live-item"><span class="name">${m.name}</span><span class="price" id="lb-price-${m.epic.replace(/\./g,'-')}">${m.price}</span><span class="chg ${m.pos?'up':'dn'}" id="lb-chg-${m.epic.replace(/\./g,'-')}">${m.change}</span></div>`).join('');}
 }
 
-function getNewsAdj(instr, sentiment) {
-  if (!sentiment) return 0;
-  const s = sentiment.toLowerCase();
-  const positive = ['strong', 'rally', 'surge', 'gain', 'rise', 'bullish', 'optimism', 'growth'];
-  const negative = ['weak', 'fall', 'drop', 'decline', 'bearish', 'concern', 'risk', 'tension', 'inflation'];
-  let score = 0;
-  positive.forEach(w => { if (s.includes(w)) score++; });
-  negative.forEach(w => { if (s.includes(w)) score--; });
-  return Math.max(-2, Math.min(2, Math.round(score / 2)));
+function renderOrders(){
+  const el=document.getElementById('orders-body');if(!el)return;
+  if(!S.orders.length){el.innerHTML='<tr><td colspan="6" class="empty">No orders yet</td></tr>';return;}
+  el.innerHTML=S.orders.slice(0,20).map(o=>`<tr><td style="color:var(--text2);font-size:12px">${o.time}</td><td style="font-weight:500">${o.instr}</td><td><span class="badge ${o.dir==='Buy'?'badge-buy':'badge-sell'}">${o.dir}</span></td><td style="font-family:var(--font-mono)">${o.size}</td><td style="font-family:var(--font-mono)">${o.price}</td><td><span class="badge badge-neutral">${o.status}</span></td></tr>`).join('');
 }
 
-async function getIGSentiment(epic, igBase, igH, L, base, instrName) {
-  const ids = {
-    'IX.D.FTSE.DAILY.IP': 'FTSE', 'IX.D.SPTRD.DAILY.IP': 'SPTRD',
-    'IX.D.DAX.DAILY.IP': 'DAX', 'IX.D.DOW.DAILY.IP': 'DOW',
-    'CC.D.LCO.USS.IP': 'LCO', 'CS.D.GBPUSD.TODAY.IP': 'GBPUSD',
-    'CS.D.EURUSD.TODAY.IP': 'EURUSD', 'CS.D.USDJPY.TODAY.IP': 'USDJPY',
-    'CS.D.USCGC.TODAY.IP': 'GOLD', 'CS.D.USCSI.TODAY.IP': 'SILVER',
-    'CS.D.COPPER.TODAY.IP': 'COPPER', 'CS.D.EURGBP.TODAY.IP': 'EURGBP',
-  };
-  const id = ids[epic]; if (!id) return 0;
-  try {
-    const r = await fetch(`${igBase}/clientsentiment/${id}`, { headers: { ...igH, 'Version': '1' } });
-    if (!r.ok) return 0;
-    const d = await r.json();
-    if (!d || (!d.clientSentimentList && !d.longPositionPercentage)) return 0;
-    const sentiment = d.clientSentimentList?.[0] || d;
-    const lp = sentiment.longPositionPercentage || d.longPositionPercentage || 50;
-    const sp = sentiment.shortPositionPercentage || d.shortPositionPercentage || (100 - lp);
-    // Save sentiment history to DB
-    if (base && instrName) {
-      fetch(`${base}/api/db`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'sentiment', data: { instrument: instrName, epic, longPct: lp, shortPct: sp } })
-      }).catch(() => {});
-    }
-    if (lp > 70) { L(`${id}: ${lp}% long — contrarian SELL`); return -2; }
-    if (lp > 60) { L(`${id}: ${lp}% long — mild contrarian SELL`); return -1; }
-    if (lp < 30) { L(`${id}: ${lp}% long — contrarian BUY`); return 2; }
-    if (lp < 40) { L(`${id}: ${lp}% long — mild contrarian BUY`); return 1; }
-    return 0;
-  } catch(e) { return 0; }
+function renderLog(){
+  const el=document.getElementById('activity-log');if(!el)return;
+  const filter=document.getElementById('log-filter')?.value||'all';
+  const items=filter==='all'?S.log:S.log.filter(e=>e.type===filter);
+  if(!items.length){el.innerHTML='<div class="empty">No entries</div>';return;}
+  el.innerHTML=items.slice().reverse().slice(0,100).map(e=>`<div class="log-entry"><span class="log-time">${e.time}</span><span class="log-msg" style="color:${e.type==='error'?'var(--red)':e.type==='order'?'var(--blue)':'var(--text2)'}">${e.msg}</span></div>`).join('');
 }
 
-
-async function aiConfirm(sig, cfg, plPct, openCount, winRate, L) {
-  L(`AI: ${sig.instr} ${sig.direction} (${sig.regime})...`);
-  // Determine trade strategy type
-  const isTrendPullback = sig.trendPullback && sig.trendPullback.signal > 0;
-  const isBreakout = sig.breakoutSignal && sig.breakoutSignal.signal > 0;
-
-  const regimeContext = isTrendPullback
-  ? `TREND PULLBACK trade: ${sig.trendPullback.reason}.
-STRATEGY: Trading WITH the ${sig.regime} — entering on a healthy pullback/bounce, NOT fading the trend.
-APPROVAL RULE: APPROVE if (1) score ≥2, AND (2) MACD confirms trend direction, AND (3) RSI is in pullback zone (38-58 for uptrend BUY, 42-62 for downtrend SELL).
-This is a multi-day trade — do not reject because momentum seems moderate. Pullbacks in trends have good expectancy.`
-  : isBreakout
-  ? `BREAKOUT trade: ${sig.breakoutSignal.reason}.
-STRATEGY: Price has broken out of a 20-candle consolidation range with momentum confirmation.
-APPROVAL RULE: APPROVE if (1) score ≥2, AND (2) RSI confirms direction (>52 for BUY, <48 for SELL), AND (3) the breakout level is meaningful (not noise).
-This is a multi-day trade — breakouts can run significantly if genuine.`
-  : sig.meanReversion && sig.tdRsi
-  ? `MEAN REVERSION trade in ranging market.
-PRIMARY SIGNAL: TD Hourly RSI ${sig.tdRsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought':'oversold'} — this IS the entry trigger.
-Daily RSI: ${sig.rsi.toFixed(1)} (context only — hourly RSI extreme is the signal).
-APPROVAL RULE: APPROVE if (1) the triggering RSI is ≤33 (oversold BUY) or ≥67 (overbought SELL), AND (2) score ≥2, AND (3) momentum does not STRONGLY contradict (i.e. momentum < +2% for SELL or > -2% for BUY).
-The RSI extreme justifies the trade. Daily RSI being neutral is acceptable — the hourly extreme is the mean reversion trigger on a shorter timeframe.`
-  : sig.meanReversion
-  ? `MEAN REVERSION trade: Daily RSI ${sig.rsi.toFixed(1)} is ${sig.direction==='SELL'?'overbought (≥67)':'oversold (≤33)'} in ranging market — fading the RSI extreme. RSI ≥67 or ≤33 in a ranging regime IS the primary signal. APPROVE if score ≥2 and momentum does not strongly contradict.`
-  : sig.regime==='ranging'
-  ? `RANGING regime (non-mean-reversion): Only approve if score ≥6 AND RSI is extended (≥65 or ≤35) AND momentum confirms direction. Calendar surprise scores alone do not justify a trade without RSI confirmation. Reject neutral RSI trades.`
-  : `TRENDING regime (${sig.regime}): Evaluate if direction aligns with trend and if entry timing is good.`;
-
-  const prompt = `Trading risk manager. Approve this spread bet?
-INSTRUMENT:${sig.instr} DIRECTION:${sig.direction} REGIME:${sig.regime}${sig.meanReversion?' [MEAN REVERSION]':''}
-${sig.tdRsi?`TRIGGER: TD Hourly RSI ${sig.tdRsi.toFixed(1)} — THIS IS THE ENTRY SIGNAL (not the daily RSI)
-Daily RSI: ${sig.rsi.toFixed(1)} (context only)`:`RSI (daily): ${sig.rsi.toFixed(1)}`}
-SCORE:${sig.score} (raw:${sig.rawScore} news:${sig.newsAdj} sentiment:${sig.sentAdj} td:${sig.tdAdj||0})
-TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.macd.toFixed(4)} MOM:${sig.momentum.toFixed(2)}% BB:${sig.bbPos}
-${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence.type.toUpperCase()} — ${sig.divergence.description} (strength:${sig.divergence.strength}/3)`:''}
-ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
-WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
-Reasons: ${sig.reasons.join(', ')}
-${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal.replace('_',' ')} vs ${sig.pairsCtx.partner} (Z-score: ${sig.pairsCtx.zscore.toFixed(2)}, ${sig.pairsCtx.n} days data)
-${sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this BUY — instrument cheap vs partner' :
-  sig.pairsCtx.signal === 'expensive' && sig.direction === 'SELL' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this SELL — instrument expensive vs partner' :
-  sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY' ? '⚠️ CONTRADICTION: Pairs signal OPPOSES this BUY — instrument already expensive vs partner' :
-  sig.pairsCtx.signal === 'cheap' && sig.direction === 'SELL' ? '⚠️ CONTRADICTION: Pairs signal OPPOSES this SELL — instrument already cheap vs partner' :
-  'Pairs signal neutral — no confluence or contradiction'}` : 'PAIRS CONTEXT: No pairs data for this instrument'}
-CONTEXT: ${regimeContext}
-Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
-
-  const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-  const r = await fetch(`${base}/api/claude`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150,
-      messages: [{ role: 'user', content: prompt }] }),
-  });
-  if(!r.ok){ throw new Error(`Claude API ${r.status}`); }
-  const data = await r.json();
-  if(data.error){ throw new Error(`Claude error: ${data.error.message||JSON.stringify(data.error)}`); }
-  const text = data.content?.[0]?.text || '{"approved":false,"confidence":0,"reasoning":"No response"}';
-  const result = JSON.parse(text.replace(/```json|```/g,'').trim());
-  const icon = result.approved ? '✅' : '❌';
-  L(`AI:${icon}(${result.confidence}%) ${result.reasoning}`);
-  return { approved: result.approved, confidence: result.confidence, reasoning: result.reasoning };
-}
-
-
-async function fetchNews(L) {
-  try {
-    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    // Use Finnhub calendar endpoint for news — no TD credits consumed
-    const today = new Date().toISOString().split('T')[0];
-    const r = await fetch(`${base}/api/indicators?action=recent&date=${today}`, { timeout: 5000 });
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (d.summary) return d.summary;
-    // Fallback: summarise recent events as sentiment string
-    const events = d.events || [];
-    if (!events.length) return null;
-    const pos = events.filter(e => (e.actual||0) > (e.forecast||0)).length;
-    const neg = events.filter(e => (e.actual||0) < (e.forecast||0)).length;
-    if (pos > neg) return 'Positive economic data beats supporting risk-on sentiment.';
-    if (neg > pos) return 'Negative economic data misses weighing on risk sentiment.';
-    return 'Mixed economic data with no clear directional bias.';
-  } catch(e) { L('News fetch failed: ' + e.message); return null; }
-}
-
-async function managePositions(openPos, igBase, igH, cfg, balance, L) {
-  const {sql: mgSql} = require('@vercel/postgres');
-  const dealIds = openPos.map(p => p.position.dealId).filter(Boolean);
-
-  // Build set of deal IDs that belong to open pairs trades — these are NEVER partially closed.
-  // Partial closing one leg destroys the hedge and leaves a naked position on the other leg.
-  // Pairs legs are held in full until the Z-score hits the exit threshold, then closed together.
-  let pairsDealIds = new Set();
-  try {
-    if (dealIds.length > 0) {
-      const pairRows = await mgSql`
-        SELECT deal_id_a, deal_id_b FROM pairs_trades
-        WHERE deal_id_a = ANY(${dealIds}) OR deal_id_b = ANY(${dealIds})`;
-      pairRows.rows.forEach(r => {
-        if(r.deal_id_a) pairsDealIds.add(r.deal_id_a);
-        if(r.deal_id_b) pairsDealIds.add(r.deal_id_b);
-      });
-    }
-  } catch(e) { L('Pairs deal ID check error: ' + e.message); }
-
-  // Load partial_close flags for directional trades only
-  let partialClosedSet = new Set();
-  try {
-    if (dealIds.length > 0) {
-      const pcRows = await mgSql`
-        SELECT deal_id FROM trades
-        WHERE deal_id = ANY(${dealIds})
-        AND partial_close = true`;
-      pcRows.rows.forEach(r => partialClosedSet.add(r.deal_id));
-    }
-  } catch(e) { L('Partial close DB check error: ' + e.message); }
-
-  for (const p of openPos) {
-    try {
-      const epic = p.market.epic;
-      const dir = p.position.direction;
-      const sz = p.position.dealSize || p.position.size || 1;
-      const openLevel = p.position.openLevel;
-      const current = p.market.bid || openLevel;
-      const upl = dir === 'BUY' ? (current - openLevel) * sz : (openLevel - current) * sz;
-      const dealId = p.position.dealId;
-
-      // Skip partial close entirely for pairs legs — managed by pairs close logic instead
-      if (pairsDealIds.has(dealId)) {
-        if (upl > 0) L(`${p.market.instrumentName}: pairs leg +£${upl.toFixed(2)} — holding for Z-score exit`);
-        continue;
-      }
-
-      // Partial close for directional trades only: if profit >= 3x ATR close 50%
-      // 3x ATR gives the trade room to develop before locking in — 1x was too early
-      const dbEpic = DB_EPIC_MAP[epic] || epic;
-      const closes = await getDbPrices(dbEpic, 20, L) || [];
-      const atr = closes.length >= 5 ? calcATR(closes) : 50;
-      const atrProfit = atr * sz * 3;
-
-      if (upl > 0 && sz >= 0.01) {
-        if (upl >= atrProfit && !partialClosedSet.has(dealId)) {
-          const halfSize = parseFloat((sz / 2).toFixed(2));
-          if (halfSize >= 0.01) {
-            L(`${p.market.instrumentName}: profit ${upl.toFixed(2)} >= 1x ATR ${atrProfit.toFixed(2)} — partial close £${halfSize}/pt`);
-            try {
-              const closeBody = { epic, direction: dir === 'BUY' ? 'SELL' : 'BUY',
-                size: halfSize, orderType: 'MARKET', expiry: 'DFB',
-                guaranteedStop: false, forceOpen: false, currencyCode: 'GBP', dealType: 'SPREADBET' };
-              const cr = await fetch(`${igBase}/positions/otc`, {
-                method: 'POST', headers: { ...igH, 'Version': '1' }, body: JSON.stringify(closeBody)
-              });
-              const cd = await cr.json();
-              if (cd.dealReference) {
-                L(`Partial close confirmed: ${cd.dealReference}`);
-                try {
-                  await mgSql`UPDATE trades SET partial_close = true WHERE deal_id = ${dealId}`;
-                  partialClosedSet.add(dealId);
-                } catch(e) { L('Partial close DB update error: ' + e.message); }
-              }
-            } catch(e) { L('Partial close error: ' + e.message); }
-          }
-        } else if (partialClosedSet.has(dealId)) {
-          L(`${p.market.instrumentName}: partial close already done — holding remainder`);
-        }
-      }
-    } catch(e) { L('Position manage error: ' + e.message); }
-  }
-}
-
-function kellySize(winRate, balance, atr, price, cfg) {
-  const w = Math.max(0.3, Math.min(0.8, winRate));
-  const r = 1.5; // reward:risk ratio
-  const kelly = Math.max(0, w - (1 - w) / r);
-  const quarterKelly = kelly * 0.25;
-  const riskAmt = balance * Math.min(0.02, quarterKelly);
-  const stopPts = Math.max(10, atr * 1.5);
-  return Math.max(0.01, Math.min(parseFloat((riskAmt / stopPts).toFixed(2)), cfg.maxSizePerTrade));
-}
-
-function calcSMA(closes, period) {
-  const n = Math.min(period, closes.length);
-  return closes.slice(-n).reduce((a, b) => a + b, 0) / n;
-}
-
-function isMarketOpen(group) {
-  if (group === 'fx') return true;
-  const h = TRADING_HOURS[group] || { open: 7, close: 21 };
-  const u = new Date().getUTCHours();
-  return u >= h.open && u < h.close;
-}
-
-function isPreferredWindow() {
-  const u = new Date().getUTCHours();
-  return PREFERRED_WINDOWS.some(w => u >= w.open && u < w.close);
-}
-
-async function nearHighImpact(L) {
-  const h = new Date().getUTCHours(), m = new Date().getUTCMinutes();
-  const times = [{h:7,m:0},{h:8,m:30},{h:9,m:0},{h:12,m:30},{h:14,m:0},{h:18,m:0}];
-  for (const t of times) {
-    if (Math.abs((h*60+m) - (t.h*60+t.m)) <= 30) {
-      L(`Calendar: near ${t.h}:${String(t.m).padStart(2,'0')} UTC`);
-      return true;
-    }
-  }
-  return false;
-}
-
-module.exports = async (req,res) => {
-  res.setHeader('Access-Control-Allow-Origin','*');
-  res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers','Content-Type,Authorization');
-  if(req.method==='OPTIONS') return res.status(200).end();
-  try { // Top-level catch to ensure JSON error response always
-
-  const cronSecret=process.env.CRON_SECRET||'';
-  if(req.method==='POST'&&cronSecret){
-    const token=(req.headers['authorization']||'').replace('Bearer ','').trim();
-    const ref=req.headers['referer']||req.headers['origin']||'';
-    const fromDash=ref.includes('vercel.app')||ref.includes('localhost');
-    if(!fromDash&&token!==cronSecret) return res.status(401).json({error:'Unauthorised'});
-  }
-
-  const cfg={...DEFAULT_CONFIG,
-    dailyProfitLock:parseFloat(process.env.DAILY_PROFIT_LOCK||DEFAULT_CONFIG.dailyProfitLock),
-    dailyLossLimit:parseFloat(process.env.DAILY_LOSS_LIMIT||DEFAULT_CONFIG.dailyLossLimit),
-    maxPositions:parseInt(process.env.MAX_POSITIONS||DEFAULT_CONFIG.maxPositions),
-    defaultSize:parseInt(process.env.DEFAULT_SIZE||DEFAULT_CONFIG.defaultSize),
-    maxSizePerTrade:parseInt(process.env.MAX_SIZE_PER_TRADE||DEFAULT_CONFIG.maxSizePerTrade),
-    maxPortfolioHeat:parseFloat(process.env.MAX_PORTFOLIO_HEAT||DEFAULT_CONFIG.maxPortfolioHeat),
-    requireAIConfirm:process.env.REQUIRE_AI_CONFIRM!=='false',
-    aiConfidenceMin:parseInt(process.env.AI_CONFIDENCE_MIN||DEFAULT_CONFIG.aiConfidenceMin),
-    enabled:process.env.AUTO_TRADING_ENABLED!=='false',
-    trailingStopPct:parseFloat(process.env.TRAILING_STOP_PCT||DEFAULT_CONFIG.trailingStopPct),
-    signalThreshold:parseInt(process.env.SIGNAL_THRESHOLD||DEFAULT_CONFIG.signalThreshold),
-    useNewsFilter:process.env.USE_NEWS_FILTER!=='false',
-    usePreferredWindow:process.env.USE_PREFERRED_WINDOW==='true',
-    useKellyCriterion:process.env.USE_KELLY!=='false',
-    eodClose:process.env.EOD_CLOSE!=='false',
-    pairsEnabled:process.env.PAIRS_ENABLED!=='false',
-    pairsZEntry:parseFloat(process.env.PAIRS_Z_ENTRY||DEFAULT_CONFIG.pairsZEntry),
-    pairsZStop:parseFloat(process.env.PAIRS_Z_STOP||DEFAULT_CONFIG.pairsZStop),
-    pairsZTarget:parseFloat(process.env.PAIRS_Z_TARGET||DEFAULT_CONFIG.pairsZTarget),
-    pairsMaxSlots:parseInt(process.env.PAIRS_MAX_SLOTS||DEFAULT_CONFIG.pairsMaxSlots),
-    pairsRiskPct:parseFloat(process.env.PAIRS_RISK_PCT||DEFAULT_CONFIG.pairsRiskPct),
-  };
-
-  // Load optimised params from DB if available
-  try {
-    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-    const optRes = await fetch(`${base}/api/db?action=optimize`);
-    if (optRes.ok) {
-      const optData = await optRes.json();
-      if (optData.signal_threshold) cfg.signalThreshold = optData.signal_threshold;
-      if (optData.ai_confidence_min) cfg.aiConfidenceMin = optData.ai_confidence_min;
-    }
-  } catch(e) { /* Use env var defaults if DB unavailable */ }
-
-  if(req.method==='GET') return res.status(200).json({status:'Auto-trading engine v4 ready',cfg,version:'4.0',time:new Date().toISOString()});
-  if(!cfg.enabled) return res.status(200).json({message:'Auto-trading disabled'});
-
-  // Override config with values from dashboard UI request body
-  const body=req.body||{};
-
-  // Kill switch — return immediately without trading
-  if(body.killSwitch === true){
-    return res.status(200).json({action:'paused',message:'Trading paused by user',log:['Trading paused via dashboard']});
-  }
-  if(body.calendarEnabled!==undefined) cfg.calendarEnabled=!!body.calendarEnabled;
-  if(body.requireAIConfirm!==undefined) cfg.requireAIConfirm=!!body.requireAIConfirm;
-  if(body.signalThreshold!==undefined) cfg.signalThreshold=parseInt(body.signalThreshold);
-  if(body.dailyProfitLock!==undefined) cfg.dailyProfitLock=parseFloat(body.dailyProfitLock);
-  if(body.dailyLossLimit!==undefined) cfg.dailyLossLimit=parseFloat(body.dailyLossLimit);
-  if(body.maxPositions!==undefined) cfg.maxPositions=parseInt(body.maxPositions);
-  if(body.defaultSize!==undefined) cfg.defaultSize=parseInt(body.defaultSize);
-  if(body.eodClose!==undefined) cfg.eodClose=!!body.eodClose;
-  if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
-
-  const igBase=IG_BASES[process.env.IG_ENV||'demo'];
-  let cst,xst;
-  const log=[];
-  const L=msg=>{console.log('[ATv3]',msg);log.push(msg);};
-
-  const now = new Date(); // define once at top level for use throughout
-  L('=== Engine v4 === '+now.toLocaleString('en-GB',{timeZone:'Europe/London'}));
-
-  // Auth
+// ─── P&L CHART ────────────────────────────────────────────────────────────────
+async function renderPnLChart(){
   try{
-    const ar=await fetch(`${igBase}/session`,{method:'POST',
-      headers:{'Content-Type':'application/json','X-IG-API-KEY':process.env.IG_API_KEY||'','Version':'2'},
-      body:JSON.stringify({identifier:process.env.IG_USERNAME,password:process.env.IG_PASSWORD})});
-    if(!ar.ok) return res.status(500).json({error:'IG auth failed',log});
-    cst=ar.headers.get('CST');xst=ar.headers.get('X-SECURITY-TOKEN');
-    if(!cst) return res.status(500).json({error:'No CST',log});
-    L('✅ Authenticated');
-  }catch(e){return res.status(500).json({error:'Auth: '+e.message,log});}
+    const res=await fetch('/api/db?action=equity&days=30');
+    const data=await res.json();const snapshots=data.snapshots||[];
+    const lineEl=document.getElementById('pnl-line');const fillEl=document.getElementById('pnl-fill');const noteEl=document.getElementById('pnl-chart-note');
+    if(snapshots.length>=2){
+      const base=parseFloat(snapshots[0].balance);
+      const values=snapshots.map(s=>parseFloat(s.balance)-base);
+      const w=600,h=80,min=Math.min(...values),max=Math.max(...values),range=max-min||1;
+      const coords=values.map((v,i)=>((i/(values.length-1))*(w-8)+4).toFixed(1)+','+(h-4-((v-min)/range*(h-8))).toFixed(1));
+      lineEl?.setAttribute('points',coords.join(' '));
+      fillEl?.setAttribute('points','4,'+h+' '+coords.join(' ')+' '+(w-4)+','+h);
+      const total=values[values.length-1];
+      if(noteEl)noteEl.textContent=(total>=0?'+':'')+'£'+total.toFixed(2)+' over 30 days';
+    }else{
+      lineEl?.setAttribute('points','4,40 300,40 596,40');
+      if(noteEl)noteEl.textContent='Building equity history — '+snapshots.length+' snapshots so far';
+    }
+  }catch(e){document.getElementById('pnl-line')?.setAttribute('points','4,40 300,40 596,40');}
+}
 
-  const igH={'Content-Type':'application/json','X-IG-API-KEY':process.env.IG_API_KEY||'','CST':cst,'X-SECURITY-TOKEN':xst};
+// ─── PRICE CACHE + CHARTS ─────────────────────────────────────────────────────
+const PRICE_CACHE_TTL={MINUTE:2*60000,HOUR:30*60000,DAY:4*3600000,WEEK:24*3600000};
 
-  // Twelve Data — fetch indicators with 30-min cache to stay within 800 daily credits
-  let tdSignals = {};
-  if (process.env.TWELVE_DATA_KEY) {
-      // Read TD signals from DB cache (populated by alert cron)
-      // Autotrade never fetches TD directly — avoids per-minute rate limit conflicts
-      let tdCacheHit = false;
-      try {
-        const {sql:tdSql} = require('@vercel/postgres');
-        const tdCacheRow = await tdSql`SELECT details, created_at FROM engine_events WHERE event_type = 'td_cache' ORDER BY created_at DESC LIMIT 1`;
-        if (tdCacheRow.rows.length > 0) {
-          const age = Date.now() - new Date(tdCacheRow.rows[0].created_at).getTime();
-          if (age < TD_CACHE_TTL) {
-            tdSignals = JSON.parse(JSON.stringify(tdCacheRow.rows[0].details));
-            tdCacheHit = true;
-            L(`Twelve Data: using cached data (${Math.round(age/60000)}m old)`);
-          } else {
-            L(`Twelve Data: cache expired (${Math.round(age/60000)}m old) — alert cron will refresh`);
-          }
-        } else {
-          L('Twelve Data: no cache yet — alert cron will populate');
-        }
-      } catch(e) { L('Twelve Data cache read error: ' + e.message); }
-      if (!tdCacheHit) { L('Twelve Data: no cached data this run'); }
-  } // end if TWELVE_DATA_KEY
-
-  // Account
-  let balance,dailyPL,available;
+async function fetchPricesWithCache(epic,resolution,count){
+  // DB first — avoids IG historical allowance
   try{
-    const ar=await fetch(`${igBase}/accounts`,{headers:{...igH,'Version':'1'}});
-    const ad=await ar.json();
-    const acct=ad.accounts&&ad.accounts.find(a=>a.accountType==='SPREADBET');
-    if(!acct){L('No spreadbet account');return res.status(200).json({log});}
-    balance=acct.balance.balance;dailyPL=acct.balance.profitLoss;available=acct.balance.available;
-    L(`Account: £${balance} | P&L: £${dailyPL} | Available: £${available}`);
-    await saveToDb('equity_snapshot',{balance,profitLoss:dailyPL,available});
-  }catch(e){L('Account error: '+e.message);return res.status(200).json({log});}
-
-  const plPct=balance>0?(dailyPL/balance)*100:0;
-
-  // Calculate pairs UPL separately to exclude from daily loss limit
-  // Pairs trades need time to revert — shouldn't trigger engine shutdown
-  let pairsUPL = 0;
-  try {
-    const {sql: pUplSql} = require('@vercel/postgres');
-    const openPairsForUPL = await pUplSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
-    const pairsDealIds = new Set();
-    openPairsForUPL.rows.forEach(r => { if(r.deal_id_a) pairsDealIds.add(r.deal_id_a); if(r.deal_id_b) pairsDealIds.add(r.deal_id_b); });
-    if(pairsDealIds.size > 0) {
-      const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-      const posD = await posR.json();
-      (posD.positions||[]).forEach(p => {
-        if(pairsDealIds.has(p.position.dealId)) {
-          const dir = p.position.direction;
-          const sz = p.position.size || p.position.dealSize;
-          const openLvl = p.position.openLevel;
-          const curLvl = p.market.bid || openLvl;
-          pairsUPL += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
-        }
-      });
+    const r=await fetch(`/api/prices?epic=${encodeURIComponent(epic)}&resolution=${resolution}&limit=${count}`);
+    const d=await r.json();
+    if(d.candles&&d.candles.length>=5){
+      console.log('[Cache] DB hit:',epic,d.candles.length,'candles');
+      return{prices:d.candles.map(c=>({snapshotTime:(c.candle_time||'').replace('T',' ').replace('.000Z',''),openPrice:{bid:parseFloat(c.open_price)},highPrice:{bid:parseFloat(c.high_price)},lowPrice:{bid:parseFloat(c.low_price)},closePrice:{bid:parseFloat(c.close_price)}}))};
     }
-  } catch(e) { /* non-critical */ }
-
-  // Directional P&L only (exclude pairs UPL from loss limit)
-  const directionalPL = dailyPL - pairsUPL;
-  const directionalPlPct = balance > 0 ? (directionalPL/balance)*100 : 0;
-  L(`P&L: ${plPct.toFixed(2)}% (directional: ${directionalPlPct.toFixed(2)}%) | Lock: +${cfg.dailyProfitLock}% | Limit: -${cfg.dailyLossLimit}%`);
-
-  // Daily limits — based on DIRECTIONAL P&L only, pairs excluded
-  if(directionalPlPct<=-cfg.dailyLossLimit){
-    L(`LOSS LIMIT HIT (directional: ${directionalPlPct.toFixed(2)}%) — closing directional positions only`);
-    const closed=await closeAll(igBase,igH);
-    await sendNotify('error','🛑 Daily Loss Limit Hit',`Directional P&L: ${directionalPlPct.toFixed(2)}%\nTotal P&L: ${plPct.toFixed(2)}% (pairs excluded)\nClosed: ${closed} directional positions\nBalance: £${balance}`);
-    return res.status(200).json({action:'loss_limit_hit',closed,log});
+  }catch(e){console.warn('[DB price]',e.message);}
+  // IG fallback
+  if(S.historicalBlocked||sessionStorage.getItem('ig_historical_blocked')==='true'){S.historicalBlocked=true;return null;}
+  const key=epic+'_'+resolution+'_'+count;const cached=S.priceCache[key];const ttl=PRICE_CACHE_TTL[resolution]||3600000;
+  if(cached&&Date.now()-cached.ts<ttl){console.log('[Cache] HIT:',key);return cached.data;}
+  console.log('[Cache] MISS:',key,'— fetching from IG');
+  const res=await igFetch('prices/'+epic+'?resolution='+resolution+'&max='+count+'&pageSize=0',{headers:{'Version':'3'}});
+  if(res.status===403){
+    const ed=await res.json().catch(()=>({}));
+    if(ed.errorCode&&ed.errorCode.includes('historical-data-allowance')){
+      S.historicalBlocked=true;sessionStorage.setItem('ig_historical_blocked','true');sessionStorage.setItem('ig_blocked_time',Date.now().toString());
+      setText('chart-updated','⚠️ IG historical data allowance exceeded — using DB');return null;
+    }
+    throw new Error('403:'+(ed.errorCode||'forbidden'));
   }
-  let profitLockActive = false;
-  if(directionalPlPct>=cfg.dailyProfitLock){
-    profitLockActive = true;
-    L(`PROFIT LOCK ACTIVE (directional: ${directionalPlPct.toFixed(2)}%) — continuing with reduced risk (0.5%)`);
-    try {
-      const {sql:plSql} = require('@vercel/postgres');
-      const todayStr = new Date().toISOString().split('T')[0];
-      const alreadyNotified = await plSql`
-        SELECT 1 FROM engine_events
-        WHERE event_type = 'profit_lock_notified'
-        AND created_at::date = ${todayStr}::date
-        LIMIT 1
-      `;
-      if (alreadyNotified.rows.length === 0) {
-        await sendNotify('dca','✅ Daily Profit Locked',`Directional P&L: +${directionalPlPct.toFixed(2)}%\nTotal P&L: +${plPct.toFixed(2)}% (pairs excluded)\nTarget: +${cfg.dailyProfitLock}%\nContinuing to trade with 0.5% risk per position.`);
-        await plSql`INSERT INTO engine_events (event_type, details, created_at) VALUES ('profit_lock_notified', ${JSON.stringify({pct:plPct.toFixed(2)})}, NOW())`;
-        L('Profit lock email sent');
-      } else {
-        L('Profit lock email already sent today — skipping');
-      }
-    } catch(e) { L('Profit lock notify error: '+e.message); }
-  }
+  if(!res.ok)throw new Error('Price fetch: '+res.status);
+  const data=await res.json();S.priceCache[key]={data,ts:Date.now()};return data;
+}
 
-  // Positions + portfolio heat
-  let openPos=[],portfolioHeat=0,directionalOpen=0;
+let chartState={epic:'IX.D.FTSE.DAILY.IP',name:'FTSE 100',resolution:'DAY',count:30,type:'candle',candles:[],indicators:{}};
+
+async function selectChartInstrument(name,epic,btn){
+  document.querySelectorAll('[id^="chart-btn-"]').forEach(b=>{b.style.background='';b.style.color='';b.style.borderColor='';});
+  if(btn){btn.style.background='var(--blue)';btn.style.color='#fff';btn.style.borderColor='var(--blue)';}
+  chartState.name=name;chartState.epic=epic;
+  setText('chart-price',name);
+  await loadChartData();
+}
+async function selectTimeframe(resolution,count,btn){
+  document.querySelectorAll('#tab-charts .btn-sm').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  chartState.resolution=resolution;chartState.count=count;await loadChartData();
+}
+function setChartType(type,btn){
+  if(btn){document.querySelectorAll('#tab-charts .btn-sm').forEach(b=>{if(['Candle','Line'].includes(b.textContent))b.classList.remove('active')});btn.classList.add('active');}
+  chartState.type=type;if(chartState.candles.length)drawChart(chartState.candles);
+}
+
+async function loadChartData(){
+  setText('chart-updated','Loading...');
   try{
-    const pr=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-    const pd=await pr.json();openPos=pd.positions||[];
-    portfolioHeat=openPos.reduce((s,p)=>s+(p.position.size||1)*50,0);
-
-    // Detect stop-loss triggered positions (in DB as open but not in IG positions)
-    try {
-      const {sql:slSql} = require('@vercel/postgres');
-      const dbOpenTrades = await slSql`SELECT deal_id, epic, instrument FROM trades WHERE status = 'open'`;
-      const igOpenIds = new Set(openPos.map(p => p.position.dealId));
-      for(const dbTrade of dbOpenTrades.rows){
-        if(!igOpenIds.has(dbTrade.deal_id)){
-          // Position closed by IG (stop loss or limit hit) — record it
-          L(`⚠️ ${dbTrade.instrument}: position closed by IG (stop loss) — recording and setting cooldown`);
-          await slSql`UPDATE trades SET status='closed', close_reason='stop_loss', closed_at=NOW() WHERE deal_id=${dbTrade.deal_id}`;
-        }
-      }
-    } catch(e){ L('Stop loss detection error: ' + e.message); }
-
-    // Only manage positions the engine opened — skip manual trades
-    // Build set of all engine deal IDs (from both trades and pairs_trades)
-    try {
-      const {sql: mgFilterSql} = require('@vercel/postgres');
-      const [dirRows, pairRows] = await Promise.all([
-        mgFilterSql`SELECT deal_id FROM trades WHERE status='open'`.catch(()=>({rows:[]})),
-        mgFilterSql`SELECT deal_id_a, deal_id_b FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]})),
-      ]);
-      const engineDealIds = new Set();
-      const pairsDealIds = new Set();
-      dirRows.rows.forEach(r => engineDealIds.add(r.deal_id));
-      pairRows.rows.forEach(r => {
-        if(r.deal_id_a) { engineDealIds.add(r.deal_id_a); pairsDealIds.add(r.deal_id_a); }
-        if(r.deal_id_b) { engineDealIds.add(r.deal_id_b); pairsDealIds.add(r.deal_id_b); }
-      });
-      const manualPos = openPos.filter(p => !engineDealIds.has(p.position.dealId));
-      if(manualPos.length > 0) L(`Skipping ${manualPos.length} manual position(s) — not managed by engine`);
-      openPos = openPos.filter(p => engineDealIds.has(p.position.dealId));
-      // Separate counts: pairs legs don't consume directional slots
-      const pairsLegCount = openPos.filter(p => pairsDealIds.has(p.position.dealId)).length;
-      directionalOpen = openPos.length - pairsLegCount;
-      L(`Open: ${directionalOpen}/${cfg.maxPositions} directional | ${Math.round(pairsLegCount/2)}/${cfg.pairsMaxSlots} pairs | Heat: £${portfolioHeat}/${cfg.maxPortfolioHeat}`);
-
-      // ── ORPHANED LEG DETECTION ──────────────────────────────────────────────
-      // If one leg of a pairs trade is missing from open positions, close the other
-      try {
-        const {sql: orphSql} = require('@vercel/postgres');
-        const openPairsRows = await orphSql`SELECT id, pair_id, deal_id_a, deal_id_b, epic_a, epic_b,
-          direction_a, direction_b, size_a, size_b FROM pairs_trades WHERE status='open'`;
-        const openDealIdSet = new Set(openPos.map(p => p.position.dealId));
-        for(const pt of openPairsRows.rows) {
-          const hasA = !pt.deal_id_a || openDealIdSet.has(pt.deal_id_a);
-          const hasB = !pt.deal_id_b || openDealIdSet.has(pt.deal_id_b);
-          if(pt.deal_id_a && pt.deal_id_b && !hasA && hasB) {
-            // Leg A gone — close leg B
-            L(`Orphaned leg detected: ${pt.pair_id} leg A missing — closing leg B`);
-            const legB = openPos.find(p => p.position.dealId === pt.deal_id_b);
-            if(legB) {
-              const ob = {epic:legB.market.epic, direction:legB.position.direction==='BUY'?'SELL':'BUY',
-                size:legB.position.size||legB.position.dealSize, orderType:'MARKET', expiry:'DFB',
-                guaranteedStop:false, forceOpen:false, currencyCode:'GBP', dealType:'SPREADBET'};
-              await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(ob)});
-              await orphSql`UPDATE pairs_trades SET status='closed', close_reason='orphaned_leg', closed_at=NOW() WHERE id=${pt.id}`;
-            }
-          } else if(pt.deal_id_a && pt.deal_id_b && hasA && !hasB) {
-            // Leg B gone — close leg A
-            L(`Orphaned leg detected: ${pt.pair_id} leg B missing — closing leg A`);
-            const legA = openPos.find(p => p.position.dealId === pt.deal_id_a);
-            if(legA) {
-              const ob = {epic:legA.market.epic, direction:legA.position.direction==='BUY'?'SELL':'BUY',
-                size:legA.position.size||legA.position.dealSize, orderType:'MARKET', expiry:'DFB',
-                guaranteedStop:false, forceOpen:false, currencyCode:'GBP', dealType:'SPREADBET'};
-              await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(ob)});
-              await orphSql`UPDATE pairs_trades SET status='closed', close_reason='orphaned_leg', closed_at=NOW() WHERE id=${pt.id}`;
-            }
-          }
-        }
-      } catch(e) { L('Orphaned leg check error: ' + e.message); }
-    } catch(e) { L('Engine position filter error: ' + e.message); }
-
-    await managePositions(openPos,igBase,igH,cfg,balance,L);
-  }catch(e){L('Positions error: '+e.message);}
-
-  if(directionalOpen>=cfg.maxPositions){L('Max positions');return res.status(200).json({action:'max_positions',log});}
-  if(portfolioHeat>=cfg.maxPortfolioHeat){L('Portfolio heat limit');return res.status(200).json({action:'heat_limit',log});}
-
-  // Time filter
-  if(cfg.usePreferredWindow&&!isPreferredWindow()){
-    L('Outside preferred window');return res.status(200).json({action:'outside_window',log});
-  }
-
-  // Calendar
-  // Smart Calendar — fetch surprise scores and upcoming blocks
-  let calSurprises = {};
-  if(cfg.calendarEnabled){
-    try {
-      const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-      const calRes = await fetch(`${base}/api/indicators?action=surprise`);
-      if(calRes.ok){
-        const calData = await calRes.json();
-        calSurprises = calData.surprises || {};
-        // Block if high-impact event imminent (within 10 mins)
-        if(calData.shouldBlock && calData.nextBlock && calData.nextBlock.minutesUntil <= 10){
-          L(`Calendar: blocking — ${calData.nextBlock.event} in ${calData.nextBlock.minutesUntil} mins`);
-          return res.status(200).json({action:'calendar_block',event:calData.nextBlock.event,log});
-        }
-        if(Object.keys(calSurprises).length > 0) L(`Calendar surprises active: ${JSON.stringify(calSurprises)}`);
-      }
-    } catch(e) {
-      // Fall back to time-based blocking if calendar API unavailable
-      if(await nearHighImpact(L)) return res.status(200).json({action:'calendar_block',log});
-    }
-  }
-
-  // End-of-day position close
-  if(cfg.eodClose){
-    const utcH = now.getUTCHours();
-    const utcM = now.getUTCMinutes();
-    // EOD: close 10 mins before configured time to avoid spread widening at session close
-    // e.g. configured 21:00 UTC → actually closes at 20:50 UTC
-    const eodMins = cfg.eodCloseTime.h * 60 + cfg.eodCloseTime.m - 10;
-    const nowMins = utcH * 60 + utcM;
-    const isEOD = nowMins >= eodMins && nowMins < eodMins + 60; // window: 10 mins early, up to 1hr after
-    const isFridayEOD = now.getUTCDay() === 5 && nowMins >= eodMins && nowMins < eodMins + 60; // Friday same as weekdays (20:50 UTC)
-
-    if(isEOD || isFridayEOD){
-      // Close positions based on trade type:
-      // hourly_mr → always close at EOD (intraday only)
-      // daily_mr → only close if held >3 days OR it's Friday
-      // directional → only close if Friday (let trends run)
-      try {
-        const posRes = await fetch(`${igBase}/positions`, {headers:{...igH,'Version':'1'}});
-        const posData = await posRes.json();
-        const positions = posData.positions || [];
-        const isFriday = now.getUTCDay() === 5;
-
-        // Fetch trade types from DB
-        const {sql:eodSql} = require('@vercel/postgres');
-        const [tradeTypeRows, pairsRows] = await Promise.all([
-          eodSql`SELECT deal_id, COALESCE(trade_type, 'hourly_mr') as trade_type, created_at
-            FROM trades WHERE status = 'open'`.catch(() => ({ rows: [] })),
-          eodSql`SELECT deal_id_a, deal_id_b FROM pairs_trades
-            WHERE status = 'open'`.catch(() => ({ rows: [] })),
-        ]);
-        const tradeTypeMap = {};
-        tradeTypeRows.rows.forEach(r => { tradeTypeMap[r.deal_id] = r.trade_type || 'hourly_mr'; });
-        // Build set of pairs leg deal IDs — these are NEVER closed by EOD logic
-        // Pairs trades have their own Z-score based close logic and must be closed as a unit
-        const eodPairsDealIds = new Set();
-        pairsRows.rows.forEach(r => {
-          if(r.deal_id_a) eodPairsDealIds.add(r.deal_id_a);
-          if(r.deal_id_b) eodPairsDealIds.add(r.deal_id_b);
-        });
-
-        const toClose = [];
-        for(const p of positions){
-          const dealId = p.position.dealId;
-
-          // Skip pairs legs — they must be closed as a unit by the Z-score close logic
-          // EOD close of one leg leaves a naked unhedged position on the other
-          if(eodPairsDealIds.has(dealId)) {
-            L(`EOD skip: ${p.market.instrumentName} — pairs leg, managed by Z-score exit`);
-            continue;
-          }
-
-          const tradeType = tradeTypeMap[dealId] || 'hourly_mr';
-          const openTime = new Date(p.position.createdDateUtc || Date.now());
-          const daysHeld = (Date.now() - openTime.getTime()) / (1000*60*60*24);
-
-          let shouldClose = false;
-          // ── OVERNIGHT / WEEKEND CLOSE RULES ────────────────────────────────
-          // Calculate current P&L % for this position
-          const posOpenLevel = p.position.openLevel;
-          const posBid = p.market.bid || posOpenLevel;
-          const posDir = p.position.direction;
-          const posPnlPct = posDir === 'BUY'
-            ? (posBid - posOpenLevel) / posOpenLevel * 100
-            : (posOpenLevel - posBid) / posOpenLevel * 100;
-          const isProfitable = posPnlPct > 0;
-          const isWellProfitable = posPnlPct >= 1.0; // up 1%+ = hold over weekend
-
-          // hourly_mr  → always close EOD (intraday scalp, never hold overnight)
-          // daily_mr   → hold overnight, always close Friday (short-term bounce)
-          // trend      → hold up to 20 days; hold weekends ONLY if profitable
-          // breakout   → hold up to 15 days; hold weekends ONLY if profitable
-          // directional→ hold indefinitely; hold weekends if profitable
-          if(tradeType === 'hourly_mr') {
-            shouldClose = true;
-          } else if(tradeType === 'daily_mr') {
-            shouldClose = daysHeld >= 5 || isFriday; // always close MR on Friday
-          } else if(tradeType === 'trend') {
-            if(daysHeld >= 20) shouldClose = true;          // max hold reached
-            else if(isFriday && !isProfitable) shouldClose = true;  // losing — cut Friday
-            else if(isFriday && isProfitable) {
-              L(`${p.market.instrumentName}: trend trade profitable (+${posPnlPct.toFixed(2)}%) — holding over weekend`);
-              shouldClose = false; // winning trend — hold the weekend
-            }
-          } else if(tradeType === 'breakout') {
-            if(daysHeld >= 15) shouldClose = true;
-            else if(isFriday && !isProfitable) shouldClose = true;
-            else if(isFriday && isProfitable) {
-              L(`${p.market.instrumentName}: breakout trade profitable (+${posPnlPct.toFixed(2)}%) — holding over weekend`);
-              shouldClose = false;
-            }
-          } else if(tradeType === 'directional') {
-            shouldClose = isFriday && !isProfitable;
-          } else {
-            shouldClose = true;
-          }
-          if(shouldClose) L(`${p.market.instrumentName}: closing (${tradeType}, ${daysHeld.toFixed(1)}d held, P&L ${posPnlPct.toFixed(2)}%)`);
-
-          if(shouldClose){
-            L(`EOD close: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d)`);
-            toClose.push(p);
-          } else {
-            L(`EOD skip: ${p.market.instrumentName} (${tradeType}, held ${daysHeld.toFixed(1)}d — letting run)`);
-          }
-        }
-
-        if(toClose.length > 0){
-          L(`EOD close: closing ${toClose.length}/${positions.length} position(s)`);
-          for(const p of toClose){
-            const closeBody = {
-              epic: p.market.epic,
-              direction: p.position.direction === 'BUY' ? 'SELL' : 'BUY',
-              size: p.position.size || p.position.dealSize,
-              orderType: 'MARKET', expiry: 'DFB',
-              guaranteedStop: false, forceOpen: false,
-              currencyCode: 'GBP', dealType: 'SPREADBET'
-            };
-            try {
-              const cr = await fetch(`${igBase}/positions/otc`, {method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(closeBody)});
-              const cd = await cr.json();
-              L(`EOD closed ${p.market.instrumentName}: ref ${cd.dealReference||'failed'}`);
-              if(cd.dealReference){
-                await saveToDb('trade_closed', {
-                  dealId: p.position.dealId,
-                  closeLevel: p.market.bid,
-                  closeReason: isFridayEOD ? 'friday_eod' : 'eod_close',
-                  profitLoss: p.position.direction === 'BUY'
-                    ? (p.market.bid - p.position.openLevel) * (p.position.size || 1)
-                    : (p.position.openLevel - p.market.offer) * (p.position.size || 1)
-                });
-              }
-            } catch(e){ L(`EOD close error ${p.market.instrumentName}: ${e.message}`); }
-          }
-          await sendNotify('dca', '🔔 EOD: All positions closed',
-            `End of day close executed.
-${positions.map(p=>p.market.instrumentName).join(', ')}
-Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
-          return res.status(200).json({action:'eod_close', closed: positions.length, log});
-        }
-      } catch(e){ L(`EOD check error: ${e.message}`); }
-    }
-  }
-
-  // News sentiment
-  let newsSentiment={};
-  if(cfg.useNewsFilter&&process.env.NEWS_API_KEY) newsSentiment=await fetchNews(L);
-
-  // Kelly win rate
-  let winRate=0.5;
-  try{
-    const base=process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
-    const sr=await fetch(`${base}/api/db?action=stats`);
-    const stats=await sr.json();
-    if(stats.totalTrades>=5){winRate=stats.winRate/100;L(`Kelly win rate: ${stats.winRate}%`);}
-  }catch(e){}
-
-  // ── PAIRS Z-SCORE CALCULATION ─────────────────────────────────────────────
-  // Calculate live Z-scores for instrument pairs using DB candle history
-  // Used to add confluence/contradiction context to AI signal evaluation
-  // PAIRS_DEFINITIONS defined at module level above
-    const pairsZScores = {}; // keyed by instrA → { zscore, instrB, direction }
-
-  try {
-    const {sql: pairSql} = require('@vercel/postgres');
-    for(const pair of PAIRS_DEFINITIONS) {
-      try {
-        const lb = pair.lookbackDays || 60;
-        // Fetch enough history to have lb days of aligned ratio data
-        // Fetch 2× lookback as buffer for alignment gaps (weekends, holidays)
-        const fetchLimit = Math.ceil(lb * 2.5);
-        const rowsA = await pairSql`
-          SELECT close_price, candle_time::date as dt FROM price_history
-          WHERE instrument = ${pair.instrA} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT ${fetchLimit}`;
-        const rowsB = await pairSql`
-          SELECT close_price, volume, candle_time::date as dt FROM price_history
-          WHERE instrument = ${pair.instrB} AND resolution = 'DAY'
-          ORDER BY candle_time DESC LIMIT ${fetchLimit}`;
-
-        if(rowsA.rows.length < 10 || rowsB.rows.length < 10) continue;
-
-        // Align by date then reverse to chronological order
-        const mapB = {};
-        rowsB.rows.forEach(r => { mapB[r.dt] = { price: parseFloat(r.close_price), vol: parseInt(r.volume||0) }; });
-        const aligned = rowsA.rows
-          .filter(r => mapB[r.dt] && mapB[r.dt].price > 0)
-          .map(r => ({ ratio: parseFloat(r.close_price) / mapB[r.dt].price, volA: 0, volB: mapB[r.dt].vol }))
-          .reverse(); // oldest first
-
-        if(aligned.length < 10) continue;
-
-        // Rolling window: use only the most recent `lb` aligned days for mean/std
-        // This matches the backtest's rolling lookback — engine and backtest now consistent
-        const window = aligned.slice(-lb);
-        const ratios = window.map(r => r.ratio);
-        const volsA = new Array(aligned.length).fill(0);
-        const volsB = aligned.map(r => r.volB);
-
-        const mean = ratios.reduce((a,b) => a+b, 0) / ratios.length;
-        const std = Math.sqrt(ratios.reduce((a,b) => a + Math.pow(b-mean,2), 0) / ratios.length);
-
-        // Try to get live prices for more current Z-score
-        // First try IG snapshot, fall back to Yahoo Finance for commodity pairs
-        let current = ratios[ratios.length - 1]; // default: last DB candle
-        let liveZUsed = false;
-        try {
-          const snapA = await fetch(`${igBase}/markets/${pair.epicA}`, {headers:{...igH,'Version':'3'}});
-          const snapB = await fetch(`${igBase}/markets/${pair.epicB}`, {headers:{...igH,'Version':'3'}});
-          if(snapA.ok && snapB.ok) {
-            const dataA = await snapA.json();
-            const dataB = await snapB.json();
-            const priceA = dataA.snapshot?.bid;
-            const priceB = dataB.snapshot?.bid;
-            if(priceA > 0 && priceB > 0) {
-              const scaleA = pair.liveToDbScaleA || 1.0;
-              const scaleB = pair.liveToDbScaleB || 1.0;
-              const scaledA = priceA * scaleA;
-              const scaledB = priceB * scaleB;
-              const liveRatio = scaledA / scaledB;
-              if(Math.abs(liveRatio - mean) / mean < 0.3) {
-                current = liveRatio;
-                liveZUsed = true;
-              }
-            }
-          } else if(pair.yahooSymbolA || pair.yahooSymbolB) {
-            // IG snapshot blocked — try Yahoo Finance for commodity pairs
-            const yahooFetches = [];
-            if(pair.yahooSymbolA) yahooFetches.push(
-              fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(pair.yahooSymbolA)}?interval=1d&range=1d`, {headers:{'User-Agent':'Mozilla/5.0'}})
-                .then(r=>r.json()).then(d=>d.chart?.result?.[0]?.meta?.regularMarketPrice||null).catch(()=>null)
-            );
-            if(pair.yahooSymbolB) yahooFetches.push(
-              fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(pair.yahooSymbolB)}?interval=1d&range=1d`, {headers:{'User-Agent':'Mozilla/5.0'}})
-                .then(r=>r.json()).then(d=>d.chart?.result?.[0]?.meta?.regularMarketPrice||null).catch(()=>null)
-            );
-            const [yahooPriceA, yahooPriceB] = await Promise.all(yahooFetches);
-            if(yahooPriceA > 0 && yahooPriceB > 0) {
-              const liveRatio = yahooPriceA / yahooPriceB;
-              if(Math.abs(liveRatio - mean) / mean < 0.3) {
-                current = liveRatio;
-                liveZUsed = true;
-                L(`Pairs: ${pair.instrA}/${pair.instrB} live Z via Yahoo (${yahooPriceA.toFixed(2)}/${yahooPriceB.toFixed(2)})`);
-              }
-            }
-          }
-        } catch(e) { /* live price fetch failed — use DB candle */ }
-
-        const zscore = std > 0 ? (current - mean) / std : 0;
-
-        // Store for both instruments in the pair
-        // Positive Z = instrA expensive vs instrB
-        // Negative Z = instrA cheap vs instrB
-        const volRatioA = 1.0; // volA not available from date-aligned query — volume confluence uses B only
-        const volRatioB = calcVolumeRatio(volsB.slice(-lb), 20);
-        pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
-          mean, std, current, liveZUsed,
-          _volumesA: volsA, _volumesB: volsB,
-          volRatioA, volRatioB,
-          signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
-        // From instrB perspective, Z is inverted
-        pairsZScores[pair.instrB] = { zscore: -zscore, partner: pair.instrA, n: ratios.length,
-          mean: mean > 0 ? 1/mean : 0, std, current: current > 0 ? 1/current : 0,
-          signal: -zscore > 2 ? 'expensive' : -zscore < -2 ? 'cheap' : -zscore > 1.5 ? 'slightly_expensive' : -zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
-
-        if(Math.abs(zscore) >= 1.0) {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d)${liveZUsed?' [live]':''} (${pairsZScores[pair.instrA].signal})`);
-        } else {
-          L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${zscore.toFixed(2)} n=${ratios.length}d (lb:${lb}d)${liveZUsed?' [live]':''} (neutral)`);
-        }
-      } catch(e) { /* skip pair on error */ }
-    }
-  } catch(e) { L('Pairs Z-score error: ' + e.message); }
-
-  // Signal evaluation
-  const occupied=new Set(openPos.map(p=>CORRELATION_GROUPS[p.market.epic]).filter(Boolean));
-  L('Occupied: '+(([...occupied].join(', '))||'none'));
-
-  // ── PYRAMID ADDING ────────────────────────────────────────────────────────
-  // If an existing trend/breakout trade is up 1%+ on day 2+, add a second unit
-  // Backtest shows SMA crossover trades that start winning tend to continue
-  try {
-    const {sql:pyrSql} = require('@vercel/postgres');
-    for(const pos of openPos) {
-      const epic = pos.market.epic;
-      const openLevel = pos.position.openLevel;
-      const currentBid = pos.market.bid || openLevel;
-      const dir = pos.position.direction;
-      const pnlPct = dir === 'BUY'
-        ? (currentBid - openLevel) / openLevel * 100
-        : (openLevel - currentBid) / openLevel * 100;
-
-      // Get trade details from DB
-      const dbTrade = await pyrSql`
-        SELECT trade_type, created_at, pyramid_added
-        FROM trades WHERE deal_id=${pos.position.dealId} AND status='open'
-        LIMIT 1`.catch(()=>({rows:[]}));
-      const trade = dbTrade.rows[0];
-      if(!trade) continue;
-
-      const tradeType = trade.trade_type || '';
-      const pyramidAdded = trade.pyramid_added || false;
-      const daysHeld = (Date.now() - new Date(trade.created_at).getTime()) / (1000*60*60*24);
-
-      // Only pyramid trend/breakout trades, on day 2+, up 1%+, not already pyramided
-      if((tradeType === 'trend' || tradeType === 'breakout')
-        && !pyramidAdded && daysHeld >= 1.5 && pnlPct >= 1.0
-        && directionalOpen < cfg.maxPositions) {
-
-        const pyrSize = parseFloat((pos.position.dealSize * 0.5).toFixed(2)); // add 50% of original
-        L(`🔺 Pyramid: ${pos.market.instrumentName} up ${pnlPct.toFixed(1)}% after ${daysHeld.toFixed(1)}d — adding £${pyrSize}/pt`);
-
-        const pyrBody = { epic, direction: dir, size: pyrSize,
-          orderType:'MARKET', expiry:'DFB', guaranteedStop:false,
-          forceOpen:true, currencyCode:'GBP', dealType:'SPREADBET' };
-        const pr = await fetch(`${igBase}/positions/otc`, {
-          method:'POST', headers:{...igH,'Version':'1'}, body:JSON.stringify(pyrBody)});
-        const pd = await pr.json();
-
-        if(pd.dealReference) {
-          L(`✅ Pyramid added: ref ${pd.dealReference}`);
-          // Mark original trade as pyramided
-          await pyrSql`UPDATE trades SET pyramid_added=true WHERE deal_id=${pos.position.dealId}`.catch(()=>{});
-        } else {
-          L(`⚠️ Pyramid failed: ${pd.errorCode||'unknown'}`);
-        }
-      }
-    }
-  } catch(e) { L(`Pyramid check error: ${e.message}`); }
-
-  // ── 19:30 UTC VOLATILITY WARNING ─────────────────────────────────────────
-  // AI analysis found consistent multi-instrument volatility spikes at 19:30 UTC
-  // (3:30pm ET — US market close / options expiry time)
-  // Avoid opening NEW positions in the 19:20-19:45 UTC window
-  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const is1930Window = utcMins >= 19*60+20 && utcMins <= 19*60+45;
-  if(is1930Window) {
-    L('⚠️ 19:30 UTC volatility window — skipping new position opens');
-    return res.status(200).json({ action:'volatility_window', log,
-      message:'19:30 UTC witching hour — no new positions' });
-  }
-
-  // Cooldown: block re-entry on same instrument within 4 hours of a stop loss or trail stop
-  const recentlyStoppedEpics = new Set();
-  try {
-    const {sql:coolSql} = require('@vercel/postgres');
-    const stoppedRows = await coolSql`
-      SELECT epic FROM trades
-      WHERE status = 'closed'
-      AND close_reason IN ('stop_loss','trail_stop','partial_close')
-      AND closed_at > NOW() - INTERVAL '4 hours'
-    `.catch(() => ({ rows: [] }));
-    stoppedRows.rows.forEach(r => recentlyStoppedEpics.add(r.epic));
-    // Also add any positions that disappeared from IG this run (just-fired stops)
-    // by checking which DB open trades are no longer in IG positions
-    try {
-      const {sql: chkSql} = require('@vercel/postgres');
-      const dbOpen = await chkSql`SELECT deal_id, epic FROM trades WHERE status='open'`.catch(()=>({rows:[]}));
-      const igOpenIds = new Set(openPos.map(p=>p.position.dealId));
-      dbOpen.rows.forEach(t => { if(!igOpenIds.has(t.deal_id)) recentlyStoppedEpics.add(t.epic); });
-    } catch(e) { /* non-critical */ }
-    if(recentlyStoppedEpics.size > 0){
-      L(`Cooldown active for: ${[...recentlyStoppedEpics].join(', ')}`);
-    }
-  } catch(e) { L('Cooldown check error: ' + e.message); }
-
-  const signals=[];
-
-  for(const instr of Object.keys(EPIC_MAP)){
-    const epic=EPIC_MAP[instr];const grp=CORRELATION_GROUPS[epic];
-    if(openPos.some(p=>p.market.epic===epic)){L(`${instr}: open`);continue;}
-    if(grp&&occupied.has(grp)){L(`${instr}: group occupied`);continue;}
-    if(recentlyStoppedEpics.has(epic)){L(`${instr}: cooldown (stopped out within 4h)`);continue;}
-    // Nikkei has different hours
-    const mktHrs = instr === 'Nikkei 225' ? 'nikkei' : grp;
-    if(!isMarketOpen(mktHrs)){L(`${instr}: market closed`);continue;}
-
-    try{
-      // Try DB first, fall back to IG, then Twelve Data
-      const dbEpic = DB_EPIC_MAP[epic] || epic;
-      let closes=await getDbPrices(dbEpic,500,L);
-      let src='DB';
-      if(!closes||closes.length<5){
-        // Only hit IG historical if not blocked — avoids burning allowance
-        if(!process.env.IG_HISTORICAL_BLOCKED){
-          const candles=await getIGPrices(epic,MAX_CANDLES_IG,igBase,igH);
-          if(candles&&candles.length>=5){closes=candles.map(c=>c.close);src='IG';}
-          else if(candles===null){L(`${instr}: IG historical blocked — skipping`);}
-        }
-      }
-
-      const newsAdj=getNewsAdj(instr,newsSentiment);
-      let sentAdj=0; try { sentAdj=await getIGSentiment(epic,igBase,igH,L)||0; } catch(e) { sentAdj=0; }
-      let sc=0,regime='unknown',tdAdj=0;
-      let divergence={type:'none',strength:0,description:'no data'};
-      let trendPullback=null;
-      let breakoutSignal=null;
-      let dir='BUY'; // default, overridden by scoring
-
-      if(closes&&closes.length>=5){
-        L(`${instr}: ${closes.length} candles from ${src}`);
-        regime=detectRegime(closes);
-        sc=calcScore(closes,regime);
-
-        // Update dir based on score
-        dir = sc > 0 ? 'BUY' : 'SELL';
-
-        // Trend pullback signal — overrides ranging score in trending markets
-        if(regime === 'uptrend' || regime === 'downtrend'){
-          trendPullback = calcTrendPullback(closes, regime);
-          if(trendPullback.signal > 0){
-            sc = trendPullback.signal;
-            dir = trendPullback.direction;
-            L(`${instr}: 📈 ${trendPullback.reason} (score:${sc})`);
-          }
-        }
-
-        // Breakout signal — works in any regime
-        if(regime === 'ranging'){
-          breakoutSignal = calcBreakout(closes);
-          if(breakoutSignal.signal > 0){
-            sc = Math.max(sc, breakoutSignal.signal);
-            dir = breakoutSignal.direction;
-            L(`${instr}: 💥 ${breakoutSignal.reason} (score:${sc})`);
-          }
-        }
-
-        // Volume confirmation for Brent Oil — only trade high-volume moves
-        // Low volume Brent moves (0.64x avg) are unreliable — filter them out
-        if(epic.includes('LCO') || instr === 'Brent Oil') {
-          const brentVolRatio = calcVolumeRatio(closes._volumes, 20);
-          if(brentVolRatio > 0 && brentVolRatio !== 1.0) {
-            if(brentVolRatio < 0.8 && sc > 0) {
-              L(`${instr}: ⚠️ Low volume (${brentVolRatio}x avg) — reducing conviction`);
-              sc = Math.max(0, sc - 1);
-            } else if(brentVolRatio > 1.5) {
-              L(`${instr}: 📊 High volume (${brentVolRatio}x avg) — boosting conviction`);
-              sc = Math.min(sc + 1, 6);
-            }
-          }
-        }
-
-        // Gold-specific 20-day breakout — works in ALL regimes (57% WR in backtest)
-        // Gold trends strongly after breakouts regardless of regime
-        if(epic.includes('USCGC') || instr === 'Gold') {
-          const n = closes.length;
-          if(n >= 22) {
-            const high20 = Math.max(...closes.slice(-21,-1));
-            const low20  = Math.min(...closes.slice(-21,-1));
-            const price  = closes[n-1];
-            const prev   = closes[n-2];
-            if(prev < high20 && price > high20) {
-              sc = Math.max(sc, 3); dir = 'BUY'; tradeType = 'breakout';
-              L(`${instr}: 🥇 Gold 20-day high breakout at ${price.toFixed(0)} (score:${sc})`);
-            } else if(prev > low20 && price < low20) {
-              sc = Math.max(sc, 3); dir = 'SELL'; tradeType = 'breakout';
-              L(`${instr}: 🥇 Gold 20-day low breakout at ${price.toFixed(0)} (score:${sc})`);
-            }
-          }
-        }
-
-        // ── DAX AFTER-HOURS LEAD INDICATOR ──────────────────────────────────
-        // When DAX makes >1% hourly move after 16:30 UTC, US equities
-        // tend to follow at next day's 13:30 UTC open (Finding 4 from AI analysis)
-        const utcHour = now.getUTCHours();
-        const isAfterDaxClose = utcHour >= 16 && utcHour <= 21;
-        if(isAfterDaxClose && (epic.includes('SPTRD') || epic.includes('NASDAQ'))) {
-          try {
-            const {sql:daxSql} = require('@vercel/postgres');
-            const daxRow = await daxSql`
-              SELECT close_price FROM price_history
-              WHERE instrument='DAX 40' AND resolution='HOUR'
-              AND candle_time > NOW() - INTERVAL '3 hours'
-              ORDER BY candle_time DESC LIMIT 3`.catch(()=>({rows:[]}));
-            if(daxRow.rows.length >= 2) {
-              const daxLast = parseFloat(daxRow.rows[0].close_price);
-              const daxPrev = parseFloat(daxRow.rows[daxRow.rows.length-1].close_price);
-              const daxMove = (daxLast - daxPrev) / daxPrev * 100;
-              if(Math.abs(daxMove) > 1.0) {
-                const daxDir = daxMove > 0 ? 'BUY' : 'SELL';
-                L(`${instr}: 🇩🇪 DAX lead signal ${daxMove>0?'+':''}${daxMove.toFixed(2)}% after-hours → expect US ${daxDir} at tomorrow's open`);
-                if(daxDir === dir || !dir) {
-                  sc = Math.max(sc, 1); // adds 1 to score as confluence
-                  dir = dir || daxDir;
-                }
-              }
-            }
-          } catch(e) { /* skip on error */ }
-        }
-
-        // SMA Crossover signal — trend following, works in any regime
-        // Backtest shows 88.9% WR on Nasdaq, 62.5% on S&P 500 over 2 years
-        const smaCross = calcSmaCrossover(closes);
-        if(smaCross.signal > 0 && closes.length >= 55) {
-          // Only override if no existing strong signal in opposite direction
-          if(smaCross.direction === dir || sc < 2) {
-            sc = Math.max(sc, smaCross.signal);
-            dir = smaCross.direction;
-            tradeType = 'trend';
-            L(`${instr}: 📊 ${smaCross.reason} (score:${sc})`);
-          }
-        }
-
-        // Momentum signal — backtest shows edge on indices
-        const momentum = calcMomentum(closes);
-        if(momentum.signal > 0 && (epic.includes('SPTRD')||epic.includes('NASDAQ')||epic.includes('FTSE')||epic.includes('DAX'))) {
-          if(momentum.direction === dir || !dir) {
-            sc = Math.max(sc, momentum.signal);
-            dir = dir || momentum.direction;
-            tradeType = 'trend';
-            L(`${instr}: 🚀 ${momentum.reason} (score:${sc})`);
-          }
-        }
-
-        // RSI Divergence detection — adds to score and passes to AI
-        const divergence = detectRSIDivergence(closes);
-        if(divergence.type==='bearish' && divergence.strength>0){
-          sc -= divergence.strength; // Bearish divergence reduces score (supports SELL)
-          L(`${instr}: ⚠️ Bearish RSI divergence (${divergence.description}) adj -${divergence.strength}`);
-          // For GBP/USD: standalone signal (75% WR in backtest)
-          if(epic.includes('GBPUSD') && divergence.strength >= 1 && !dir) {
-            sc = Math.max(sc, 2); dir = 'SELL'; tradeType = 'trend';
-            L(`${instr}: 📉 RSI divergence standalone SELL signal`);
-          }
-        } else if(divergence.type==='bullish' && divergence.strength>0){
-          sc += divergence.strength; // Bullish divergence increases score (supports BUY)
-          L(`${instr}: ⚠️ Bullish RSI divergence (${divergence.description}) adj +${divergence.strength}`);
-        }
-
-        if(tdSignals[instr]){
-          const tdRsi = tdSignals[instr].rsi;
-          const tdMacd = tdSignals[instr].macd;
-          // Derive TD score from RSI (no pre-computed score in alert cache)
-          let tdScore = 0;
-          if(tdRsi !== null && !isNaN(tdRsi)){
-            if(tdRsi <= 30) tdScore = 2;
-            else if(tdRsi <= 35) tdScore = 1;
-            else if(tdRsi >= 70) tdScore = -2;
-            else if(tdRsi >= 65) tdScore = -1;
-          }
-          if(tdMacd !== null && !isNaN(tdMacd)){
-            if(tdMacd > 0) tdScore += 1;
-            else if(tdMacd < 0) tdScore -= 1;
-          }
-          tdAdj = tdScore;
-          if(tdRsi !== null && !isNaN(tdRsi)) L(`${instr}: TD adj ${tdAdj} (RSI:${Math.round(tdRsi)})`);
-        }
-      } else if(tdSignals[instr]){
-        // No candles — use Twelve Data as primary signal
-        // Derive score from TD RSI when no candles available
-        const tdRsiPrimary = tdSignals[instr].rsi;
-        const tdMacdPrimary = tdSignals[instr].macd;
-        sc = 0;
-        if(tdRsiPrimary !== null && !isNaN(tdRsiPrimary)){
-          if(tdRsiPrimary <= 30) sc = 2;
-          else if(tdRsiPrimary <= 35) sc = 1;
-          else if(tdRsiPrimary >= 70) sc = -2;
-          else if(tdRsiPrimary >= 65) sc = -1;
-        }
-        if(tdMacdPrimary !== null && !isNaN(tdMacdPrimary)){
-          sc += tdMacdPrimary > 0 ? 1 : -1;
-        }
-        regime = 'ranging'; // default when no candle data
-        closes = []; // empty array to prevent crashes
-        src = 'TwelveData';
-        L(`${instr}: no candles — TD primary signal (RSI:${tdRsiPrimary?.toFixed(0)} score:${sc})`);
-      } else {
-        L(`${instr}: no data from any source — skip`);
-        continue;
-      }
-
-      if(isNaN(sc)){L(`${instr}: invalid score — skip`);continue;}
-      const safeNewsAdj = newsAdj||0; const safeSentAdj = sentAdj||0; const safeTdAdj = tdAdj||0;
-      // Apply economic surprise score if available
-      const calAdj = calSurprises[instr] || 0;
-      if(calAdj !== 0) L(`${instr}: calendar surprise adj ${calAdj}`);
-      const total=sc+safeNewsAdj+safeSentAdj+safeTdAdj+calAdj;
-      L(`${instr}: score ${sc}+news${safeNewsAdj}+sent${safeSentAdj}+td${safeTdAdj}+cal${calAdj}=${total} regime:${regime}`);
-
-      // Mean reversion check BEFORE score threshold — RSI extreme overrides low score
-      const rsiPreCheck = calcRSI(closes);
-      // Also check TD hourly RSI for mean reversion — catches intraday extremes
-      const tdRsiForMR = tdSignals[instr]?.rsi || null;
-      const effectiveRSI = (tdRsiForMR && (tdRsiForMR <= 33 || tdRsiForMR >= 67)) ? tdRsiForMR : rsiPreCheck;
-      const isMeanReversionCandidate = regime === 'ranging' && (effectiveRSI >= 67 || effectiveRSI <= 33);
-      if(!isMeanReversionCandidate && Math.abs(total)<=cfg.signalThreshold-1){L(`${instr}: score ${total} below threshold ${cfg.signalThreshold}`);continue;}
-      if(isMeanReversionCandidate){L(`${instr}: mean reversion candidate RSI ${effectiveRSI.toFixed(1)}${tdRsiForMR===effectiveRSI?' (TD hourly)':' (daily)'} — bypassing score filter`);}
-
-      // Mean reversion override for ranging regime
-      const rsiForMR=effectiveRSI; // uses TD hourly if more extreme
-      let meanReversion=false;
-      // Update dir based on total score (unless trend/breakout already set it)
-      if(!trendPullback?.signal && !breakoutSignal?.signal) dir=total>0?'BUY':'SELL';
-      if(regime==='ranging'){
-        if(rsiForMR>=68){
-          // Overbought in ranging — mean reversion SELL
-          // Trend filter: only SELL if daily SMA not in clear uptrend
-          const sma10mr = closes.length>=10 ? closes.slice(-10).reduce((a,b)=>a+b,0)/10 : null;
-          const sma20mr = closes.length>=20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : null;
-          const inUptrend = sma10mr && sma20mr && sma10mr > sma20mr * 1.002;
-          if(inUptrend){
-            L(`${instr}: mean reversion SELL blocked — SMA10 (${sma10mr.toFixed(0)}) above SMA20 (${sma20mr.toFixed(0)}) — trend filter`);
-          } else {
-            dir='SELL';
-            meanReversion=true;
-            L(`${instr}: mean reversion SELL (RSI:${rsiForMR.toFixed(1)} overbought in ranging${sma10mr?', SMA trend OK':''})`);
-          }
-        } else if(rsiForMR<=33){
-          // Oversold in ranging — mean reversion BUY
-          // Trend filter: only BUY if daily SMA not in clear downtrend
-          const sma10mr = closes.length>=10 ? closes.slice(-10).reduce((a,b)=>a+b,0)/10 : null;
-          const sma20mr = closes.length>=20 ? closes.slice(-20).reduce((a,b)=>a+b,0)/20 : null;
-          const inDowntrend = sma10mr && sma20mr && sma10mr < sma20mr * 0.998; // >0.2% below SMA20
-          if(inDowntrend){
-            L(`${instr}: mean reversion BUY blocked — daily SMA10 (${sma10mr.toFixed(0)}) below SMA20 (${sma20mr.toFixed(0)}) — trend filter`);
-          } else {
-            dir='BUY';
-            meanReversion=true;
-            L(`${instr}: mean reversion BUY (RSI:${rsiForMR.toFixed(1)} oversold in ranging${sma10mr?', SMA trend OK':''})`);
-          }
-        } else if(Math.abs(total)<3){
-          // Ranging + weak signal + neutral RSI = skip
-          L(`${instr}: ranging regime + neutral RSI (${rsiForMR.toFixed(1)}) + weak signal — skip`);
-          continue;
-        }
-      }
-      const atr=calcATR(closes);
-      const sz=cfg.useKellyCriterion?kellySize(winRate,balance,atr,closes[closes.length-1],cfg):cfg.defaultSize;
-      const rsi=calcRSI(closes);const sma20=calcSMA(closes,20);const sma50=calcSMA(closes,50);
-      const macd=calcEMA(closes,12)-calcEMA(closes,26);
-      const mom=closes.length>=10?((closes[closes.length-1]-closes[closes.length-10])/closes[closes.length-10])*100:0;
-      const bb=calcBB(closes);
-      const bbPos=closes[closes.length-1]<bb.lower?'below lower':closes[closes.length-1]>bb.upper?'above upper':'within';
-      const reasons=[
-        rsi<35?`RSI oversold(${rsi.toFixed(0)})`:rsi>65?`RSI overbought(${rsi.toFixed(0)})`:`RSI neutral(${rsi.toFixed(0)})`,
-        sma20>sma50?'SMA bullish':'SMA bearish',
-        macd>0?'MACD+':'MACD-',
-        `Mom ${mom.toFixed(1)}%`,`BB:${bbPos}`,`Regime:${regime}`,
-        newsAdj!==0?`News:${newsAdj>0?'+':''}${newsAdj}`:'',
-        sentAdj!==0?`Sentiment:${sentAdj>0?'+':''}${sentAdj}`:'',
-      ].filter(Boolean);
-
-      // Add pairs context for this instrument
-      const pairsCtx = pairsZScores[instr] || null;
-      signals.push({instr,epic,direction:dir,score:total,rawScore:sc,newsAdj,sentAdj,tdAdj,calAdj,regime,meanReversion,
-        reasons,rsi,tdRsi:tdRsiForMR,effectiveRSI,sma20,sma50,macd,momentum:mom,lastClose:closes[closes.length-1],
-        atr,suggestedSize:sz,bb,bbPos,src,candles:closes.length,divergence,trendPullback,breakoutSignal,pairsCtx});
-      // Note: group only marked occupied on open position, not on signal
-    }catch(e){L(`${instr}: ${e.message}`);}
-  }
-
-  if(!signals.length){L('No signals');return res.status(200).json({action:'no_signals',log});}
-  signals.sort((a,b)=>Math.abs(b.score)-Math.abs(a.score));
-
-  // Allow up to 2 signals per correlation group
-  // Priority: mean reversion > breakout > trend > regular
-  const GROUP_MAX = 2;
-  const groupCounts = {};
-  signals.sort((a,b)=>{
-    const aPri = a.meanReversion ? 3 : a.breakoutSignal?.signal>0 ? 2 : a.trendPullback?.signal>0 ? 1 : 0;
-    const bPri = b.meanReversion ? 3 : b.breakoutSignal?.signal>0 ? 2 : b.trendPullback?.signal>0 ? 1 : 0;
-    if(aPri !== bPri) return bPri - aPri;
-    return Math.abs(b.score)-Math.abs(a.score);
-  });
-  const filteredSignals=signals.filter(sig=>{
-    const grp=CORRELATION_GROUPS[sig.epic];
-    if(!grp){return true;}
-    groupCounts[grp] = (groupCounts[grp]||0);
-    if(groupCounts[grp] >= GROUP_MAX) return false;
-    groupCounts[grp]++;
-    return true;
-  });
-  const mrCount=filteredSignals.filter(s=>s.meanReversion).length;
-  const boCount=filteredSignals.filter(s=>s.breakoutSignal?.signal>0).length;
-  L(`${signals.length} signal(s) — ${filteredSignals.length} after group filter (${mrCount} MR, ${boCount} breakout)`);
-
-  for(const sig of filteredSignals.slice(0,3)){
-    let approved=!cfg.requireAIConfirm,confidence=100,reasoning='AI not required';
-    if(cfg.requireAIConfirm){
-      try{
-        const air=await aiConfirm(sig,cfg,plPct,directionalOpen,winRate,L);
-        approved=air.approved;confidence=air.confidence;reasoning=air.reasoning;
-      }catch(e){L('AI error — trade skipped: '+e.message);approved=false;confidence=0;reasoning='AI call failed';}
-    }
-    if(!approved){L(`${sig.instr}: AI rejected (${confidence}%)`);continue;}
-
-    // Size using 1% risk / stop distance (min £0.01/pt)
-    const stopPts = Math.max(5, (sig.atr||0) * 1.5);
-    const riskAmt = balance * 0.01;
-    const kellySz = parseFloat((riskAmt / stopPts).toFixed(2));
-    const sz = Math.max(0.01, Math.min(kellySz, cfg.maxSizePerTrade));
-    L(`${sig.instr}: size £${sz}/pt (risk £${riskAmt.toFixed(2)} / ${stopPts.toFixed(0)}pt stop)`);
-
-    // Margin check — verify account has sufficient funds before placing
-    try {
-      const mktRes=await fetch(`${igBase}/markets/${sig.epic}`,{headers:{...igH,'Version':'3'}});
-      if(mktRes.ok){
-        const mktData=await mktRes.json();
-        // Get margin % from marginDepositBands for our position size
-        const bands=mktData.instrument?.marginDepositBands||[];
-        const currentPrice=sig.lastClose||10000;
-        const notional=currentPrice*sz;
-        const band=bands.find(b=>notional>=b.min&&(b.max===null||notional<b.max))||bands[0]||{margin:5};
-        const marginPct=band.margin/100;
-        const requiredMargin=notional*marginPct;
-        const minNotional=currentPrice*0.01; // Min 0.01 units
-        const minMargin=minNotional*marginPct;
-        L(`${sig.instr}: notional £${notional.toFixed(0)}, margin ${band.margin}%, need £${requiredMargin.toFixed(0)}, have £${available.toFixed(0)}`);
-        if(requiredMargin>available*0.85){
-          // Calculate max affordable size
-          const maxAffordable=Math.floor((available*0.85)/(currentPrice*marginPct)*100)/100;
-          const minSize=mktData.dealingRules?.minDealSize?.value||0.01;
-          if(maxAffordable>=minSize){
-            L(`${sig.instr}: reducing size to ${maxAffordable} units (max affordable)`);
-            sig.suggestedSize=maxAffordable;
-          }else{
-            L(`${sig.instr}: cannot afford minimum size (need £${minMargin.toFixed(0)}) — skip`);
-            continue;
-          }
-        }else{
-          L(`${sig.instr}: margin OK ✅`);
-        }
-      }
-    }catch(e){L('Margin check error: '+e.message);}
-
-    // Sizing: risk amount = 1% of balance, size = riskAmt / stopDistance
-    // This ensures size × stopDist always = 1% of account regardless of instrument
-    // ATR from DB candles is already in contract price units (no scaling needed)
-    // Tiered stop: hourly RSI MR uses tight 0.5x ATR, daily uses 1.5x ATR
-    // Price scale only applies to DB candles (stored in decimal e.g. 1.3350)
-    // IG candles are already in contract units (e.g. 13350) — no scaling needed
-    // DB candles for FX are stored pre-scaled (e.g. GBPUSD*10000, USDJPY*100)
-    // ATR from DB candles is already in contract units — do NOT scale again
-    // IG live prices are also in contract units — no scaling needed
-    const priceScale = 1; // scaling already applied during backfill
-    const scaledATR = (sig.atr || 0);
-    const isTrendTrade = sig.trendPullback?.signal > 0;
-    const isBreakoutTrade = sig.breakoutSignal?.signal > 0;
-    // ATR stop multiplier — tighter for MR (avoids catastrophic losses like Apr crash)
-    // Volatility-aware: if recent ATR is >2× historical average, tighten stop further
-    const recentATR = scaledATR;
-    const closes10 = sig.closes ? sig.closes.slice(-10) : [];
-    const avgATR10 = closes10.length >= 2
-      ? closes10.slice(1).reduce((s,p,i)=>s+Math.abs(p-closes10[i]),0)/(closes10.length-1)
-      : recentATR;
-    const isHighVol = recentATR > avgATR10 * 1.8; // ATR 80% above recent avg = high vol
-    const atrMult = (sig.meanReversion && sig.tdRsi) ? 0.5
-      : (isTrendTrade || isBreakoutTrade) ? 2.0
-      : (isDailyMR && isHighVol) ? 1.0    // tighter stop in high vol MR (avoids -6% losses)
-      : isDailyMR ? 1.25                   // slightly tighter than default for MR
-      : 1.5;                               // default
-    const stopType = sig.meanReversion && sig.tdRsi ? 'hourly MR (0.5x ATR)'
-      : sig.meanReversion ? 'daily MR (1.5x ATR)'
-      : isTrendTrade ? 'trend pullback (2x ATR)'
-      : isBreakoutTrade ? 'breakout (2x ATR)'
-      : 'standard (1.5x ATR)';
-    // minStop in contract units (after ATR scaling) — fixed minimums by instrument type
-    const minStop = sig.src === 'DB' && priceScale > 1
-      ? Math.max(5, Math.round(priceScale * 0.001))  // 0.1% of scale e.g. 10pts for FX
-      : Math.max(5, 10);                              // 10pts for IG-sourced candles
-    const tradeStopDist = scaledATR > 0 ? Math.max(minStop, Math.round(scaledATR * atrMult)) : minStop;
-    // Tiered risk % by signal quality
-    // Daily MR (strongest signal): 2%
-    // Hourly MR with trend filter passed: 1.5%
-    // Trend pullback: 1.5%
-    // Breakout confirmed: 1%
-    // Standard/other: 1%
-    const isHourlyMR = sig.tdRsi && sig.meanReversion;
-    const isDailyMR = sig.meanReversion && !sig.tdRsi;
-    // Check pairs confluence — does pairs signal confirm this trade direction?
-    const pairsConfirms = sig.pairsCtx && (
-      (sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY') ||
-      (sig.pairsCtx.signal === 'expensive' && sig.direction === 'SELL')
-    );
-    const pairsContradicts = sig.pairsCtx && (
-      (sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY') ||
-      (sig.pairsCtx.signal === 'cheap' && sig.direction === 'SELL')
-    );
-    // ── DYNAMIC SIZING — scales with signal conviction ──────────────────────
-    // Base risk by signal type
-    let baseRiskPct;
-    if(isDailyMR && pairsConfirms)       baseRiskPct = 0.025; // 2.5% daily MR + pairs
-    else if(isDailyMR)                   baseRiskPct = 0.02;  // 2.0% daily MR
-    else if(isHourlyMR && pairsConfirms) baseRiskPct = 0.02;  // 2.0% hourly MR + pairs
-    else if(isHourlyMR)                  baseRiskPct = 0.015; // 1.5% hourly MR
-    else if(isTrendTrade)                baseRiskPct = 0.025; // 2.5% trend (SMA cross — 71% WR)
-    else if(isBreakoutTrade)             baseRiskPct = 0.02;  // 2.0% breakout (57% WR on Gold)
-    else                                 baseRiskPct = 0.01;  // 1.0% default
-    if(pairsContradicts) baseRiskPct = Math.min(baseRiskPct, 0.01); // Cap at 1% if pairs contradicts
-    if(pairsConfirms) L(`${sig.instr}: ✅ Pairs confluence — risk boosted to ${(baseRiskPct*100).toFixed(1)}%`);
-    if(pairsContradicts) L(`${sig.instr}: ⚠️ Pairs contradiction — risk capped at ${(baseRiskPct*100).toFixed(1)}%`);
-    // Boost size based on AI confidence (60%=1x, 80%=1.3x, 95%=1.5x)
-    const aiBoost = sig.aiConfidence >= 90 ? 1.5
-      : sig.aiConfidence >= 80 ? 1.3
-      : sig.aiConfidence >= 70 ? 1.1
-      : 1.0;
-    const riskPct = profitLockActive ? 0.005 : Math.min(baseRiskPct * aiBoost, 0.04);
-    const tradeRiskAmt = balance * riskPct;
-    const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
-    const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
-    const actualRisk = (finalSz * tradeStopDist).toFixed(2);
-    L(`${sig.instr}: size £${finalSz}/pt | risk ${(riskPct*100).toFixed(1)}% = £${tradeRiskAmt.toFixed(2)} | stop ${tradeStopDist}pt | ${stopType}`);
-
-    L(`${sig.instr}: size £${finalSz}/pt × ${tradeStopDist}pt stop = £${actualRisk} risk (${((parseFloat(actualRisk)/balance)*100).toFixed(1)}% of account)`);
-    L(`Placing ${sig.direction} ${finalSz} on ${sig.instr} (regime:${sig.regime})...`);
-
-    // ── 1-MINUTE PULLBACK ENTRY ────────────────────────────────────────────────
-    // For trend/breakout signals: wait up to 2 hours for a better entry on 1m chart
-    // For MR signals: enter immediately (timing-sensitive, don't wait)
-    // Pullback entry — waits for 0.2% dip before entering trend/breakout trades
-    // Requires pending_entries table (created via Init DB in Journal tab)
-    const usePullbackEntry = (isTrendTrade || isBreakoutTrade) && !sig.tdRsi;
-    let entryImproved = false;
-
-    if(usePullbackEntry) {
-      try {
-        // Check if pending_entries table exists first
-        const {sql:peSql} = require('@vercel/postgres');
-        const tableCheck = await peSql`SELECT 1 FROM pending_entries LIMIT 1`.catch(()=>null);
-        if(!tableCheck) {
-          L(`${sig.instr}: pending_entries table not ready — entering at market`);
-          throw new Error('table_not_ready'); // fall through to market order
-        }
-
-        const existing = await peSql`
-          SELECT * FROM pending_entries
-          WHERE epic=${sig.epic} AND status='waiting'
-          ORDER BY created_at DESC LIMIT 1`.catch(()=>({rows:[]}));
-
-        if(existing.rows.length === 0) {
-          // No pending entry — create one and wait
-          const currentPrice = sig.closes?.[sig.closes.length-1] || 0;
-          const targetEntry = sig.direction === 'BUY'
-            ? currentPrice * 0.998  // 0.2% pullback for buys
-            : currentPrice * 1.002; // 0.2% bounce for sells
-          const expiryTime = new Date(Date.now() + 2*60*60*1000).toISOString(); // 2hr limit
-
-          await peSql`
-            INSERT INTO pending_entries
-            (epic, instrument, direction, signal_price, target_entry, size, stop_dist,
-             trade_type, score, ai_confidence, ai_reasoning, expiry_time, status)
-            VALUES (${sig.epic}, ${sig.instr}, ${sig.direction}, ${currentPrice},
-            ${targetEntry}, ${finalSz}, ${tradeStopDist}, ${tradeType},
-            ${sig.score}, ${confidence}, ${reasoning}, ${expiryTime}, 'waiting')
-            ON CONFLICT DO NOTHING`.catch(()=>{});
-
-          L(`${sig.instr}: 📍 Pullback entry queued — waiting for ${sig.direction==='BUY'?'dip to':'bounce to'} ${targetEntry.toFixed(2)} (current: ${currentPrice.toFixed(2)}) — 2hr limit`);
-          return res.status(200).json({action:'pending_entry', instrument:sig.instr,
-            direction:sig.direction, targetEntry, currentPrice, log});
-
-        } else {
-          // Pending entry exists — check if price has reached target
-          const pe = existing.rows[0];
-          const hoursWaiting = (Date.now() - new Date(pe.created_at).getTime()) / (1000*60*60);
-          const currentPrice = sig.closes?.[sig.closes.length-1] || 0;
-          const targetReached = sig.direction === 'BUY'
-            ? currentPrice <= pe.target_entry
-            : currentPrice >= pe.target_entry;
-          const expired = new Date() > new Date(pe.expiry_time);
-
-          if(targetReached) {
-            L(`${sig.instr}: ✅ Pullback target reached at ${currentPrice.toFixed(2)} (was ${pe.signal_price}) — entering now`);
-            entryImproved = true;
-            // Mark as filled and proceed with entry below
-            await peSql`UPDATE pending_entries SET status='filled' WHERE id=${pe.id}`.catch(()=>{});
-          } else if(expired) {
-            L(`${sig.instr}: ⏱️ Pullback wait expired (${hoursWaiting.toFixed(1)}h) — entering at market`);
-            await peSql`UPDATE pending_entries SET status='expired' WHERE id=${pe.id}`.catch(()=>{});
-            // Proceed with market entry below
-          } else {
-            L(`${sig.instr}: ⏳ Waiting for pullback to ${pe.target_entry.toFixed(2)} (current: ${currentPrice.toFixed(2)}, ${hoursWaiting.toFixed(1)}h elapsed)`);
-            return res.status(200).json({action:'waiting_for_pullback', instrument:sig.instr,
-              targetEntry:pe.target_entry, currentPrice, hoursWaiting, log});
-          }
-        }
-      } catch(e) {
-        if(e.message !== 'table_not_ready') {
-          L(`Pullback entry check error: ${e.message} — entering at market`);
-        }
-        // Fall through to market order below
-      }
-    }
-
-    try{
-      const ob={epic:sig.epic,direction:sig.direction,size:finalSz,orderType:'MARKET',
-        expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
-      // Verify stop distance against IG's minimum for this instrument
-      let finalStopDist = tradeStopDist;
-      try {
-        const mktR = await fetch(`${igBase}/markets/${sig.epic}`, {headers:{...igH,'Version':'3'}});
-        if(mktR.ok){
-          const mktD = await mktR.json();
-          const minStop = mktD.dealingRules?.minNormalStopOrLimitDistance?.value || 0;
-          const minStopUnit = mktD.dealingRules?.minNormalStopOrLimitDistance?.unit || 'POINTS';
-          if(minStopUnit === 'POINTS' && minStop > finalStopDist){
-            L(`Stop adjusted from ${finalStopDist} to ${minStop}pts (IG minimum)`);
-            finalStopDist = Math.ceil(minStop * 1.1); // 10% above minimum
-          }
-          const minSize = mktD.dealingRules?.minDealSize?.value || 0.01;
-          if(finalSz < minSize){
-            L(`Size ${finalSz} below IG minimum ${minSize} — adjusting`);
-            finalSz = minSize;
-          }
-        }
-      } catch(e){ L(`Market rules check failed: ${e.message}`); }
-      ob.stopDistance=finalStopDist;
-      L(`Stop loss: ${finalStopDist}pts (${stopType}) — max loss £${(finalSz*finalStopDist).toFixed(2)}`);
-      const trailDist=Math.max(minStop,Math.round(tradeStopDist*1.5));
-      const trailIncrement=Math.max(1,Math.round(trailDist/5));
-      ob.trailingStop=true;
-      ob.trailingStopDistance=trailDist;
-      ob.trailingStopIncrement=trailIncrement;
-      L(`Trailing stop: ${trailDist}pts distance, ${trailIncrement}pt increment`);
-      let ref;
-      const or=await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(ob)});
-      const od=await or.json();
-      if(od.dealReference){ref=od.dealReference;}
-      else{
-        // Retry without trailing stop
-        delete ob.trailingStop;delete ob.trailingStopDistance;delete ob.trailingStopIncrement;
-        const or2=await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(ob)});
-        const od2=await or2.json();
-        if(od2.dealReference){ref=od2.dealReference;L(`Retry without trailing stop: ${od.errorCode||od.error||JSON.stringify(od).slice(0,100)}`);}
-        else{L(`Retry failed: ${od2.errorCode||od2.error||JSON.stringify(od2).slice(0,100)}`);continue;}
-      }
-      const cr=await fetch(`${igBase}/confirms/${ref}`,{headers:{...igH,'Version':'1'}});
-      const cd=await cr.json();
-      if(cd.dealStatus==='ACCEPTED'){
-        L(`✅ ACCEPTED ref:${ref} level:${cd.level}`);
-
-        // Set trailing stop via separate PUT call after position confirmed
-        // This works for account types where trailing stop on opening order is rejected
-        if(cd.dealId){
-          try{
-            // IG requires current stopLevel when converting to trailing stop
-            const currentStopLevel = cd.level
-              ? (sig.direction==='BUY'
-                  ? cd.level - finalStopDist
-                  : cd.level + finalStopDist)
-              : null;
-            const tsBody={
-              trailingStop:true,
-              trailingStopDistance:trailDist,
-              trailingStopIncrement:trailIncrement,
-              stopLevel:currentStopLevel,
-              limitLevel:null,
-              limitedRiskPremium:null
-            };
-            const tsr=await fetch(`${igBase}/positions/otc/${cd.dealId}`,{
-              method:'PUT',
-              headers:{...igH,'Version':'2'},
-              body:JSON.stringify(tsBody)
-            });
-            const tsd=await tsr.json();
-            if(tsd.dealReference){
-              L(`✅ Trailing stop set: ${trailDist}pts distance, ${trailIncrement}pt increment`);
-            } else {
-              L(`⚠️ Trailing stop PUT failed: ${tsd.errorCode||JSON.stringify(tsd).slice(0,80)}`);
-              // Fallback: set fixed stop at stop distance
-              L(`Setting fixed stop at ${tradeStopDist}pts instead`);
-            }
-          }catch(e){L(`Trailing stop error: ${e.message}`);}
-        }
-
-        // Determine trade type for EOD close logic
-      const tradeType = sig.tdRsi ? 'hourly_mr' : sig.meanReversion ? 'daily_mr' : (sig.trendPullback?.signal>0) ? 'trend' : (sig.breakoutSignal?.signal>0) ? 'breakout' : 'directional';
-      // Save trade to DB with visible error logging
-        try {
-          const base2 = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
-          const dbr = await fetch(`${base2}/api/db`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ type:'trade_opened', data:{
-              dealId:cd.dealId, dealReference:ref, instrument:sig.instr, epic:sig.epic,
-              direction:sig.direction, size:finalSz, openLevel:cd.level, signalScore:sig.score,
-              aiConfidence:confidence, aiReasoning:reasoning,
-              signalReasons:(sig.reasons||[]).join(', '),
-              regime:sig.regime, atr:sig.atr, stopDistance:finalStopDist||tradeStopDist, tradeType
-            }})
-          });
-          const dbd = await dbr.json().catch(()=>({}));
-          L(`DB save: ${dbr.ok?'✅ saved':'❌ failed '+dbr.status+' '+JSON.stringify(dbd).substring(0,100)}`);
-        } catch(e){ L(`DB save error: ${e.message}`); }
-        await sendNotify('trade',`🎯 Trade Placed: ${sig.instr} ${sig.direction}`,
-          `Instrument: ${sig.instr}\nDirection: ${sig.direction}\nSize: £${finalSz}/pt\nLevel: ${cd.level}\nStop: ${tradeStopDist}pts\nMax Loss: £${actualRisk}\nAI: ${confidence}% — ${reasoning}\nRegime: ${sig.regime}\nScore: ${sig.score}\nType: ${tradeType} (${tradeType==='hourly_mr'?'closes tonight':tradeType==='daily_mr'?'holds up to 3 days':'holds until Friday'})`);
-        return res.status(200).json({action:'trade_placed',instrument:sig.instr,direction:sig.direction,level:cd.level,size:finalSz,log});
-      }else{
-        L(`Rejected: ${cd.reason||cd.dealStatus}`);
-        await sendNotify('error',`❌ Order Rejected: ${sig.instr}`,`Reason: ${cd.reason||cd.dealStatus}`);
-      }
-    }catch(e){L('Trade error: '+e.message);}
-  }
-
-  // ── PAIRS TRADING ────────────────────────────────────────────────────────────
-  // Pairs trades use SEPARATE slots (pairsMaxSlots) from directional trades (maxPositions)
-  // Count directional-only open positions for slot check
-  const openCount = openPos.length;
-  if(cfg.pairsEnabled) {
-    try {
-      const {sql: pSql} = require('@vercel/postgres');
-
-      // Check existing pairs trades
-      // Create table if not exists (safe to run every time)
-      await pSql`CREATE TABLE IF NOT EXISTS pairs_trades (
-        id SERIAL PRIMARY KEY, pair_id VARCHAR(50), instr_a VARCHAR(50), instr_b VARCHAR(50),
-        epic_a VARCHAR(100), epic_b VARCHAR(100), direction_a VARCHAR(10), direction_b VARCHAR(10),
-        size_a DECIMAL(10,4), size_b DECIMAL(10,4), deal_id_a VARCHAR(50), deal_id_b VARCHAR(50),
-        entry_z DECIMAL(8,4), stop_z DECIMAL(8,4), target_z DECIMAL(8,4), close_z DECIMAL(8,4),
-        close_reason VARCHAR(30), ai_confidence INTEGER, status VARCHAR(20) DEFAULT 'open',
-        partial_close BOOLEAN DEFAULT false, profit_loss DECIMAL(10,2),
-        opened_at TIMESTAMPTZ DEFAULT NOW(), closed_at TIMESTAMPTZ
-      )`.catch(()=>{});
-      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS partial_close BOOLEAN DEFAULT false`.catch(()=>{});
-      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS profit_loss DECIMAL(10,2)`.catch(()=>{});
-      await pSql`ALTER TABLE pairs_trades ADD COLUMN IF NOT EXISTS peak_upl DECIMAL(10,2)`.catch(()=>{});
-      const openPairs = await pSql`SELECT id, pair_id, instr_a, instr_b, direction_a, direction_b,
-        size_a, size_b, deal_id_a, deal_id_b,
-        entry_z, stop_z, target_z, opened_at, peak_upl
-        FROM pairs_trades WHERE status='open'`.catch(()=>({rows:[]}));
-      const openPairIds = new Set(openPairs.rows.map(r=>r.pair_id));
-      L(`Open pairs: ${openPairs.rows.length}/${cfg.pairsMaxSlots}`);
-
-      // ── COOLDOWN: don't re-enter a pair within cooldown period ──────────────
-      const recentStops = await pSql`
-        SELECT pair_id, close_reason, closed_at FROM pairs_trades
-        WHERE status = 'closed'
-        AND (
-          (close_reason IN ('stop_loss','daily_loss','manual_stop','orphaned_leg','trail_stop') AND closed_at > NOW() - INTERVAL '24 hours')
-          OR
-          (close_reason = 'mean_revert' AND closed_at > NOW() - INTERVAL '12 hours')
-        )
-      `.catch(()=>({rows:[]}));
-      const cooledOutPairs = new Set(recentStops.rows.map(r=>r.pair_id));
-      if(cooledOutPairs.size > 0) {
-        recentStops.rows.forEach(r => {
-          const hrs = r.close_reason === 'mean_revert' ? 12 : 24;
-          const expiresAt = new Date(new Date(r.closed_at).getTime() + hrs*60*60*1000);
-          const minsLeft = Math.round((expiresAt - Date.now()) / 60000);
-          L(`Pairs cooldown: ${r.pair_id} (${r.close_reason}) — ${minsLeft}m remaining`);
-        });
-      }
-
-    // ── EUR/USD TRIANGULATION LAG DETECTOR ──────────────────────────────────
-    // Finding 5: EUR/USD lags GBP/USD by ~30min due to triangular relationship
-    // When GBP/USD moves significantly, EUR/USD should follow — trade the lag
-    try {
-      const {sql:triSql} = require('@vercel/postgres');
-      const [gbpRow, eurRow] = await Promise.all([
-        triSql`SELECT close_price FROM price_history WHERE instrument='GBP/USD'
-               AND resolution='MINUTE' AND candle_time > NOW() - INTERVAL '45 minutes'
-               ORDER BY candle_time ASC`.catch(()=>({rows:[]})),
-        triSql`SELECT close_price FROM price_history WHERE instrument='EUR/USD'
-               AND resolution='MINUTE' AND candle_time > NOW() - INTERVAL '45 minutes'
-               ORDER BY candle_time ASC`.catch(()=>({rows:[]}))
-      ]);
-
-      if(gbpRow.rows.length >= 5 && eurRow.rows.length >= 5) {
-        const gbpFirst = parseFloat(gbpRow.rows[0].close_price);
-        const gbpLast = parseFloat(gbpRow.rows[gbpRow.rows.length-1].close_price);
-        const eurFirst = parseFloat(eurRow.rows[0].close_price);
-        const eurLast = parseFloat(eurRow.rows[eurRow.rows.length-1].close_price);
-
-        const gbpMove = (gbpLast - gbpFirst) / gbpFirst * 100;
-        const eurMove = (eurLast - eurFirst) / eurFirst * 100;
-        const divergence = Math.abs(gbpMove - eurMove);
-
-        // GBP moved >0.1% but EUR hasn't caught up (divergence >0.05%)
-        if(Math.abs(gbpMove) > 0.1 && divergence > 0.05) {
-          const lagDir = gbpMove > 0 ? 'BUY' : 'SELL';
-          L(`💡 EUR/USD triangulation lag: GBP/USD ${gbpMove>0?'+':''}${gbpMove.toFixed(3)}% | EUR/USD ${eurMove>0?'+':''}${eurMove.toFixed(3)}% | divergence ${divergence.toFixed(3)}% — EUR/USD should ${lagDir}`);
-        }
-      }
-    } catch(e) { /* skip */ }
-
-      // Check if any open pairs need closing (Z-score reverted or stopped)
-      for(const pt of openPairs.rows) {
-        const pairDef = PAIRS_DEFINITIONS.find(p=>p.id===pt.pair_id);
-        if(!pairDef) continue;
-        const pz = pairsZScores[pt.instr_a];
-        if(!pz) continue;
-        const currentZ = pz.zscore;
-        // Use per-pair thresholds from backtest optimisation
-        const pairExitZ = pairDef.exitZ || cfg.pairsZTarget;
-        const pairStopZ = pairDef.stopZ || cfg.pairsZStop;
-        // Days held for this pairs trade
-        const pairDaysHeld = pt.opened_at
-          ? (Date.now() - new Date(pt.opened_at).getTime()) / (1000*60*60*24) : 0;
-        const pairMaxHold = 90; // safety limit — backtest shows 56d was still a winner
-
-        // ── TRAILING PROFIT STOP ─────────────────────────────────────────────
-        // Calculate current combined UPL from both legs
-        let currentUpl = 0;
-        let uplCalcOk = false;
-        try {
-          const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-          const posD = await posR.json();
-          for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
-            const pos = (posD.positions||[]).find(p=>p.position.dealId===dealId);
-            if(pos) {
-              const dir = pos.position.direction;
-              const sz = pos.position.size || pos.position.dealSize;
-              const openLvl = pos.position.openLevel;
-              const curLvl = pos.market.bid || openLvl;
-              currentUpl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
-              uplCalcOk = true;
-            }
-          }
-        } catch(e) { L('UPL calc error: ' + e.message); }
-
-        if(uplCalcOk) {
-          const activationThreshold = balance * (cfg.pairsTrailActivationPct / 100);
-          const peakUpl = parseFloat(pt.peak_upl || 0);
-
-          // Update peak if current UPL is higher
-          if(currentUpl > peakUpl) {
-            await pSql`UPDATE pairs_trades SET peak_upl=${parseFloat(currentUpl.toFixed(2))} WHERE id=${pt.id}`.catch(()=>{});
-            if(currentUpl >= activationThreshold && peakUpl < activationThreshold) {
-              L(`Pairs trail activated: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} >= activation £${activationThreshold.toFixed(2)}`);
-
-              // Determine if there's a dominant leg (size ratio >= 3×)
-              const sizeA = parseFloat(pt.size_a || 0);
-              const sizeB = parseFloat(pt.size_b || 0);
-              const isDominantA = sizeA >= sizeB * cfg.pairsDominantLegRatio;
-              const isDominantB = sizeB >= sizeA * cfg.pairsDominantLegRatio;
-              const dominantDealId = isDominantA ? pt.deal_id_a : isDominantB ? pt.deal_id_b : null;
-
-              if(dominantDealId) {
-                // Set IG trailing stop on dominant leg — real-time protection
-                try {
-                  const posR2 = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-                  const posD2 = await posR2.json();
-                  const domPos = (posD2.positions||[]).find(p=>p.position.dealId===dominantDealId);
-                  if(domPos) {
-                    const curPrice = domPos.market.bid || domPos.position.openLevel;
-                    const trailDist = Math.round(curPrice * 0.003); // 0.3% of price as trail distance
-                    const updateBody = { trailingStop: true, trailingStopDistance: trailDist, trailingStopIncrement: 1 };
-                    const ur = await fetch(`${igBase}/positions/otc/${dominantDealId}`, {
-                      method: 'PUT', headers:{...igH,'Version':'2'}, body:JSON.stringify(updateBody)
-                    });
-                    const ud = await ur.json();
-                    if(ud.dealReference) L(`Pairs trail: IG trailing stop set on dominant leg ${dominantDealId} dist:${trailDist}pts`);
-                  }
-                } catch(e) { L('IG trailing stop error: ' + e.message); }
-              }
-            }
-          }
-
-          // Check if trail retreat triggered (engine-based for non-dominant or equal pairs)
-          const newPeak = Math.max(currentUpl, peakUpl);
-          const retreatThreshold = newPeak * (1 - cfg.pairsTrailRetreatPct / 100);
-          const trailTriggered = newPeak >= activationThreshold && currentUpl < retreatThreshold && currentUpl > 0;
-
-          if(trailTriggered && !shouldClose) {
-            L(`Pairs trail triggered: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} retreated from peak £${newPeak.toFixed(2)} (close level £${retreatThreshold.toFixed(2)})`);
-            // Close both legs
-            let totalPnl = 0;
-            try {
-              const posR3 = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-              const posD3 = await posR3.json();
-              for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
-                const pos = (posD3.positions||[]).find(p=>p.position.dealId===dealId);
-                if(pos) {
-                  const dir = pos.position.direction;
-                  const sz = pos.position.size || pos.position.dealSize;
-                  const openLvl = pos.position.openLevel;
-                  const curLvl = pos.market.bid || openLvl;
-                  totalPnl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
-                  const closeBody={epic:pos.market.epic,direction:dir==='BUY'?'SELL':'BUY',
-                    size:sz,orderType:'MARKET',expiry:'DFB',
-                    guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
-                  await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
-                }
-              }
-            } catch(e) { L('Trail close error: ' + e.message); }
-            await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ},
-              close_reason='trail_stop', profit_loss=${parseFloat(totalPnl.toFixed(2))}, closed_at=NOW()
-              WHERE id=${pt.id}`.catch(()=>{});
-            L(`Pairs trail closed: ${pt.pair_id} P&L:£${totalPnl.toFixed(2)}`);
-            continue; // skip normal close logic
-          }
-          L(`Pairs trail: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} peak £${newPeak.toFixed(2)} activation £${activationThreshold.toFixed(2)}${newPeak >= activationThreshold ? ` close@£${retreatThreshold.toFixed(2)}` : ''}`);
-        }
-
-        const shouldClose =
-          (pt.direction_a==='BUY' && (currentZ >= -pairExitZ || currentZ <= -pairStopZ)) ||
-          (pt.direction_a==='SELL' && (currentZ <= pairExitZ || currentZ >= pairStopZ)) ||
-          pairDaysHeld >= pairMaxHold; // 90-day safety limit
-
-        if(shouldClose) {
-          const reason = pairDaysHeld >= pairMaxHold ? 'max_hold'
-            : Math.abs(currentZ) <= pairExitZ ? 'mean_revert' : 'stop_loss';
-          L(`Pairs close: ${pt.instr_a}/${pt.instr_b} Z=${currentZ.toFixed(2)} (${reason})`);
-          // Close both legs and calculate actual P&L
-          let totalPnl = 0;
-          for(const dealId of [pt.deal_id_a, pt.deal_id_b].filter(Boolean)) {
-            const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-            const posD = await posR.json();
-            const pos = (posD.positions||[]).find(p=>p.position.dealId===dealId);
-            if(pos) {
-              const dir = pos.position.direction;
-              const sz = pos.position.size || pos.position.dealSize;
-              const openLvl = pos.position.openLevel;
-              const curLvl = pos.market.bid || openLvl;
-              const upl = dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
-              totalPnl += upl;
-              const closeBody={epic:pos.market.epic,direction:dir==='BUY'?'SELL':'BUY',
-                size:sz,orderType:'MARKET',expiry:'DFB',
-                guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
-              await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
-            }
-          }
-          await pSql`UPDATE pairs_trades SET status='closed', close_z=${currentZ}, close_reason=${reason},
-            profit_loss=${parseFloat(totalPnl.toFixed(2))}, closed_at=NOW()
-            WHERE pair_id=${pt.pair_id} AND status='open'`.catch(()=>{});
-          L(`Pairs closed: ${pt.instr_a}/${pt.instr_b} reason:${reason} P&L:£${totalPnl.toFixed(2)}`);
-        }
-      }
-
-      // Look for new pairs signals
-      if(openPairs.rows.length < cfg.pairsMaxSlots) {
-        for(const pair of PAIRS_DEFINITIONS) {
-          if(openPairIds.has(pair.id)) continue; // already open
-          if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in cooldown — skipping`); continue; }
-
-          // Conflict check — don't open if any instrument is already in an open pairs trade
-          // e.g. don't open Copper/Gold if Silver/Copper is already open (double Copper exposure)
-          const conflictingPair = openPairs.rows.find(op =>
-            op.instr_a === pair.instrA || op.instr_b === pair.instrA ||
-            op.instr_a === pair.instrB || op.instr_b === pair.instrB
-          );
-          if(conflictingPair) {
-            L(`Pairs: ${pair.instrA}/${pair.instrB} — instrument conflict with open ${conflictingPair.pair_id} (${conflictingPair.instr_a}/${conflictingPair.instr_b}) — skipping`);
-            continue;
-          }
-          const pz = pairsZScores[pair.instrA];
-          if(!pz || pz.n < pair.minDays) continue;
-          const absZ = Math.abs(pz.zscore);
-          // Use per-pair entry threshold from backtest optimisation
-      const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
-      if(absZ < pairEntryZ) continue;
-
-      // Volume confirmation for pairs — check if divergence driven by volume
-      const pairVolRatioA = pz?.volRatioA || 1.0;
-      const pairVolRatioB = pz?.volRatioB || 1.0;
-      const pairVolConfirmed = pairVolRatioA > 1.2 || pairVolRatioB > 1.2;
-      const pairVolWeak = pairVolRatioA < 0.6 && pairVolRatioB < 0.6;
-      if(pairVolWeak) {
-        L(`Pairs ${pair.instrA}/${pair.instrB}: ⚠️ Low volume on both legs (${pairVolRatioA}x, ${pairVolRatioB}x) — divergence may not revert`);
-      } else if(pairVolConfirmed) {
-        L(`Pairs ${pair.instrA}/${pair.instrB}: ✅ Volume confirmed (${pairVolRatioA}x, ${pairVolRatioB}x) — institutional divergence`);
-      }
-
-          // Direction: negative Z = A cheap vs B → BUY A, SELL B
-          const dirA = pz.zscore < 0 ? 'BUY' : 'SELL';
-          const dirB = pz.zscore < 0 ? 'SELL' : 'BUY';
-          L(`Pairs signal: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)} ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}`);
-
-          // AI confirmation
-          const pairsPrompt = `Trading risk manager. Approve this PAIRS trade?
-PAIR: ${pair.instrA} vs ${pair.instrB}
-STRATEGY: Statistical arbitrage — Z-score divergence from ${pz.n}-day mean
-Z-SCORE: ${pz.zscore.toFixed(2)} (entry threshold: ±${pairEntryZ})
-DIRECTION: ${dirA} ${pair.instrA} / ${dirB} ${pair.instrB}
-VOLUME: ${pair.instrA} ${pairVolRatioA}x avg | ${pair.instrB} ${pairVolRatioB}x avg${pairVolConfirmed?' — HIGH VOLUME (institutional)':pairVolWeak?' — LOW VOLUME (retail noise)':' — normal'}
-DESCRIPTION: ${pair.description}
-RATIO: Current ${(pz.current||0).toFixed(4)} vs Mean ${(pz.mean||0).toFixed(4)} | σ: ${(pz.std||0).toFixed(4)}
-STOP: Z=±${pair.stopZ} (${(pair.stopZ-absZ).toFixed(1)}σ away)
-EXIT TARGET: Z=±${pair.exitZ} (${(absZ-pair.exitZ).toFixed(1)}σ reversion needed)
-DATA: ${pz.n} days of history | Signal strength: ${absZ>=2.5?'Strong':absZ>=2?'Moderate':'Weak'}
-LIVE TRACK RECORD: This pairs strategy has been live traded. TOPIX/S&P 500 has closed 2 winning trades (+£18.35 and +£29.31). The strategy parameters were grid-searched on 500 days of clean data. 15-35 trades is statistically valid for this strategy — do NOT reject on sample size ≥15.
-APPROVAL RULES:
-1. Approve if |Z| ≥ ${pairEntryZ} — MANDATORY. Current Z=${absZ.toFixed(2)} ${absZ>=pairEntryZ?'✅ PASSES':'❌ FAILS'}
-2. Sufficient history ≥ ${pair.minDays} days — current ${pz.n}d ${pz.n>=pair.minDays?'✅ PASSES':'❌ FAILS'}
-3. No fundamental reason for PERMANENT divergence (temporary macro divergence is fine)
-4. Do NOT reject for: weak signal strength at threshold, sample size 15-35 trades, short lookback (it is backtest-optimised), slippage concerns, currency exposure, or theoretical objections not backed by data
-Account P&L: ${plPct.toFixed(2)}% | Open positions: ${directionalOpen}/${cfg.maxPositions} directional | ${openPairs.rows.length}/${cfg.pairsMaxSlots} pairs
-Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
-
-          let pairsApproved = false; let pairsConfidence = 0; let pairsReasoning = '';
-          try {
-            const base2 = process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
-            const aiR = await fetch(`${base2}/api/claude`,{method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:150,
-                messages:[{role:'user',content:pairsPrompt}]})});
-            if(aiR.ok){
-              const aiD = await aiR.json();
-              const txt = aiD.content?.[0]?.text||'';
-              const clean = txt.replace(/```json|```/g,'').trim();
-              const parsed = JSON.parse(clean);
-              pairsApproved = parsed.approved===true;
-              pairsConfidence = parsed.confidence||0;
-              pairsReasoning = parsed.reasoning||'';
-            }
-          } catch(e){ L(`Pairs AI error: ${e.message}`); }
-
-          L(`Pairs AI: ${pairsApproved?'✅':'❌'}(${pairsConfidence}%) ${pairsReasoning}`);
-          if(!pairsApproved || pairsConfidence < cfg.aiConfidenceMin) continue;
-
-          // Size both legs — pairs trades exempt from profit lock
-          // (multi-day positions shouldn't be blocked by intraday P&L)
-          const riskAmt = balance * cfg.pairsRiskPct;
-          const zStopDist = pair.stopZ - absZ; // σ distance to stop (per-pair threshold)
-          // Get current prices for sizing — IG market snapshot primary, DB candle fallback
-          const [priceFeedA, priceFeedB] = await Promise.all([
-            fetch(`${igBase}/markets/${pair.epicA}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
-            fetch(`${igBase}/markets/${pair.epicB}`,{headers:{...igH,'Version':'3'}}).then(r=>r.json()).catch(()=>null),
-          ]);
-          let priceA = priceFeedA?.snapshot?.bid || 0;
-          let priceB = priceFeedB?.snapshot?.bid || 0;
-          let minStopA = priceFeedA?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
-          let minStopB = priceFeedB?.dealingRules?.minNormalStopOrLimitDistance?.value || 5;
-          let usingYahooLive = false;
-
-          // If IG snapshot blocked, try Yahoo Finance for live prices (commodity pairs)
-          if((!priceA || !priceB) && (pair.yahooSymbolA || pair.yahooSymbolB)) {
-            try {
-              const fetchYahoo = async (sym) => {
-                const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
-                  {headers:{'User-Agent':'Mozilla/5.0'}});
-                const d = await r.json();
-                return d.chart?.result?.[0]?.meta?.regularMarketPrice || null;
-              };
-              if(!priceA && pair.yahooSymbolA) {
-                const yp = await fetchYahoo(pair.yahooSymbolA);
-                if(yp > 0) {
-                  priceA = yp; // Yahoo price already in same units as DB
-                  usingYahooLive = true;
-                  L(`Pairs: ${pair.instrA} live price from Yahoo ${yp.toFixed(2)} (IG snapshot blocked)`);
-                }
-              }
-              if(!priceB && pair.yahooSymbolB) {
-                const yp = await fetchYahoo(pair.yahooSymbolB);
-                if(yp > 0) {
-                  priceB = yp;
-                  usingYahooLive = true;
-                  L(`Pairs: ${pair.instrB} live price from Yahoo ${yp.toFixed(2)} (IG snapshot blocked)`);
-                }
-              }
-            } catch(e) { L(`Pairs: Yahoo price fallback error — ${e.message}`); }
-          }
-
-          // Fallback to last DB candle close if still no price
-          if(!priceA || !priceB) {
-            try {
-              const {sql: priceSql} = require('@vercel/postgres');
-              if(!priceA) {
-                const rA = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrA} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
-                if(rA.rows.length) {
-                  const raw = parseFloat(rA.rows[0].close_price);
-                  priceA = raw * (pair.dbPriceScaleA || 1.0);
-                  L(`Pairs: ${pair.instrA} using DB price ${priceA.toFixed(1)} (scaled from ${raw}, IG snapshot unavailable)`);
-                }
-              }
-              if(!priceB) {
-                const rB = await priceSql`SELECT close_price FROM price_history WHERE instrument=${pair.instrB} AND resolution='DAY' ORDER BY candle_time DESC LIMIT 1`;
-                if(rB.rows.length) {
-                  const raw = parseFloat(rB.rows[0].close_price);
-                  priceB = raw * (pair.dbPriceScaleB || 1.0);
-                  L(`Pairs: ${pair.instrB} using DB price ${priceB.toFixed(1)} (scaled from ${raw}, IG snapshot unavailable)`);
-                }
-              }
-            } catch(e) { L(`Pairs: DB price fallback error — ${e.message}`); }
-          }
-
-          if(!priceA || !priceB){ L(`Pairs: could not get prices for ${pair.instrA}/${pair.instrB} — skipping`); continue; }
-
-          // When using Yahoo prices, set sensible IG minimum stops for commodity pairs
-          if(usingYahooLive) {
-            // IG minimum stops for commodity spread bets (in IG price points)
-            const IG_MIN_STOPS = {
-              'CS.D.USCSI.TODAY.IP': 50,   // Silver ~50 points min stop
-              'CS.D.COPPER.TODAY.IP': 100, // Copper ~100 points min stop
-              'CC.D.LCO.USS.IP': 50,       // Brent ~50 points min stop
-              'CS.D.USCGC.TODAY.IP': 30,   // Gold ~30 points min stop
-            };
-            minStopA = IG_MIN_STOPS[pair.epicA] || minStopA;
-            minStopB = IG_MIN_STOPS[pair.epicB] || minStopB;
-          }
-          // Determine if this is a commodity pair (needs live prices for sizing)
-          // vs index/FX pair (can use recent DB prices safely)
-          const COMMODITY_EPICS_SET = new Set([
-            'CS.D.USCSI.TODAY.IP','CS.D.COPPER.TODAY.IP','CC.D.LCO.USS.IP',
-            'CS.D.USCGC.TODAY.IP','CS.D.USCSI.TODAY.IP','CS.D.USSOI.TODAY.IP'
-          ]);
-          const isCommodityPair = COMMODITY_EPICS_SET.has(pair.epicA) || COMMODITY_EPICS_SET.has(pair.epicB);
-
-          const usingDbFallback = (!priceFeedA?.snapshot?.bid && !usingYahooLive) ||
-                                   (!priceFeedB?.snapshot?.bid && !usingYahooLive);
-          if(usingDbFallback) {
-            if(isCommodityPair) {
-              // Commodity pairs need live prices for correct unit-based sizing
-              L(`Pairs: ${pair.instrA}/${pair.instrB} — market closed or prices unavailable, skipping until live prices available`);
-              continue;
-            } else {
-              // Index/FX pairs — allow execution with DB prices if fresh enough (< 48h)
-              // Prices are in consistent IG units so sizing is reliable
-              const dbAge = priceA > 0 ? 'DB candle' : 'unavailable';
-              if(!priceA || !priceB) {
-                L(`Pairs: ${pair.instrA}/${pair.instrB} — no prices available, skipping`);
-                continue;
-              }
-              L(`Pairs: ${pair.instrA}/${pair.instrB} — using DB prices for sizing (index pair, no live required)`);
-            }
-          }
-
-          // Stop distance in points (IG units)
-          const pzStats = pairsZScores[pair.instrA];
-          let stopPtsA, stopPtsB;
-
-          if(usingYahooLive) {
-            // Yahoo prices in commodity units — use IG minimum stops directly
-            // minStopA/B already set to IG-appropriate values above
-            stopPtsA = Math.round(minStopA * 2.0); // 2× minimum for reasonable stop
-            stopPtsB = Math.round(minStopB * 2.0);
-          } else {
-            // IG prices — derive stop from Z-score std × price scale
-            const scaleA = CONTRACT_PRICE_SCALE[pair.epicA] || 1.0;
-            const scaleB = CONTRACT_PRICE_SCALE[pair.epicB] || 1.0;
-            const rawStd = pzStats?.std || 0.01;
-            stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * rawStd * scaleA * (priceB * scaleB)));
-            stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * rawStd * scaleB * (priceA * scaleA)));
-          }
-
-          const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
-          const sizeB = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsB).toFixed(2)), cfg.maxSizePerTrade));
-
-          L(`Pairs sizing: ${pair.instrA} £${sizeA}/pt stop ${stopPtsA}pts | ${pair.instrB} £${sizeB}/pt stop ${stopPtsB}pts`);
-
-          // Open leg A
-          let dealIdA = null, dealIdB = null;
-          try {
-            const bodyA = {epic:pair.epicA,direction:dirA,size:sizeA,orderType:'MARKET',
-              expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
-              dealType:'SPREADBET'};
-            // Only attach stop distance when using IG prices (in correct IG units)
-            // Yahoo-priced pairs use Z-score engine stop instead of IG attached stop
-            if(!usingYahooLive) bodyA.stopDistance = stopPtsA * 3;
-            const rA = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyA)});
-            const dA = await rA.json();
-            if(dA.dealReference){
-              await new Promise(r=>setTimeout(r,500));
-              const cA = await fetch(`${igBase}/confirms/${dA.dealReference}`,{headers:{...igH,'Version':'1'}});
-              const cdA = await cA.json();
-              if(cdA.dealStatus==='ACCEPTED'){ dealIdA=cdA.dealId; L(`Pairs leg A: ✅ ${pair.instrA} ${dirA} at ${cdA.level}`); }
-              else { L(`Pairs leg A rejected: ${cdA.reason}`); continue; }
-            }
-          } catch(e){ L(`Pairs leg A error: ${e.message}`); continue; }
-
-          // Open leg B — if this fails, close leg A immediately
-          try {
-            const bodyB = {epic:pair.epicB,direction:dirB,size:sizeB,orderType:'MARKET',
-              expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
-              dealType:'SPREADBET'};
-            if(!usingYahooLive) bodyB.stopDistance = stopPtsB * 3;
-            const rB = await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(bodyB)});
-            const dB = await rB.json();
-            if(dB.dealReference){
-              await new Promise(r=>setTimeout(r,500));
-              const cB = await fetch(`${igBase}/confirms/${dB.dealReference}`,{headers:{...igH,'Version':'1'}});
-              const cdB = await cB.json();
-              if(cdB.dealStatus==='ACCEPTED'){ dealIdB=cdB.dealId; L(`Pairs leg B: ✅ ${pair.instrB} ${dirB} at ${cdB.level}`); }
-              else {
-                L(`Pairs leg B rejected: ${cdB.reason} — closing leg A`);
-                // Close leg A since leg B failed
-                const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
-                const posD = await posR.json();
-                const posA = (posD.positions||[]).find(p=>p.position.dealId===dealIdA);
-                if(posA){ const cbA={epic:pair.epicA,direction:dirA==='BUY'?'SELL':'BUY',size:sizeA,orderType:'MARKET',expiry:'DFB',guaranteedStop:false,forceOpen:false,currencyCode:'GBP',dealType:'SPREADBET'};
-                  await fetch(`${igBase}/positions/otc`,{method:'POST',headers:{...igH,'Version':'1'},body:JSON.stringify(cbA)}); }
-                continue;
-              }
-            }
-          } catch(e){
-            L(`Pairs leg B error: ${e.message} — closing leg A`);
-            continue;
-          }
-
-          // Both legs open — save to DB
-          try {
-            await pSql`INSERT INTO pairs_trades (pair_id, instr_a, instr_b, epic_a, epic_b,
-              direction_a, direction_b, size_a, size_b, deal_id_a, deal_id_b,
-              entry_z, stop_z, target_z, ai_confidence, status, opened_at)
-              VALUES (${pair.id},${pair.instrA},${pair.instrB},${pair.epicA},${pair.epicB},
-              ${dirA},${dirB},${sizeA},${sizeB},${dealIdA},${dealIdB},
-              ${pz.zscore},${pz.zscore<0?-pair.stopZ:pair.stopZ},${pz.zscore<0?-pair.exitZ:pair.exitZ},
-              ${pairsConfidence},'open',NOW())`;
-            L(`Pairs trade saved: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)}`);
-          } catch(e){ L(`Pairs DB save error: ${e.message}`); }
-
-          await sendNotify('trade',`⚖️ Pairs Trade: ${pair.instrA}/${pair.instrB}`,
-            `${dirA} ${pair.instrA} £${sizeA}/pt | ${dirB} ${pair.instrB} £${sizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${pairEntryZ} | Exit: ±${pair.exitZ} | Stop: ±${pair.stopZ}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
-          break; // One pairs trade per run
-        }
-      }
-    } catch(e){ L(`Pairs trading error: ${e.message}`); }
-  }
-
-  L('No trades placed');
-  return res.status(200).json({action:'no_trades',signals:signals.length,log});
-  } catch(topErr) {
-    console.error('[Autotrade top-level error]', topErr.message, topErr.stack);
-    return res.status(500).json({error:topErr.message, stack:topErr.stack?.split('\n')[1]||'', log:[]});
-  }
-};
-
-// ── PRICE DATA ────────────────────────────────────────────────────────────────
-function calcVolumeRatio(volumes, lookback=20) {
-  // Returns ratio of recent volume vs average — >1.5 = high vol, <0.7 = low vol
-  if(!volumes || volumes.length < 5) return 1.0;
-  const recent = volumes[volumes.length-1] || 0;
-  const avg = volumes.slice(-lookback).reduce((a,b)=>a+b,0) / Math.min(lookback, volumes.length);
-  return avg > 0 ? parseFloat((recent/avg).toFixed(2)) : 1.0;
+    const data=await fetchPricesWithCache(chartState.epic,chartState.resolution,chartState.count);
+    if(!data){setText('chart-updated','⚠️ No data available');return;}
+    const candles=(data.prices||[]).map(p=>({time:p.snapshotTime,open:(p.openPrice?.bid)||0,high:(p.highPrice?.bid)||0,low:(p.lowPrice?.bid)||0,close:(p.closePrice?.bid)||0})).filter(c=>c.close>0);
+    if(!candles.length){setText('chart-updated','No candles');return;}
+    chartState.candles=candles;drawChart(candles);calculateAndRenderSignals(candles);loadSentiment();
+    const last=candles[candles.length-1];const prev=candles[candles.length-2];
+    if(last&&prev){const chg=((last.close-prev.close)/prev.close*100);setText('chart-price',last.close.toLocaleString('en-GB'));const cc=document.getElementById('chart-change');if(cc){cc.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';cc.style.color=chg>=0?'var(--green)':'var(--red)';}}
+    setText('chart-updated','Updated '+new Date().toLocaleTimeString('en-GB')+' ('+candles.length+' candles)');
+  }catch(e){setText('chart-updated','Error: '+e.message);}
 }
 
-async function getDbPrices(epic,limit,L){
-  try{
-    const {sql}=require('@vercel/postgres');
-    const r=await sql`SELECT close_price, volume FROM price_history WHERE (epic=${epic} OR instrument=${epic}) AND resolution='DAY' AND close_price>0 ORDER BY candle_time DESC LIMIT ${limit}`;
-    if(r.rows.length<5)return null;
-    const closes = r.rows.map(row=>parseFloat(row.close_price)).reverse();
-    closes._volumes = r.rows.map(row=>parseInt(row.volume||0)).reverse();
-    return closes;
-  }catch(e){return null;}
+function drawChart(candles){
+  const canvas=document.getElementById('chart-canvas');if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width*dpr;canvas.height=280*dpr;canvas.style.width=rect.width+'px';canvas.style.height='280px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const W=rect.width,H=280,PAD={top:20,right:20,bottom:30,left:60};
+  const chartW=W-PAD.left-PAD.right,chartH=H-PAD.top-PAD.bottom;
+  const textCol='#8b949e',gridCol='rgba(255,255,255,0.06)';
+  ctx.clearRect(0,0,W,H);
+  const highs=candles.map(c=>c.high),lows=candles.map(c=>c.low);
+  const maxP=Math.max(...highs),minP=Math.min(...lows),range=maxP-minP||1;
+  const xS=i=>PAD.left+(i/Math.max(candles.length-1,1))*chartW;
+  const yS=p=>PAD.top+chartH-((p-minP)/range*chartH);
+  ctx.strokeStyle=gridCol;ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=PAD.top+(chartH/4)*i;ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(W-PAD.right,y);ctx.stroke();ctx.fillStyle=textCol;ctx.font='11px sans-serif';ctx.textAlign='right';ctx.fillText((maxP-(range/4)*i).toLocaleString('en-GB',{maximumFractionDigits:1}),PAD.left-6,y+4);}
+  ctx.textAlign='center';const ls=Math.max(1,Math.floor(candles.length/6));
+  candles.forEach((c,i)=>{if(i%ls!==0)return;const x=xS(i);const d=new Date((c.time||'').replace(/\//g,'-').replace(' ','T'));ctx.fillStyle=textCol;ctx.fillText(chartState.resolution==='HOUR'||chartState.resolution==='MINUTE'?d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}),x,H-6);});
+  if(chartState.type==='candle'){
+    const cw=Math.max(2,chartW/candles.length*0.6);
+    candles.forEach((c,i)=>{const x=xS(i);const up=c.close>=c.open;ctx.strokeStyle=up?'#3fb950':'#f85149';ctx.fillStyle=up?'#3fb950':'#f85149';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,yS(c.high));ctx.lineTo(x,yS(c.low));ctx.stroke();const bt=yS(Math.max(c.open,c.close));const bh=Math.max(1,Math.abs(yS(c.open)-yS(c.close)));ctx.fillRect(x-cw/2,bt,cw,bh);});
+  }else{
+    const grad=ctx.createLinearGradient(0,PAD.top,0,PAD.top+chartH);grad.addColorStop(0,'rgba(88,166,255,0.15)');grad.addColorStop(1,'rgba(88,166,255,0)');
+    ctx.beginPath();candles.forEach((c,i)=>{const x=xS(i),y=yS(c.close);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#58a6ff';ctx.lineWidth=1.5;ctx.stroke();ctx.lineTo(xS(candles.length-1),PAD.top+chartH);ctx.lineTo(xS(0),PAD.top+chartH);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  }
+  const closes=candles.map(c=>c.close);if(closes.length>=20){ctx.beginPath();ctx.strokeStyle='rgba(210,153,34,0.7)';ctx.lineWidth=1;ctx.setLineDash([4,3]);for(let i=19;i<candles.length;i++){const sma=closes.slice(i-19,i+1).reduce((a,b)=>a+b,0)/20;i===19?ctx.moveTo(xS(i),yS(sma)):ctx.lineTo(xS(i),yS(sma));}ctx.stroke();ctx.setLineDash([]);}
 }
 
-async function getIGPrices(epic,count,igBase,igH){
-  const key=`${epic}_DAY_${count}`;
-  const c=priceCache[key];
-  if(c&&Date.now()-c.ts<CACHE_TTL)return c.data;
-  const r=await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=${count}&pageSize=0`,{headers:{...igH,'Version':'3'}});
-  if(r.status===403){console.log('[IG Historical] 403 blocked');return null;}
-  if(!r.ok)return null;
-  const d=await r.json();
-  const candles=(d.prices||[]).filter(p=>p.closePrice?.bid>0).map(p=>({
-    close:p.closePrice.bid,high:p.highPrice?.bid||p.closePrice.bid,
-    low:p.lowPrice?.bid||p.closePrice.bid,open:p.openPrice?.bid||p.closePrice.bid
-  }));
-  if(candles.length>0)priceCache[key]={data:candles,ts:Date.now()};
-  return candles.length>=5?candles:null;
-}
-
-// ── INDICATORS ────────────────────────────────────────────────────────────────
-function calcRSI(closes,period=14){
-  const n=closes.length;if(n<period+1)return 50;
-  let g=0,l=0;
-  for(let i=n-period;i<n;i++){const d=closes[i]-closes[i-1];if(d>0)g+=d;else l+=Math.abs(d);}
-  const ag=g/period,al=l/period;
-  return al===0?100:100-(100/(1+ag/al));
-}
-
-function calcEMA(closes,period){
-  if(closes.length<period)return closes[closes.length-1];
-  const k=2/(period+1);
-  let ema=closes.slice(0,period).reduce((a,b)=>a+b,0)/period;
-  for(let i=period;i<closes.length;i++)ema=closes[i]*k+ema*(1-k);
-  return ema;
-}
-
-function calcScore(closes,regime){
-  const n=closes.length;if(n<5)return 0;let s=0;
-  const rsi=calcRSI(closes);
-  if(rsi<35)s+=2;else if(rsi<45)s+=1;else if(rsi>65)s-=2;else if(rsi>55)s-=1;
-  const sma5=closes.slice(-Math.min(5,n)).reduce((a,b)=>a+b,0)/Math.min(5,n);
-  const sma10=closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
-  if(sma5>sma10)s+=1;else s-=1;
-  const mom=n>=5?((closes[n-1]-closes[n-5])/closes[n-5])*100:0;
-  if(mom>1)s+=1;else if(mom<-1)s-=1;
-  return s;
+function calculateAndRenderSignals(candles){
+  const closes=candles.map(c=>c.close);const n=closes.length;if(n<5)return;
+  const rsi=calcRSI(closes,14);
+  const smaN=Math.min(20,n);const sma20=closes.slice(-smaN).reduce((a,b)=>a+b,0)/smaN;const sma50=closes.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
+  const ema12=calcEMA(closes,12);const ema26=calcEMA(closes,26);const macd=ema12-ema26;
+  const std=Math.sqrt(closes.slice(-smaN).reduce((a,b)=>a+Math.pow(b-sma20,2),0)/smaN);
+  const upper=sma20+2*std,lower=sma20-2*std,last=closes[n-1];
+  const bbS=last<lower?'buy':last>upper?'sell':'neutral';
+  const mom=n>=10?((closes[n-1]-closes[n-10])/closes[n-10]*100):0;
+  const signals=[
+    {name:'RSI (14)',value:rsi.toFixed(1),signal:rsi<30?'buy':rsi>70?'sell':'neutral',label:rsi<30?'Oversold':rsi>70?'Overbought':'Neutral'},
+    {name:'SMA '+smaN+'/'+smaN,value:sma20.toFixed(0)+'/'+sma50.toFixed(0),signal:sma20>sma50?'buy':'sell',label:sma20>sma50?'Bullish cross':'Bearish cross'},
+    {name:'MACD',value:macd.toFixed(2),signal:macd>0?'buy':'sell',label:macd>0?'Positive':'Negative'},
+    {name:'Bollinger',value:last.toFixed(0),signal:bbS,label:last<lower?'Below lower':last>upper?'Above upper':'Within bands'},
+    {name:'Momentum',value:(mom>=0?'+':'')+mom.toFixed(2)+'%',signal:mom>1?'buy':mom<-1?'sell':'neutral',label:''},
+  ];
+  chartState.indicators={rsi,sma20,sma50,macd,bbS,signals};
+  const sigCol={buy:'var(--green)',sell:'var(--red)',neutral:'var(--text2)'};
+  const sigBg={buy:'var(--green-dim)',sell:'var(--red-dim)',neutral:'var(--bg4)'};
+  const buys=signals.filter(s=>s.signal==='buy').length;const sells=signals.filter(s=>s.signal==='sell').length;
+  const el=document.getElementById('tech-signals');
+  if(el)el.innerHTML=signals.map(s=>`<div class="signal-item"><div><div style="font-weight:500">${s.name}</div><div style="font-size:11px;color:var(--text2)">${s.label||s.value}</div></div><div style="text-align:right"><div style="background:${sigBg[s.signal]};color:${sigCol[s.signal]};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${s.signal.toUpperCase()}</div><div style="font-size:11px;color:var(--text2);margin-top:2px">${s.value}</div></div></div>`).join('')+`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--green)">▲ ${buys} Buy</span><span style="color:var(--red)">▼ ${sells} Sell</span><span style="color:var(--text2)">● ${signals.length-buys-sells} Neutral</span></div>`;
+  const regime=detectRegime(closes);const badge=document.getElementById('chart-regime');
+  if(badge){badge.textContent=regime;badge.className='badge '+(regime==='uptrend'?'badge-buy':regime==='downtrend'?'badge-sell':'badge-neutral');}
 }
 
 function detectRegime(closes){
-  const n=closes.length;if(n<10)return'ranging';
-  
-  // SMA-based trend detection
-  const sma10 = closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
-  const sma20 = closes.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
-  const sma50 = closes.slice(-Math.min(50,n)).reduce((a,b)=>a+b,0)/Math.min(50,n);
-  const price = closes[n-1];
-  
-  // Slope of SMA20 over last 5 candles
-  const sma20_5ago = closes.slice(-Math.min(25,n),-5).slice(-Math.min(20,n-5)).reduce((a,b)=>a+b,0)/Math.min(20,n-5);
-  const slopePct = ((sma20 - sma20_5ago) / sma20_5ago) * 100;
-  
-  // Consecutive higher highs / lower lows
-  const recent10 = closes.slice(-Math.min(10,n));
-  let higherHighs=0, lowerLows=0;
-  for(let i=1;i<recent10.length;i++){
-    if(recent10[i]>recent10[i-1])higherHighs++;
-    else lowerLows++;
-  }
-  
-  // Strong uptrend: price > SMA10 > SMA20, slope up, more higher highs
-  if(price>sma10 && sma10>sma20 && slopePct>1.5 && higherHighs>lowerLows+2) return 'uptrend';
-  
-  // Strong downtrend: price < SMA10 < SMA20, slope down, more lower lows
-  if(price<sma10 && sma10<sma20 && slopePct<-1.5 && lowerLows>higherHighs+2) return 'downtrend';
-  
-  // Weak trend signals — use old slope method as tiebreaker
+  const n=closes.length;if(n<10)return'unknown';
   const mid=Math.floor(n/2);
   const h1=closes.slice(0,mid).reduce((a,b)=>a+b,0)/mid;
   const h2=closes.slice(mid).reduce((a,b)=>a+b,0)/(n-mid);
   const slope=((h2-h1)/h1)*100;
-  const recent=closes.slice(-5);
-  const rr=Math.max(...recent)-Math.min(...recent);
-  const tr=Math.max(...closes)-Math.min(...closes);
-  if(Math.abs(slope)>3&&rr/(tr||1)>0.3)return slope>0?'uptrend':'downtrend';
+  const recent=closes.slice(-5);const rr=Math.max(...recent)-Math.min(...recent);const tr=Math.max(...closes)-Math.min(...closes);
+  if(Math.abs(slope)>3&&rr/(tr||1)>0.3)return slope>0?'uptrend':'downtrend';return'ranging';
+}
+
+function calcRSI(closes,period){
+  if(closes.length<period+1)return 50;let g=0,l=0;
+  for(let i=closes.length-period;i<closes.length;i++){const d=closes[i]-closes[i-1];if(d>0)g+=d;else l+=Math.abs(d);}
+  const ag=g/period,al=l/period;return al===0?100:100-(100/(1+ag/al));
+}
+function calcEMA(closes,period){
+  if(closes.length<period)return closes[closes.length-1];
+  const k=2/(period+1);let ema=closes.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for(let i=period;i<closes.length;i++)ema=closes[i]*k+ema*(1-k);return ema;
+}
+
+async function loadSentiment(){
+  try{
+    const map={'IX.D.FTSE.DAILY.IP':'FTSE','IX.D.SPTRD.DAILY.IP':'SPTRD','IX.D.DAX.DAILY.IP':'DAX','IX.D.DOW.DAILY.IP':'DOW','CC.D.LCO.USS.IP':'LCO','CS.D.GBPUSD.TODAY.IP':'GBPUSD','CS.D.EURUSD.TODAY.IP':'EURUSD','CS.D.USDJPY.TODAY.IP':'USDJPY','CS.D.USCGC.TODAY.IP':'GOLD'};
+    const id=map[chartState.epic];if(!id){document.getElementById('sentiment-grid').innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment not available for this instrument</div>';return;}
+    const res=await igFetch('clientsentiment/'+id);const sg=document.getElementById('sentiment-grid');
+    if(!res.ok){if(sg)sg.innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment unavailable</div>';return;}
+    const data=await res.json();const lp=data.longPositionPercentage||50;const sp=data.shortPositionPercentage||50;
+    const signal=lp>60?'sell':lp<40?'buy':'neutral';const desc=lp>60?'Majority long — contrarian sell':lp<40?'Majority short — contrarian buy':'Mixed sentiment';
+    if(sg)sg.innerHTML=`<div style="grid-column:1/-1"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-weight:600;color:${signal==='buy'?'var(--green)':signal==='sell'?'var(--red)':'var(--text2)'}">${signal.toUpperCase()} — ${desc}</span></div><div style="height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;display:flex"><div style="width:${lp}%;background:var(--green)"></div><div style="width:${sp}%;background:var(--red)"></div></div><div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px"><span style="color:var(--green)">Long: ${lp.toFixed(1)}%</span><span style="color:var(--red)">Short: ${sp.toFixed(1)}%</span></div></div>`;
+  }catch(e){const sg=document.getElementById('sentiment-grid');if(sg)sg.innerHTML='<div class="empty" style="grid-column:1/-1">Sentiment unavailable</div>';}
+}
+
+async function getAIScore(){
+  const panel=document.getElementById('ai-score-result');if(!panel)return;
+  panel.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)"><span class="loading">●</span> Analysing...</div>';
+  const ind=chartState.indicators;if(!ind.signals){panel.innerHTML='<div style="padding:12px;color:var(--text2)">Load chart first.</div>';return;}
+  const signals=ind.signals;const buys=signals.filter(s=>s.signal==='buy').length;const sells=signals.filter(s=>s.signal==='sell').length;
+  const prompt=`Technical analyst. Analyse signals for ${chartState.name} and give recommendation.\n\nSIGNALS:\n${signals.map(s=>s.name+': '+s.signal.toUpperCase()+' ('+s.value+')').join('\n')}\nSummary: ${buys} Buy, ${sells} Sell\nPrice: ${document.getElementById('chart-price')?.textContent}\nTimeframe: ${chartState.resolution} x${chartState.count}\n\nJSON only: {"recommendation":"BUY","confidence":72,"reasoning":"2-3 sentences","keyLevel":"key level","risk":"main risk"}`;
+  try{
+    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+    const data=await res.json();const result=JSON.parse((data.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim());
+    const col=result.recommendation==='BUY'?'var(--green)':result.recommendation==='SELL'?'var(--red)':'var(--gold)';
+    panel.innerHTML=`<div style="text-align:center;margin-bottom:14px"><div style="font-size:24px;font-weight:700;color:${col}">${result.recommendation}</div><div style="font-size:36px;font-weight:700;font-family:var(--font-mono);color:${col}">${result.confidence}%</div></div><div style="font-size:13px;line-height:1.6;color:var(--text2)"><p>${result.reasoning}</p><div style="margin-top:8px"><strong style="color:var(--text1)">Key level:</strong> ${result.keyLevel}</div><div style="margin-top:4px"><strong style="color:var(--text1)">Risk:</strong> ${result.risk}</div></div>`;
+  }catch(e){panel.innerHTML='<div style="color:var(--red);padding:12px">Error: '+e.message+'</div>';}
+}
+
+// ─── AUTO-TRADE ───────────────────────────────────────────────────────────────
+async function checkAutoTradeStatus(){
+  try{
+    const secret=document.getElementById('at-cron-secret')?.value||'';
+    const res=await fetch('/api/autotrade',{headers:{'Authorization':'Bearer '+secret}});
+    const data=await res.json();const cfg=data.cfg||{};
+    setText('at-status-label','Auto-Trading: '+(cfg.enabled?'Enabled':'Disabled'));
+    setText('at-status-sub','Profit lock: +'+(cfg.dailyProfitLock||2)+'% | Loss limit: -'+(cfg.dailyLossLimit||1)+'% | v'+(data.version||'4'));
+    document.getElementById('at-status-dot').style.background=cfg.enabled?'var(--green)':'var(--text3)';
+    updateDailyPLDisplay();
+  }catch(e){setText('at-status-label','Auto-Trading: Error — '+e.message);}
+}
+
+function updateDailyPLDisplay(){
+  if(!S.accountData)return;
+  const bal=S.accountData.balance.balance,pl=S.accountData.balance.profitLoss;
+  const pct=bal>0?(pl/bal*100):0;const lock=parseFloat(document.getElementById('at-profit-lock')?.value)||2;const lim=parseFloat(document.getElementById('at-loss-limit')?.value)||1;
+  const bar=document.getElementById('at-pl-bar');
+  if(bar){bar.style.background=pct>=0?'var(--green)':'var(--red)';if(pct>=0){bar.style.left='50%';bar.style.right='auto';bar.style.width=Math.min((pct/lock)*50,50)+'%';}else{bar.style.right='50%';bar.style.left='auto';bar.style.width=Math.min((Math.abs(pct)/lim)*50,50)+'%';}}
+  setText('at-loss-label','Loss limit: -'+lim+'%');setText('at-profit-label','Profit lock: +'+lock+'%');
+}
+
+async function stopAutoTrade(){
+  if(!confirm('Pause auto-trading this session? Go to cron-job.org to fully stop.'))return;
+  setText('at-status-label','Auto-Trading: Paused');setText('at-status-sub','Session paused — cron still active at cron-job.org');
+  document.getElementById('at-status-dot').style.background='var(--red)';
+  appendAtLog('⏹ Trading paused this session.');
+}
+
+async function runAutoTrade(){
+  const btn=document.getElementById('at-run-btn');if(btn){btn.textContent='⏳ Running...';btn.disabled=true;}
+  appendAtLog('▶ Manual run triggered...');
+  try{
+    const secret=document.getElementById('at-cron-secret')?.value||'';
+    const res=await fetch('/api/autotrade',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+secret},body:JSON.stringify({manualRun:true,calendarEnabled:document.getElementById('at-cal-toggle')?.classList.contains('on')??true,requireAIConfirm:document.getElementById('at-ai-toggle')?.classList.contains('on')??true,signalThreshold:parseInt(document.getElementById('at-threshold')?.value)||2,dailyProfitLock:parseFloat(document.getElementById('at-profit-lock')?.value)||2,dailyLossLimit:parseFloat(document.getElementById('at-loss-limit')?.value)||1,maxPositions:parseInt(document.getElementById('at-max-pos')?.value)||3,eodClose:document.getElementById('at-eod-toggle')?.classList.contains('on')??true})});
+    const data=await res.json();
+    (data.log||[]).forEach(l=>appendAtLog(l));
+    const am={no_signals:'No signals',no_trades:'No trades placed',trade_placed:'🎯 Trade placed: '+(data.instrument||''),calendar_block:'📅 Calendar block',profit_lock_hit:'✅ Profit lock',loss_limit_hit:'🛑 Loss limit',eod_close:'🔔 EOD close'};
+    appendAtLog('✅ Done — '+(am[data.action]||'Action: '+(data.action||'completed')));
+    addLog('system','Engine run: '+(data.action||'unknown'));
+    setTimeout(()=>{loadAccount();loadPositions();updateDailyPLDisplay();},2000);
+  }catch(e){appendAtLog('❌ Error: '+e.message);}
+  if(btn){btn.textContent='▶ Run Now';btn.disabled=false;}
+}
+
+function appendAtLog(msg){
+  const el=document.getElementById('at-log');if(!el)return;
+  if(el.querySelector('.empty'))el.innerHTML='';
+  const time=new Date().toLocaleTimeString('en-GB');
+  const col=msg.includes('✅')?'color:var(--green)':msg.includes('❌')?'color:var(--red)':'';
+  el.innerHTML+=`<div style="${col}"><span style="color:var(--text3)">${time}</span> ${msg}</div>`;
+  el.scrollTop=el.scrollHeight;
+}
+
+async function saveAutoTradeConfig(){
+  const vars=['DAILY_PROFIT_LOCK='+document.getElementById('at-profit-lock').value,'DAILY_LOSS_LIMIT='+document.getElementById('at-loss-limit').value,'MAX_POSITIONS='+document.getElementById('at-max-pos').value,'MAX_SIZE_PER_TRADE='+document.getElementById('at-size').value,'REQUIRE_AI_CONFIRM='+(document.getElementById('at-ai-toggle').classList.contains('on')),'AUTO_TRADING_ENABLED=true','EOD_CLOSE='+(document.getElementById('at-eod-toggle').classList.contains('on'))];
+  alert('Add to Vercel Environment Variables:\n\n'+vars.join('\n')+'\n\nThen redeploy.');
+}
+
+// ─── ECONOMIC CALENDAR ────────────────────────────────────────────────────────
+async function loadCalendarData(){
+  try{
+    const [ur,sr]=await Promise.all([fetch('/api/indicators?action=upcoming'),fetch('/api/indicators?action=surprise')]);
+    const [u,s]=await Promise.all([ur.json(),sr.json()]);
+    const uel=document.getElementById('cal-upcoming');
+    if(uel){if(!u.upcoming?.length){uel.innerHTML='<div class="empty">No high-impact events in next 30 mins</div>';}else{uel.innerHTML=u.upcoming.slice(0,5).map(e=>`<div class="signal-item"><div><div style="font-weight:500;font-size:13px">${e.event}</div><div style="font-size:11px;color:var(--text2)">${e.country} · ${new Date(e.time).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} UTC · ${e.minutesUntil}m</div></div><div style="text-align:right"><span class="badge ${e.minutesUntil<=10?'badge-sell':'badge-neutral'}">${e.minutesUntil}m</span>${e.forecast!=null?`<div style="font-size:11px;color:var(--text2)">Fcst: ${e.forecast}</div>`:''}</div></div>`).join('');}}
+    const sel=document.getElementById('cal-surprises');
+    if(sel){const scores=s.surprises||{};if(!Object.keys(scores).length){sel.innerHTML='<div class="empty">No active surprise adjustments</div>';}else{sel.innerHTML=Object.entries(scores).map(([i,sc])=>`<div class="signal-item"><div style="font-weight:500">${i}</div><div class="${sc>0?'pos':'neg'}" style="font-family:var(--font-mono);font-weight:600">${sc>0?'+':''}${sc} pts</div></div>`).join('');}}
+  }catch(e){console.warn('Calendar:',e.message);}
+}
+
+// ─── JOURNAL ──────────────────────────────────────────────────────────────────
+async function loadJournal(){
+  const statusEl=document.getElementById('journal-status');if(statusEl)statusEl.textContent='Loading...';
+  try{
+    const [sr,tr,er,pr]=await Promise.all([fetch('/api/db?action=stats'),fetch('/api/db?action=trades&limit=50'),fetch('/api/db?action=equity&days=30'),fetch('/api/db?action=pairs_trades&limit=50')]);
+    const [stats,trades,equity,pairsRes]=await Promise.all([sr.json(),tr.json(),er.json(),pr.json()]);
+    const ptl=pairsRes.pairs_trades||[];
+    const pjb=document.getElementById('pairs-journal-body');
+    const pjs=document.getElementById('pairs-journal-status');
+    if(pjb)pjb.innerHTML=ptl.length?ptl.map(pt=>{
+      const daysHeld=pt.opened_at&&pt.closed_at?Math.round((new Date(pt.closed_at)-new Date(pt.opened_at))/(1000*60*60*24)):pt.opened_at?Math.round((Date.now()-new Date(pt.opened_at))/(1000*60*60*24)):'-';
+      const entryZ=pt.entry_z!=null?parseFloat(pt.entry_z).toFixed(2):'—';
+      const closeZ=pt.close_z!=null?parseFloat(pt.close_z).toFixed(2):'—';
+      const dirLabel=pt.direction_a==='BUY'?pt.instr_a+' BUY / '+pt.instr_b+' SELL':pt.instr_a+' SELL / '+pt.instr_b+' BUY';
+      const statusBadge=pt.status==='open'?'badge-buy':pt.close_reason==='mean_revert'?'badge-sell':'badge-neutral';
+      const exitLabel=pt.close_reason?pt.close_reason.replace('_',' '):pt.status==='open'?'open':'—';
+      const pnl=pt.profit_loss!=null?parseFloat(pt.profit_loss):null;
+      const pnlStr=pnl!=null?(pnl>=0?'+£':'-£')+Math.abs(pnl).toFixed(2):'—';
+      const pnlColor=pnl!=null?(pnl>=0?'var(--green)':'var(--red)'):'var(--text2)';
+      return '<tr><td style="font-size:12px;color:var(--text2)">'+( pt.opened_at?new Date(pt.opened_at).toLocaleDateString("en-GB"):'—')+'</td><td style="font-weight:500">'+pt.instr_a+' / '+pt.instr_b+'</td><td style="font-size:12px">'+dirLabel+'</td><td style="font-family:var(--font-mono)">'+(entryZ>0?"+":"")+entryZ+'σ</td><td style="font-family:var(--font-mono)">'+( pt.close_z!=null?(closeZ>0?"+":"")+closeZ+"σ":"—")+'</td><td>'+daysHeld+'d</td><td style="font-family:var(--font-mono);color:'+pnlColor+'">'+pnlStr+'</td><td style="font-size:12px">'+( pt.ai_confidence!=null?pt.ai_confidence+"%":"—")+'</td><td><span class="badge badge-neutral" style="font-size:10px">'+exitLabel+'</span></td><td><span class="badge '+statusBadge+'">'+pt.status+'</span></td></tr>';
+    }).join(''):'<tr><td colspan="10" class="empty">No pairs trades yet</td></tr>';
+    if(pjs)pjs.textContent=ptl.length+' pairs trade'+(ptl.length!==1?'s':'');
+    if(stats.configured===false){if(statusEl)statusEl.innerHTML='⚠️ Postgres not configured. <a href="https://vercel.com/docs/storage/vercel-postgres" target="_blank" style="color:var(--blue)">Set up database</a> then click Init DB.';return;}
+    if(statusEl)statusEl.textContent='';
+    if(stats.totalTrades!==undefined){
+      setText('j-total',stats.totalTrades);setText('j-winrate','Win rate: '+stats.winRate+'%');
+      const jp=document.getElementById('j-pnl');if(jp){jp.textContent=(stats.totalPnL>=0?'+':'')+'£'+Number(stats.totalPnL).toFixed(2);jp.className='value '+(stats.totalPnL>=0?'pos':'neg');}
+      setText('j-avgpnl','Avg: £'+Number(stats.avgPnL).toFixed(2));
+      if(stats.bestTrade){setText('j-best','+£'+Number(stats.bestTrade.profit_loss).toFixed(2));setText('j-best-instr',stats.bestTrade.instrument);}
+      if(stats.worstTrade){setText('j-worst','£'+Number(stats.worstTrade.profit_loss).toFixed(2));setText('j-worst-instr',stats.worstTrade.instrument);}
+      const ds=document.getElementById('daily-stats');if(ds)ds.innerHTML=(stats.dailyStats||[]).length?`<table class="data-table"><thead><tr><th>Date</th><th>Trades</th><th>Wins</th><th>P&L</th></tr></thead><tbody>${stats.dailyStats.slice(0,10).map(d=>`<tr><td>${d.trade_date}</td><td>${d.total_trades}</td><td style="color:var(--green)">${d.winning_trades}</td><td class="${d.total_pnl>=0?'pos':'neg'}">${d.total_pnl>=0?'+':''}${Number(d.total_pnl).toFixed(2)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No closed trades yet</div>';
+    }
+    const tl=trades.trades||[];const jb=document.getElementById('journal-body');
+    if(jb)jb.innerHTML=tl.length?tl.map(t=>`<tr><td style="font-size:12px;color:var(--text2)">${t.opened_at?new Date(t.opened_at).toLocaleDateString('en-GB'):'—'}</td><td style="font-weight:500">${t.instrument||'—'}</td><td><span class="badge ${t.direction==='BUY'?'badge-buy':'badge-sell'}">${t.direction||'—'}</span></td><td>${t.size||'—'}</td><td style="font-family:var(--font-mono)">${t.open_level||'—'}</td><td style="font-family:var(--font-mono)">${t.close_level||'—'}</td><td class="${(t.profit_loss||0)>=0?'pos':'neg'}">${t.profit_loss!=null?(t.profit_loss>=0?'+':'')+Number(t.profit_loss).toFixed(2):'Open'}</td><td style="font-size:12px">${t.ai_confidence!=null?t.ai_confidence+'%':'—'}</td><td><span class="badge ${t.status==='closed'?'badge-sell':'badge-buy'}">${t.status||'—'}</span></td></tr>`).join(''):'<tr><td colspan="9" class="empty">No trades yet</td></tr>';
+    const snaps=equity.snapshots||[];if(snaps.length>1)drawEquityCurve(snaps);
+    if(statusEl)statusEl.textContent='Updated '+new Date().toLocaleTimeString('en-GB');
+  }catch(e){if(statusEl)statusEl.textContent='Error: '+e.message;}
+}
+
+function drawEquityCurve(snapshots){
+  const canvas=document.getElementById('equity-chart');if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;const rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width*dpr;canvas.height=200*dpr;canvas.style.width=rect.width+'px';canvas.style.height='200px';
+  const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  const W=rect.width,H=200,PAD={top:10,right:20,bottom:25,left:60};const chartW=W-PAD.left-PAD.right,chartH=H-PAD.top-PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+  const bals=snapshots.map(s=>parseFloat(s.balance));const minB=Math.min(...bals),maxB=Math.max(...bals),range=maxB-minB||1;
+  const xS=i=>PAD.left+(i/(snapshots.length-1))*chartW;const yS=b=>PAD.top+chartH-((b-minB)/range*chartH);
+  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=PAD.top+(chartH/4)*i;ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(W-PAD.right,y);ctx.stroke();ctx.fillStyle='#8b949e';ctx.font='11px sans-serif';ctx.textAlign='right';ctx.fillText('£'+(maxB-(range/4)*i).toLocaleString('en-GB',{maximumFractionDigits:0}),PAD.left-4,y+4);}
+  const grad=ctx.createLinearGradient(0,PAD.top,0,PAD.top+chartH);grad.addColorStop(0,'rgba(88,166,255,0.2)');grad.addColorStop(1,'rgba(88,166,255,0)');
+  ctx.beginPath();snapshots.forEach((s,i)=>{const x=xS(i),y=yS(parseFloat(s.balance));i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#58a6ff';ctx.lineWidth=2;ctx.stroke();
+  ctx.lineTo(xS(snapshots.length-1),PAD.top+chartH);ctx.lineTo(xS(0),PAD.top+chartH);ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  setText('eq-from',new Date(snapshots[0].snapshot_time).toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
+  setText('eq-to',new Date(snapshots[snapshots.length-1].snapshot_time).toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
+}
+
+async function initDb(){
+  const el=document.getElementById('journal-status');if(el)el.textContent='Initialising...';
+  try{const res=await fetch('/api/db?action=init');const data=await res.json();if(data.success){if(el)el.textContent='✅ Database initialised';addLog('system','DB init OK');}else if(data.configured===false){if(el)el.innerHTML='⚠️ Vercel Postgres not connected. Go to Vercel → Storage → Create Database.';}else{if(el)el.textContent='Error: '+(data.message||JSON.stringify(data));}}catch(e){if(el)el.textContent='Error: '+e.message;}
+}
+
+async function sendWeeklyReport(){
+  try{const r=await fetch('/api/db?action=stats');const s=await r.json();if(!s.totalTrades){alert('No trade data yet');return;}const body='Weekly Report\n\nTrades: '+s.totalTrades+'\nWin Rate: '+s.winRate+'%\nP&L: £'+Number(s.totalPnL).toFixed(2)+'\nGenerated: '+new Date().toLocaleString('en-GB',{timeZone:'Europe/London'});const nr=await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'daily_summary',subject:'📊 Weekly Trading Report',body})});const nd=await nr.json();if(nd.sent)alert('✅ Report sent');else alert('⚠️ '+(nd.reason||nd.error));}catch(e){alert('Error: '+e.message);}
+}
+
+// ─── BACKTEST ─────────────────────────────────────────────────────────────────
+function btResolutionChanged() {
+  const res = document.getElementById('bt-resolution')?.value;
+  const daysEl = document.getElementById('bt-days');
+  if(!daysEl) return;
+  if(res === 'HOUR') {
+    daysEl.innerHTML = '<option value="30">30 days</option><option value="60" selected>60 days</option>';
+  } else {
+    daysEl.innerHTML = '<option value="100">100 days</option><option value="250">250 days (1 year)</option><option value="500" selected>500 days (2 years)</option>';
+  }
+}
+
+async function runBacktest(){
+  document.getElementById('bt-results').style.display='none';
+  document.getElementById('bt-error').style.display='none';
+  document.getElementById('bt-loading').style.display='inline';
+  try{
+    const epic = document.getElementById('bt-instrument').value;
+    const resolution = document.getElementById('bt-resolution').value;
+    const days = document.getElementById('bt-days').value;
+    const threshold = document.getElementById('bt-threshold').value;
+    const hold = document.getElementById('bt-hold').value;
+
+    const strategy = document.getElementById('bt-strategy')?.value || 'mr';
+    const res = await fetch(`/api/review?action=backtest&epic=${epic}&days=${days}&threshold=${threshold}&resolution=${resolution}&holdDays=${hold}&strategy=${strategy}`);
+    const data = await res.json();
+    document.getElementById('bt-loading').style.display='none';
+
+    if(data.error){
+      document.getElementById('bt-error-msg').textContent = data.error;
+      document.getElementById('bt-error').style.display='block';
+      return;
+    }
+
+    const s = data.summary;
+    setText('bt-trades', s.totalTrades);
+    setText('bt-filter-used', data.summary.filterUsed || 'full filter');
+    const wr = document.getElementById('bt-winrate');
+    if(wr){wr.textContent=s.winRate+'%'; wr.className='value '+(s.winRate>=50?'pos':'neg');}
+    const pnl = document.getElementById('bt-pnl');
+    if(pnl){pnl.textContent=(s.expectancy>=0?'+':'')+s.expectancy+'%'; pnl.className='value '+(s.expectancy>=0?'pos':'neg');}
+    const pf = document.getElementById('bt-pf');
+    if(pf){pf.textContent=s.profitFactor?.toFixed(2)+'x'; pf.className='value '+(s.profitFactor>=1?'pos':'neg');}
+
+    // Filter comparison table
+    const filterRows = {
+      'No filter (RSI only)': data.stats?.noFilter,
+      'Score ≥1': data.stats?.scoreGte1,
+      'Score ≥2': data.stats?.scoreGte2,
+      'Trend filter': data.stats?.trendFilter,
+      '<strong>Full filter (current)</strong>': data.stats?.fullFilter,
+    };
+    const tbody = document.getElementById('bt-filter-body');
+    if(tbody) tbody.innerHTML = Object.entries(filterRows).map(([label, st]) => {
+      if(!st) return '';
+      const col = parseFloat(st.winRate)>=55?'var(--green)':parseFloat(st.winRate)>=45?'var(--text1)':'var(--red)';
+      const ecol = parseFloat(st.expectancy)>0?'var(--green)':'var(--red)';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td>${label}</td>
+        <td style="text-align:center">${st.trades}</td>
+        <td style="text-align:center;color:${col}">${st.winRate}%</td>
+        <td style="text-align:center;color:var(--green)">+${st.avgWin}%</td>
+        <td style="text-align:center;color:var(--red)">${st.avgLoss}%</td>
+        <td style="text-align:center;color:${ecol}">${st.expectancy}%</td>
+      </tr>`;
+    }).join('');
+
+    // By regime
+    document.getElementById('bt-regime').innerHTML = Object.entries(data.byRegime||{})
+      .map(([r,d])=>`<div class="signal-item"><div><div style="font-weight:500">${r}</div><div style="font-size:12px;color:var(--text2)">${d.trades} trades</div></div><div class="${d.pnl>=0?'pos':'neg'}">${d.pnl>=0?'+':''}${Number(d.pnl).toFixed(2)}%</div></div>`)
+      .join('')||'<div class="empty">No trades</div>';
+
+    // Recent trades
+    document.getElementById('bt-trade-list').innerHTML = (data.recentTrades||[]).map(t=>`
+      <tr style="opacity:${t.passesScore2&&t.trendOK!==false?1:0.5}">
+        <td style="font-size:11px">${String(t.date||'').substring(5)}</td>
+        <td><span class="badge ${t.direction==='BUY'?'badge-buy':'badge-sell'}">${t.direction}</span></td>
+        <td style="font-size:11px">${t.rsi||'—'}</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${Number(t.openPrice).toFixed(0)}</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${Number(t.closePrice).toFixed(0)}</td>
+        <td class="${t.pnl>=0?'pos':'neg'}" style="font-size:11px">${t.pnl>=0?'+':''}${Number(t.pnl).toFixed(2)}%</td>
+        <td style="font-size:10px;color:var(--text2)">${t.exitReason||''}</td>
+      </tr>`).join('');
+
+    document.getElementById('bt-interpretation').innerHTML = `
+      <p><strong>Expectancy:</strong> ${s.expectancy>=0?'+':''}${s.expectancy}% per trade
+        ${s.expectancy>0.5?' — <span style="color:var(--green)">Positive edge</span>':s.expectancy>0?' — Marginal edge':' — <span style="color:var(--red)">No edge</span>'}</p>
+      <p><strong>Profit Factor:</strong> ${s.profitFactor?.toFixed(2)}x
+        ${s.profitFactor>=1.5?' — Good':s.profitFactor>=1?' — Marginal':' — Poor'}</p>
+      <p><strong>Sample size:</strong> ${s.totalTrades} trades
+        ${s.totalTrades>=20?' — Statistically meaningful':s.totalTrades>=10?' — Low confidence':' — Too few to conclude'}</p>
+      <p style="margin-top:8px;color:var(--text2)">
+        ${data.log?.slice(-3).join(' · ')}
+      </p>`;
+
+    document.getElementById('bt-results').style.display='block';
+  }catch(e){
+    document.getElementById('bt-loading').style.display='none';
+    document.getElementById('bt-error-msg').textContent='Error: '+e.message;
+    document.getElementById('bt-error').style.display='block';
+  }
+}
+
+// ─── AI ANALYST ───────────────────────────────────────────────────────────────
+function getCtx(){
+  const pos=S.positions.map(p=>p.name+': '+p.dir+' £'+p.size+'/pt P&L '+p.pl).join('\n')||'None';
+  const mkts=S.markets.map(m=>m.name+': '+m.price+' ('+m.change+')').join('\n');
+  const acct=S.accountData?'Balance: £'+S.accountData.balance.balance+', P&L: £'+S.accountData.balance.profitLoss:'Loading';
+  return{pos,mkts,acct};
+}
+const AI_PROMPTS={
+  portfolio:(c)=>`Expert financial analyst reviewing a spread betting portfolio.\n\nACCOUNT: ${c.acct}\nPOSITIONS: ${c.pos}\nMARKETS: ${c.mkts}\n\nProvide concise assessment with specific actionable recommendations. Format with headers.`,
+  market:(c)=>`Market analyst for a spread better.\n\nMARKETS: ${c.mkts}\nACCOUNT: ${c.acct}\n\nProvide market commentary covering key moves, technical levels and opportunities.`,
+  journal:(c)=>`Trading coach reviewing trading activity.\n\nPOSITIONS: ${c.pos}\nACCOUNT: ${c.acct}\n\nAnalyse patterns and provide 3 specific improvements.`,
+  risk:(c)=>`Risk manager reviewing spread betting account.\n\nACCOUNT: ${c.acct}\nPOSITIONS: ${c.pos}\n\nIdentify top 3 risks and suggest mitigations.`,
+};
+async function runAI(type){const c=getCtx();await callClaude(AI_PROMPTS[type]?AI_PROMPTS[type](c):c.acct,type);}
+async function runAICustom(){const q=document.getElementById('ai-custom-q')?.value?.trim();if(!q)return;const c=getCtx();await callClaude(`Expert analyst. Context: ${c.acct}. Positions: ${c.pos}. Markets: ${c.mkts}.\n\nQuestion: ${q}`,'custom');document.getElementById('ai-custom-q').value='';}
+async function callClaude(prompt,type){
+  const h=document.getElementById('ai-history');const l=document.getElementById('ai-loading');
+  if(h)h.innerHTML='';if(l)l.style.display='block';
+  try{const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+  const data=await r.json();if(l)l.style.display='none';
+  const text=data.content?.[0]?.text||'No response';
+  const fmt=text.replace(/^### (.+)$/gm,'<h3>$1</h3>').replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>');
+  if(h)h.innerHTML='<div style="background:var(--bg3);border-left:2px solid var(--text3);padding:12px 14px;border-radius:var(--radius);font-size:13px;line-height:1.6">'+fmt+'</div>';
+  addLog('system','AI analysis: '+type);}catch(e){if(l)l.style.display='none';if(h)h.innerHTML='<div style="color:var(--red);padding:16px">Error: '+e.message+'</div>';}
+}
+function clearAI(){const h=document.getElementById('ai-history');if(h)h.innerHTML='<div class="empty">Select an analysis type to begin</div>';}
+
+// ─── ORDERS ───────────────────────────────────────────────────────────────────
+async function placeManualOrder(){
+  const instr=document.getElementById('ord-instr').value;const dir=document.getElementById('ord-dir').value;
+  const size=parseFloat(document.getElementById('ord-size').value)||0.01;const orderType=document.getElementById('ord-type').value;const price=document.getElementById('ord-price').value;
+  const epicMap={'FTSE 100':'IX.D.FTSE.DAILY.IP','S&P 500':'IX.D.SPTRD.DAILY.IP','DAX 40':'IX.D.DAX.DAILY.IP','Dow Jones':'IX.D.DOW.DAILY.IP','Brent Oil':'CC.D.LCO.USS.IP','Gold':'CS.D.USCGC.TODAY.IP','Silver':'CS.D.USCSI.TODAY.IP','Copper':'CS.D.COPPER.TODAY.IP','GBP/USD':'CS.D.GBPUSD.TODAY.IP','EUR/USD':'CS.D.EURUSD.TODAY.IP','USD/JPY':'CS.D.USDJPY.TODAY.IP','EUR/GBP':'CS.D.EURGBP.TODAY.IP','CAC 40':'IX.D.CAC.DAILY.IP','Nikkei 225':'IX.D.NIKKEI.DAILY.IP','Nasdaq':'IX.D.NASDAQ.CASH.IP'};
+  if(!S.connected){addLog('order','Not connected');return;}
+  try{
+    const ob={epic:epicMap[instr],direction:dir.toUpperCase(),size,orderType:orderType.toUpperCase(),expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',dealType:'SPREADBET'};
+    if(price&&orderType!=='Market')ob.level=parseFloat(price);
+    const res=await igFetch('positions/otc',{method:'POST',headers:{'Version':'1'},body:JSON.stringify(ob)});
+    const data=await res.json();if(!data.dealReference){addLog('order','Order failed: '+(data.errorCode||'Unknown'));alert('Failed: '+(data.errorCode||'Unknown'));return;}
+    const cf=await igFetch('confirms/'+data.dealReference);const confirm=await cf.json();
+    if(confirm.dealStatus==='ACCEPTED'){S.orders.unshift({time:'Just now',instr,dir,type:orderType,size:'£'+size+'/pt',price:confirm.level||'—',status:'filled'});addLog('order','Order: '+dir+' £'+size+'/pt '+instr);renderOrders();setTimeout(()=>{loadPositions();loadAccount();},1500);alert('✅ Order placed!\n\n'+instr+' '+dir+' £'+size+'/pt\nRef: '+data.dealReference);}
+    else{addLog('order','Rejected: '+(confirm.reason||confirm.dealStatus));alert('Rejected: '+(confirm.reason||'Unknown'));}
+  }catch(e){addLog('order','Error: '+e.message);alert('Error: '+e.message);}
+}
+
+async function closePos(id){
+  const p=S.positions.find(x=>x.id===id);if(!p||!confirm('Close '+p.name+'? P&L: '+p.pl))return;
+  try{const r=await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json','CST':S.cst,'X-SECURITY-TOKEN':S.xst},body:JSON.stringify({dealId:p.dealId})});const d=await r.json();
+  if(d.ok){addLog('order','Closed: '+p.name);S.positions=S.positions.filter(x=>x.id!==id);renderPositions();loadAccount();setTimeout(loadPositions,2000);}else alert('Close failed: '+(d.error||'Unknown'));}
+  catch(e){alert('Error: '+e.message);}
+}
+
+// ─── RESEARCH ─────────────────────────────────────────────────────────────────
+async function runResearch(){
+  const se=document.getElementById('research-status');const re=document.getElementById('research-results');
+  if(se)se.innerHTML='<div class="alert alert-info loading">Running AI analysis — may take 30s...</div>';if(re)re.innerHTML='';
+  try{
+    const res=await fetch('/api/research',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const data=await res.json();
+    if(data.action==='insufficient_data'){if(se)se.innerHTML=`<div class="alert alert-warn">⏳ Need ${data.tradesRequired} trades — have ${data.tradesAvailable}. Ready: ${data.estimatedReadyDate}</div>`;return;}
+    if(se)se.innerHTML=`<div class="alert alert-success">✅ Analysis complete — ${data.findings?.patterns?.length||0} patterns across ${data.tradesAnalysed} trades</div>`;
+    const f=data.findings||{};
+    if(re)re.innerHTML=`<div class="card" style="margin-bottom:16px"><div class="card-title">Summary</div><div style="font-size:14px;line-height:1.7">${f.summary||'No summary'}</div><div style="margin-top:8px;font-size:12px;color:var(--text2)">Confidence: ${f.confidence||'?'}</div></div>${(f.patterns||[]).map(p=>`<div class="card" style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="badge ${p.reliable?'badge-buy':'badge-neutral'}">${p.reliable?'Reliable':'Tentative'}</span><span style="font-weight:600">${p.title}</span><span style="font-size:11px;color:var(--text2)">${p.sampleSize} trades</span></div><div style="font-size:13px;color:var(--text2)">${p.finding}</div></div>`).join('')}${(f.suggestions||[]).length?`<div class="card"><div class="card-title">Suggested Changes</div>${f.suggestions.map((s,i)=>`<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-weight:600">${s.title}</span><span class="badge ${s.riskLevel==='low'?'badge-buy':s.riskLevel==='high'?'badge-sell':'badge-neutral'}">${s.riskLevel} risk</span></div><div style="font-size:13px;color:var(--text2);margin-bottom:6px">${s.rationale}</div><div style="font-size:12px;font-family:var(--font-mono);margin-bottom:8px">${s.change}: ${s.currentValue} → <span style="color:var(--green)">${s.suggestedValue}</span></div><button class="btn btn-sm" onclick="toggleApproval(this)">${s.approved?'✅ Approved':'Approve'}</button></div>`).join('')}<button class="btn btn-primary" style="margin-top:12px" onclick="applyApproved(${JSON.stringify(f.suggestions).replace(/"/g,'&quot;')})">Apply Approved</button></div>`:''}`;
+  }catch(e){if(se)se.innerHTML=`<div class="alert alert-warn">Error: ${e.message}</div>`;}
+}
+function toggleApproval(btn){const ok=!btn.classList.contains('btn-primary');btn.classList.toggle('btn-primary',ok);btn.textContent=ok?'✅ Approved':'Approve';}
+async function applyApproved(s){try{const r=await fetch('/api/research?action=apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({suggestions:s})});const d=await r.json();alert('Applied: '+(d.applied||[]).join(', '));}catch(e){alert('Error: '+e.message);}}
+
+// ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+async function runHealthCheck(){
+  const modal=document.getElementById('health-modal');const results=document.getElementById('health-results');const timeEl=document.getElementById('health-time');
+  modal.style.display='flex';results.innerHTML='<div class="empty loading">Running checks...</div>';
+  const checks=[];
+  const add=(label,status,detail)=>{const icon=status==='ok'?'✅':status==='warn'?'⚠️':'❌';const color=status==='ok'?'var(--green)':status==='warn'?'var(--gold)':'var(--red)';checks.push({label,icon,color,detail});results.innerHTML=checks.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;align-items:center;gap:8px"><span>${c.icon}</span><span style="font-weight:500">${c.label}</span></div><span style="font-size:12px;color:${c.color};font-family:var(--font-mono)">${c.detail}</span></div>`).join('');};
+  add('IG Authentication',S.connected?'ok':'fail',S.connected?'Connected':'Not connected');
+  const bal=S.accountData?.balance?.balance;add('Account Balance',bal?'ok':'warn',bal?'£'+parseFloat(bal).toFixed(2):'No data');
+  const fp=document.getElementById('ws-price-IX-D-FTSE-DAILY-IP')?.textContent;add('Lightstreamer',fp&&fp!=='—'?'ok':'warn',fp&&fp!=='—'?'FTSE '+fp:'No ticks');
+  const gp=document.getElementById('ws-price-CS-D-GBPUSD-TODAY-IP')?.textContent;add('Twelve Data FX',gp&&gp!=='—'?'ok':'warn',gp&&gp!=='—'?'GBP/USD '+gp:'Not updating');
+  try{const r=await igFetch('prices/IX.D.FTSE.DAILY.IP?resolution=DAY&max=1&pageSize=0',{headers:{'Version':'3'}});add('IG Historical Data',r.status===200?'ok':'warn',r.status===200?'Allowance available':'403 — Blocked (using DB)');}catch(e){add('IG Historical Data','warn','Check status');}
+  try{const r=await fetch('/api/autotrade');const d=await r.json();add('Autotrade Engine',d.version?'ok':'fail',d.version?'v'+d.version+' enabled:'+d.cfg?.enabled:'Error');}catch(e){add('Autotrade Engine','fail',e.message);}
+  try{const r=await fetch('/api/db?action=tdcache');const d=await r.json();
+    const cacheAge=d.ageMinutes;const hasTd=d.instruments&&Object.keys(d.instruments).length>0;
+    add('TD Indicators',hasTd?'ok':'fail',hasTd?'Cached '+(cacheAge||'?')+'m ago':d.error||'No cached data');}catch(e){add('TD Indicators','fail',e.message);}
+  try{const r=await fetch('/api/db?action=stats');const d=await r.json();add('Database',d.error?'fail':'ok',d.error?d.error:d.totalTrades+' trades | '+(d.winRate||0)+'% WR');}catch(e){add('Database','fail',e.message);}
+  try{const r=await fetch('/api/indicators?action=surprise');const d=await r.json();add('Economic Calendar',d.configured===false?'warn':'ok',d.configured===false?'No Finnhub key':d.eventsProcessed+' events today');}catch(e){add('Economic Calendar','warn','Unavailable');}
+  try{const r=await fetch('/api/prices?epic=IX.D.FTSE.DAILY.IP&resolution=DAY&limit=5');const d=await r.json();add('Price DB',d.candles?.length>0?'ok':'warn',d.candles?.length>0?d.candles.length+' candles (latest: '+d.candles[d.candles.length-1]?.candle_time?.substring(0,10)+')':'No candles');}catch(e){add('Price DB','warn','Check');}
+  add('Cron Job','warn','Check cron-job.org manually');
+  if(timeEl)timeEl.textContent='Completed '+new Date().toLocaleString('en-GB',{timeZone:'Europe/London'});
+}
+
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function addLog(type,msg){const now=new Date();const t=[now.getHours(),now.getMinutes(),now.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');S.log.unshift({time:t,type,msg});if(document.getElementById('tab-log')?.classList.contains('active'))renderLog();}
+
+function switchTab(id,el){
+  const tab=document.getElementById('tab-'+id);if(!tab)return;
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  tab.classList.add('active');if(el)el.classList.add('active');
+  // Scroll #content to top (keeps nav visible)
+  document.getElementById('content')?.scrollTo(0,0);
+  if(id==='journal')loadJournal();
+  if(id==='log')renderLog();
+  if(id==='autotrade'){loadCalendarData();checkAutoTradeStatus();}
+  if(id==='pairs'){
+    if(!Object.keys(pairsData).length) loadPairsData();
+  }
+  if(id==='charts'&&S.connected){
+    const key=chartState.epic+'_'+chartState.resolution+'_'+chartState.count;
+    const cached=S.priceCache[key]&&(Date.now()-S.priceCache[key].ts<30*60*1000);
+    if(!cached||!chartState.candles.length)loadChartData();else{drawChart(chartState.candles);calculateAndRenderSignals(chartState.candles);}
+  }
+}
+
+// ─── LIGHTSTREAMER ────────────────────────────────────────────────────────────
+let lsClient=null;
+setInterval(async()=>{if(S.connected&&S.cst){try{const r=await fetch('/ig/accounts',{headers:{'CST':S.cst,'X-SECURITY-TOKEN':S.xst,'Version':'1'}});if(r.status===403&&S.igUser){addLog('system','Keep-alive: refreshing...');await refreshSession();}}catch(e){}}},5*60*1000);
+
+function startPriceTicker(){if(S.connected&&S.cst&&S.xst)startLightstreamer();}
+
+function startLightstreamer(){
+  try{
+    lsClient=new LightstreamerClient(S.lsEndpoint||'https://apd.marketdatasystems.com','DEFAULT');
+    lsClient.connectionDetails.setUser(S.accountId||'');
+    lsClient.connectionDetails.setPassword('CST-'+S.cst+'|XST-'+S.xst);
+    lsClient.addListener({
+      onStatusChange:function(status){
+        console.log('[LS] Status:',status);
+        if(status.startsWith('CONNECTED')){addLog('system','Lightstreamer connected');document.getElementById('conn-label').textContent='Live prices ●';startTdPriceFallback();}
+        else if(status==='DISCONNECTED:WILL-RETRY')addLog('system','Lightstreamer retrying...');
+        else if(status.startsWith('DISCONNECTED')){addLog('system','Lightstreamer disconnected');setTimeout(()=>{if(S.connected)startLightstreamer();},15000);}
+      },
+      onServerError:function(code,msg){addLog('system','LS error: '+msg);}
+    });
+    lsClient.connect();
+    const NON_STREAM=['CS.D.GBPUSD.TODAY.IP','CS.D.EURUSD.TODAY.IP','CS.D.USDJPY.TODAY.IP','CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
+    const epics=S.markets.filter(m=>!NON_STREAM.includes(m.epic)).map(m=>'MARKET:'+m.epic);
+    console.log('[LS] Subscribing to',epics.length,'instruments');
+    // Subscribe individually so a bad epic doesn't kill the whole batch
+    window._lsSubs = [];
+    let _confirmedCount = 0;
+    epics.forEach(function(epicItem) {
+      const s = new Subscription('MERGE', [epicItem], ['BID','OFFER','CHANGE','CHANGE_PCT','UPDATE_TIME','MARKET_STATE']);
+      s.addListener({
+        onSubscription: function() { _confirmedCount++; if(_confirmedCount===1){addLog('system','Lightstreamer streaming active ('+_confirmedCount+' confirmed)');} },
+        onSubscriptionError: function(code, msg) { console.warn('[LS] Skip:', epicItem, msg); },
+        onItemUpdate: function(update) {
+      window._tickCount=(window._tickCount||0)+1;
+      const epic=update.getItemName().replace('MARKET:','');
+      const m=S.markets.find(x=>x.epic===epic);if(!m)return;
+      const bid=parseFloat(update.getValue('BID'));const pct=parseFloat(update.getValue('CHANGE_PCT'));
+      if(!isNaN(bid)){
+        const sf=m.scalingFactor||1;const db=bid/sf;
+        m.price=db>999?Math.round(db).toLocaleString('en-GB'):db.toFixed(2);m.pos=pct>=0;m.change=(!isNaN(pct)?(pct>=0?'+':'')+pct.toFixed(2)+'%':m.change);
+        S.positions.forEach(pos=>{if(pos.epic===epic){pos.current=bid;const upl=pos.dir==='Long'?(bid-pos.open)*pos.size:(pos.open-bid)*pos.size;pos.upl=upl;pos.pl=(upl>=0?'+':'')+'£'+upl.toFixed(2);const n=pos.size*pos.open;pos.plPct=(upl>=0?'+':'')+(n?(upl/n*100).toFixed(2):'0.00')+'%';}});
+        const eid=epic.replace(/\./g,'-');
+        const pe=document.getElementById('ws-price-'+eid);const ce=document.getElementById('ws-chg-'+eid);const lp=document.getElementById('lb-price-'+eid);const lc=document.getElementById('lb-chg-'+eid);
+        if(pe){pe.textContent=m.price;pe.style.color=m.price>m._lastPrice?'var(--green)':m.price<m._lastPrice?'var(--red)':'';setTimeout(()=>{if(pe)pe.style.color='';},1000);}
+        m._lastPrice=m.price;
+        if(ce){ce.textContent=m.change;ce.className='w-chg '+(m.pos?'up':'dn');}
+        if(lp)lp.textContent=m.price;if(lc){lc.textContent=m.change;lc.className='chg '+(m.pos?'up':'dn');}
+        if(document.getElementById('tab-overview')?.classList.contains('active'))renderPositions();
+      }
+      }});
+      lsClient.subscribe(s);
+      window._lsSubs.push(s);
+    });
+    addLog('system','Lightstreamer subscribing to '+epics.length+' instruments individually...');
+  }catch(e){console.error('[LS]',e.message);addLog('system','Lightstreamer unavailable.');}
+}
+
+// ─── TWELVE DATA PRICE FALLBACK ───────────────────────────────────────────────
+const TD_PRICE_MAP={
+  'CS.D.GBPUSD.TODAY.IP':'GBP/USD','CS.D.EURUSD.TODAY.IP':'EUR/USD','CS.D.USDJPY.TODAY.IP':'USD/JPY',
+  'CS.D.EURGBP.TODAY.IP':'EUR/GBP','CS.D.USCGC.TODAY.IP':'XAU/USD','CC.D.LCO.USS.IP':'BCO',
+  'CS.D.USCSI.TODAY.IP':'XAG/USD','CS.D.COPPER.TODAY.IP':'COPPER',
+};
+let _tdTimer=null;
+async function startTdPriceFallback(){
+  // Use IG market snapshot for NON_STREAM instruments — no TD credits used
+  if(_tdTimer)return;
+  let _snapshotPaused = false;
+  async function fetchIGSnapshots(){
+    if(!S.connected||!S.cst)return;
+    if(_snapshotPaused)return;
+    const nonStream=['CS.D.GBPUSD.TODAY.IP','CS.D.EURUSD.TODAY.IP','CS.D.USDJPY.TODAY.IP',
+                     'CS.D.EURGBP.TODAY.IP','CS.D.USCSI.TODAY.IP'];
+    for(const epic of nonStream){
+      try{
+        // Pass _retry:true to prevent igFetch auto-retrying on 403
+        const r=await igFetch('markets/'+epic,{_retry:true});
+        if(r.status===403){
+          // Session expired — pause snapshots for 60s, let keep-alive handle refresh
+          _snapshotPaused=true;
+          setTimeout(()=>{_snapshotPaused=false;},60000);
+          return;
+        }
+        if(!r.ok)continue;
+        const d=await r.json();
+        const bid=d.snapshot?.bid;
+        if(!bid)continue;
+        const pct=d.snapshot?.percentageChange||0;
+        const m=S.markets.find(x=>x.epic===epic);
+        if(!m)continue;
+        m.price=bid>999?Math.round(bid).toLocaleString('en-GB'):bid>10?bid.toFixed(2):bid.toFixed(4);
+        m.change=(pct>=0?'+':'')+Number(pct).toFixed(2)+'%';
+        m.pos=pct>=0;
+        const eid=epic.replace(/\./g,'-');
+        const pe=document.getElementById('ws-price-'+eid);
+        const ce=document.getElementById('ws-chg-'+eid);
+        if(pe)pe.textContent=m.price;
+        if(ce){ce.textContent=m.change;ce.className='w-chg '+(m.pos?'up':'dn');}
+      }catch(e){}
+      await new Promise(r=>setTimeout(r,500)); // 0.5s between calls
+    }
+  }
+  await fetchIGSnapshots();
+  _tdTimer=setInterval(fetchIGSnapshots,30000); // refresh every 30s
+  console.log('[IG Snapshots] Started for NON_STREAM instruments');
+}
+async function fetchTdPrices(){
+  try{
+    const syms=Object.values(TD_PRICE_MAP).join(',');
+    const res=await fetch(`/api/indicators?action=prices&symbols=${encodeURIComponent(syms)}`);
+    if(!res.ok)return;const data=await res.json();if(!data.prices)return;
+    S.markets.forEach(m=>{const sym=TD_PRICE_MAP[m.epic];if(!sym||!data.prices[sym])return;const price=parseFloat(data.prices[sym]);if(isNaN(price))return;m.price=price>999?Math.round(price).toLocaleString('en-GB'):price.toFixed(price>10?2:4);const eid=m.epic.replace(/\./g,'-');const pe=document.getElementById('ws-price-'+eid);const lp=document.getElementById('lb-price-'+eid);if(pe)pe.textContent=m.price;if(lp)lp.textContent=m.price;});
+    console.log('[TD Prices] Updated',Object.keys(data.prices).length,'prices');
+  }catch(e){console.warn('[TD Prices]',e.message);}
+  // Silver not on TD free tier — fetch from IG market snapshot (no historical allowance used)
+  try{
+    if(S.connected&&S.cst){
+      const sr=await igFetch('markets/CS.D.USCSI.TODAY.IP');
+      if(sr.ok){
+        const sd=await sr.json();
+        const bid=sd.snapshot?.bid;
+        if(bid){
+          const m=S.markets.find(x=>x.epic==='CS.D.USCSI.TODAY.IP');
+          if(m){
+            const pct=sd.snapshot?.percentageChange||0;
+            m.price=bid>999?Math.round(bid).toLocaleString('en-GB'):bid.toFixed(2);
+            m.change=(pct>=0?'+':'')+Number(pct).toFixed(2)+'%';
+            m.pos=pct>=0;
+            const eid='CS-D-USCSI-TODAY-IP';
+            const pe=document.getElementById('ws-price-'+eid);const ce=document.getElementById('ws-chg-'+eid);
+            const lp=document.getElementById('lb-price-'+eid);const lc=document.getElementById('lb-chg-'+eid);
+            if(pe)pe.textContent=m.price;
+            if(ce){ce.textContent=m.change;ce.className='w-chg '+(m.pos?'up':'dn');}
+            if(lp)lp.textContent=m.price;
+            if(lc){lc.textContent=m.change;lc.className='chg '+(m.pos?'up':'dn');}
+            console.log('[Silver] IG snapshot:',m.price);
+          }
+        }
+      }
+    }
+  }catch(e){console.warn('[Silver]',e.message);}
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────────
+document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+</script>
+
+<script>
+// Ensure IG snapshots start even if LS connect event was missed
+setTimeout(()=>{if(!_tdTimer)startTdPriceFallback();},8000);
+
+// ── PAIRS TRADING ─────────────────────────────────────────────────────────────
+const PAIRS_CONFIG = [
+  // ── LEGACY (original pairs) ────────────────────────────────────────────────
+  { id:'ftse_dax',   name:'FTSE / DAX',        a:'FTSE 100',  b:'DAX 40',    type:'ratio', tier:'legacy',
+    description:'European indices — same macro drivers, different compositions' },
+  { id:'gold_silver', name:'Gold / Silver', a:'Gold', b:'Silver', type:'ratio', tier:'legacy',
+    description:'Precious metals ratio — historically mean-reverts strongly' },
+  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:2.0, exitZ:0.25, score:21.33, winRate:83.3, expectancy:0.71,
+    description:'Dollar pairs — 83.3% WR, PF 10.41, divergence often means one is mispriced vs USD ⭐' },
+  { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio', tier:'legacy',
+    lookbackDays:60, entryZ:2.5, exitZ:1.0, score:17.41, winRate:75.0, expectancy:1.03,
+    description:'EUR crosses — triangular arbitrage relationship, 75% WR at 2.5σ' },
+  { id:'brent_gold',  name:'Brent / Gold',      a:'Brent Oil', b:'Gold',      type:'ratio', tier:'legacy',
+    lookbackDays:60, entryZ:1.75, exitZ:0.25, score:27.13, winRate:72.7, expectancy:4.5,
+    description:'Risk assets — Oil/Gold ratio signals risk-on vs risk-off, 4.5% exp' },
+  // ── DEPLOY — grid search tier 1 ───────────────────────────────────────────
+  { id:'dow_sp500',   name:'Dow / S&P 500',     a:'Dow Jones', b:'S&P 500',   type:'ratio', tier:'deploy',
+    entryZ:2.5, exitZ:0.5, score:36.91, winRate:80.0, expectancy:1.04,
+    description:'US mega-cap vs broad market — 80% WR, PF 14.03 ⭐' },
+  { id:'copper_gold', name:'Copper / Gold',     a:'Copper',    b:'Gold',      type:'ratio', tier:'deploy',
+    lookbackDays:45, entryZ:1.75, exitZ:0.25, score:58.21, winRate:77.8, expectancy:3.34,
+    description:'Industrial vs safe-haven — risk sentiment proxy, 77.8% WR, 3.34% exp ⭐' },
+  { id:'silver_copper', name:'Silver / Copper', a:'Silver',    b:'Copper',    type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:1.5,  exitZ:0.75, score:72.68, winRate:86.7, expectancy:3.56,
+    description:'Precious/industrial ratio — 86.7% WR, 3.56% exp, clean data ⭐' },
+  { id:'ftse_sp500',  name:'FTSE / S&P 500',   a:'FTSE 100',  b:'S&P 500',   type:'ratio', tier:'deploy',
+    lookbackDays:45, entryZ:2.0,  exitZ:1.0,  score:11.50, winRate:77.8, expectancy:1.24,
+    description:'UK vs US equity divergence — 77.8% WR at 2σ ⭐' },
+  { id:'nikkei_sp500', name:'TOPIX / S&P 500', a:'Tokyo First Section', b:'S&P 500',  type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:85.2, expectancy:2.33,
+    description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR, 27 trades ⭐' },
+  { id:'asx_sp500',   name:'ASX / S&P 500',    a:'Australia 200', b:'S&P 500', type:'ratio', tier:'deploy',
+    lookbackDays:45, entryZ:1.5,  exitZ:0.5,  score:23.57, winRate:84.8, expectancy:1.12,
+    description:'Time-zone gap divergences — 84.8% WR, 33 trades, most reliable result ⭐' },
+  { id:'usdcad_wti',  name:'USD/CAD vs WTI',   a:'USD/CAD',  b:'WTI Oil',   type:'ratio', tier:'deploy',
+    lookbackDays:90, entryZ:1.25, exitZ:0.75, score:57.2,  winRate:86.7, expectancy:2.73,
+    description:'Petrocurrency relationship — CAD tracks oil, 86.7% WR ⭐' },
+  // ── PAPER TRADE — monitor until sample grows ──────────────────────────────
+  { id:'sp500_brent', name:'S&P 500 / Brent',  a:'S&P 500',   b:'Brent Oil', type:'ratio', tier:'paper',
+    entryZ:2.0,  exitZ:0.25, score:19.52, winRate:63.6, expectancy:3.27,
+    description:'Equities vs energy — thin sample (11 trades), paper trade only' },
+  { id:'brent_copper', name:'Brent / Copper',  a:'Brent Oil', b:'Copper',    type:'ratio', tier:'paper',
+    lookbackDays:90, entryZ:2.0, exitZ:0.75, score:46.02, winRate:70.0, expectancy:5.25,
+    description:'Energy vs industrial — 70% WR, 5.25% exp, thin sample (10 trades) 👁' },
+  { id:'gbpusd_usdjpy', name:'GBP/USD vs USD/JPY', a:'GBP/USD', b:'USD/JPY', type:'ratio', tier:'paper',
+    entryZ:1.5,  exitZ:0.5,  score:4.14,  winRate:75.0, expectancy:0.73,
+    description:'G10 FX cross — low entry threshold, watch for noise' },
+  { id:'eurusd_usdjpy', name:'EUR/USD vs USD/JPY', a:'EUR/USD', b:'USD/JPY', type:'ratio', tier:'paper',
+    entryZ:2.0,  exitZ:0.25, score:2.98,  winRate:63.6, expectancy:0.76,
+    description:'EUR vs JPY risk sentiment — thin sample (11 trades), paper trade only' },
+  // ── REJECT — not recommended for live trading ─────────────────────────────
+  { id:'nasdaq_sp500', name:'Nasdaq / S&P 500', a:'Nasdaq',   b:'S&P 500',   type:'ratio', tier:'reject',
+    entryZ:1.75, exitZ:1.0,  score:0.85,  winRate:58.8, expectancy:0.23,
+    description:'Tech vs broad US — weak edge (0.23% exp), not recommended' },
+  { id:'dax_cac',      name:'DAX / CAC 40',     a:'DAX 40',   b:'CAC 40',    type:'ratio', tier:'reject',
+    entryZ:1.0,  exitZ:0.75, score:0.67,  winRate:76.2, expectancy:0.15,
+    description:'Continental indices — noise-trading at 1σ, reject' },
+];
+
+let pairsData = {};
+let pairsLivePrices = {};
+let selectedPair = 'ftse_dax';
+let openPairsMap = {};
+
+async function loadPairsData() {
+  document.getElementById('pairs-updated').textContent = 'Loading...';
+  try {
+    // Fetch candle data from DB for all pair instruments
+    const instruments = [...new Set(PAIRS_CONFIG.flatMap(p => [p.a, p.b]))];
+    const results = {};
+
+    // Map instrument names to epics for DB lookup
+    const EPIC_MAP_PAIRS = {
+      'FTSE 100':'IX.D.FTSE.DAILY.IP',  'DAX 40':'IX.D.DAX.DAILY.IP',
+      'S&P 500':'IX.D.SPTRD.DAILY.IP',  'Brent Oil':'CC.D.LCO.USS.IP',
+      'Gold':'CS.D.USCGC.TODAY.IP',     'Silver':'CS.D.USCSI.TODAY.IP',
+      'Copper':'CS.D.COPPER.TODAY.IP',  'Nasdaq':'IX.D.NASDAQ.CASH.IP',
+      'Dow Jones':'IX.D.DOW.DAILY.IP',  'CAC 40':'IX.D.CAC.DAILY.IP',
+      'GBP/USD':'CS.D.GBPUSD.TODAY.IP', 'EUR/USD':'CS.D.EURUSD.TODAY.IP',
+      'EUR/GBP':'CS.D.EURGBP.TODAY.IP', 'USD/JPY':'CS.D.USDJPY.TODAY.IP',
+      'Tokyo First Section':'IX.D.NIKKEI.DAILY.IP',
+      'Australia 200':'IX.D.ASX.DAILY.IP',
+      'USD/CAD':'CS.D.USDCAD.TODAY.IP',
+      'WTI Oil':'CS.D.USCRUDE.TODAY.IP',
+    };
+    for(const instr of instruments) {
+      try {
+        // Try by instrument name first, then by epic
+        let candles = [];
+        const r = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(instr)}&limit=600`);
+        if(r.ok) {
+          const d = await r.json();
+          candles = d.candles || [];
+        }
+        // If no results, try by epic
+        if(candles.length === 0 && EPIC_MAP_PAIRS[instr]) {
+          const r2 = await fetch(`/api/db?action=candles&instrument=${encodeURIComponent(EPIC_MAP_PAIRS[instr])}&limit=600`);
+          if(r2.ok) {
+            const d2 = await r2.json();
+            candles = d2.candles || [];
+          }
+        }
+        results[instr] = candles;
+        console.log(`[Pairs] ${instr}: ${candles.length} candles`);
+      } catch(e) { results[instr] = []; console.warn('[Pairs]', instr, e.message); }
+    }
+
+    pairsData = results;
+
+    // Load open pairs trades for sizing display
+    try {
+      const pr = await fetch('/api/db?action=pairs_trades');
+      const pd = await pr.json();
+      openPairsMap = {};
+      (pd.pairs_trades || []).filter(p => p.status === 'open').forEach(p => {
+        openPairsMap[p.pair_id] = p;
+      });
+    } catch(e) { openPairsMap = {}; }
+
+    // Add live intraday prices from S.markets (already fetched by LS + snapshots)
+    // Only use IG live prices for instruments where IG and Yahoo use same units:
+    // - Indices: same units ✅
+    // - FX pairs: same units (both in pips/contract units) ✅  
+    // - Commodities: different units (Yahoo futures vs IG contracts) ❌ excluded
+    const livePrices = {};
+    const EPIC_TO_INSTR = {
+      'IX.D.FTSE.DAILY.IP':'FTSE 100',   'IX.D.DAX.DAILY.IP':'DAX 40',
+      'IX.D.SPTRD.DAILY.IP':'S&P 500',   'IX.D.DOW.DAILY.IP':'Dow Jones',
+      'IX.D.NASDAQ.CASH.IP':'Nasdaq',    'IX.D.CAC.DAILY.IP':'CAC 40',
+      'IX.D.NIKKEI.DAILY.IP':'Japan 225', // kept for directional score only, not pairs ratio'IX.D.ASX.DAILY.IP':'Australia 200',
+      'CS.D.GBPUSD.TODAY.IP':'GBP/USD',  'CS.D.EURUSD.TODAY.IP':'EUR/USD',
+      'CS.D.USDJPY.TODAY.IP':'USD/JPY',  'CS.D.EURGBP.TODAY.IP':'EUR/GBP',
+      'CS.D.USDCAD.TODAY.IP':'USD/CAD',
+      // Commodities — IG prices in pence/unit, different to Yahoo DB units
+      // Only used for profit estimation in pairs card, NOT for Z-score calculation
+      'CS.D.USCGC.TODAY.IP':'Gold',
+      'CS.D.COPPER.TODAY.IP':'Copper',
+      'CC.D.LCO.USS.IP':'Brent Oil',
+    };
+    (S.markets||[]).forEach(m => {
+      const instr = EPIC_TO_INSTR[m.epic];
+      if(instr && m.price && m.price !== '—') {
+        const raw = parseFloat(String(m.price).replace(/,/g,''));
+        if(!isNaN(raw) && raw > 0) livePrices[instr] = raw;
+      }
+    });
+    // Also pull prices directly by instrument name for any missed
+    (S.markets||[]).forEach(m => {
+      const instr = EPIC_TO_INSTR[m.epic];
+      if(instr && !livePrices[instr] && m.price && m.price !== '—') {
+        const raw = parseFloat(String(m.price).replace(/,/g,''));
+        if(!isNaN(raw) && raw > 0) livePrices[instr] = raw;
+      }
+    });
+    // For commodities not yet updated by LS, fetch snapshot directly
+    const COMMODITY_EPICS = {'CS.D.USCGC.TODAY.IP':'Gold','CS.D.COPPER.TODAY.IP':'Copper','CC.D.LCO.USS.IP':'Brent Oil'};
+    for(const [epic, instr] of Object.entries(COMMODITY_EPICS)) {
+      if(!livePrices[instr]) {
+        try {
+          const sr = await igFetch('markets/'+epic, {_retry:false});
+          const bid = sr?.snapshot?.bid;
+          if(bid && bid > 0) livePrices[instr] = bid;
+        } catch(e) { /* non-critical */ }
+      }
+    }
+
+    // Fetch Yahoo live prices for commodities not available via IG (server-side to avoid CORS)
+    // These are in Yahoo units (USD/oz, USD/lb, USD/bbl) matching DB candle units
+    const YAHOO_LIVE = [
+      {symbol:'SI=F',  instr:'Silver',   scale:1.0},
+      {symbol:'HG=F',  instr:'Copper',   scale:1.0},
+      {symbol:'BZ=F',  instr:'Brent Oil',scale:1.0},
+      {symbol:'GC=F',  instr:'Gold',     scale:1.0},
+      {symbol:'CL=F',  instr:'WTI Oil',  scale:1.0},
+    ];
+    try {
+      const yahooResults = await Promise.all(YAHOO_LIVE.map(async ({symbol, instr, scale}) => {
+        try {
+          const r = await fetch(`/api/prices?action=quote&symbol=${encodeURIComponent(symbol)}`);
+          if(!r.ok) return null;
+          const d = await r.json();
+          return {instr, price: d.price ? d.price * scale : null};
+        } catch(e) { return null; }
+      }));
+      yahooResults.forEach(r => {
+        if(r && r.price > 0) {
+          livePrices[r.instr] = r.price;
+          console.log(`[Pairs] Yahoo live: ${r.instr} = ${r.price}`);
+        }
+      });
+    } catch(e) { console.warn('[Pairs] Yahoo live fetch error:', e.message); }
+
+    pairsLivePrices = livePrices;
+    console.log('[Pairs] Live prices:', Object.keys(livePrices).length, 'instruments', livePrices);
+    setTimeout(calcPairSizing, 100); // Update sizing calculator
+    renderPairsGrid();
+    renderPairsChart(selectedPair);
+    document.getElementById('pairs-updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB') + ' (live prices: ' + Object.keys(livePrices).length + ')';
+  } catch(e) {
+    document.getElementById('pairs-updated').textContent = 'Error: ' + e.message;
+  }
+}
+
+function calcPairSpread(candlesA, candlesB, livePriceA, livePriceB) {
+  // Align candles by date and calculate ratio
+  const mapB = {};
+  candlesB.forEach(c => { mapB[c.date?.substring(0,10) || c.candle_time?.substring(0,10)] = c.close_price||c.close; });
+
+  const spreads = [];
+  candlesA.forEach(c => {
+    const date = c.date?.substring(0,10) || c.candle_time?.substring(0,10);
+    const closeA = parseFloat(c.close_price||c.close);
+    const closeB = parseFloat(mapB[date]);
+    if(closeA && closeB && closeB > 0) {
+      spreads.push({ date, spread: closeA / closeB, closeA, closeB });
+    }
+  });
+
+  spreads.sort((a,b) => a.date.localeCompare(b.date));
+
+  // Add live intraday price as the most recent point (today)
+  if(livePriceA && livePriceB && livePriceB > 0) {
+    const today = new Date().toISOString().substring(0,10);
+    // Only add if today isn't already in the candles (avoid double-counting)
+    const lastDate = spreads.length ? spreads[spreads.length-1].date : '';
+    if(lastDate !== today) {
+      spreads.push({ date: today, spread: livePriceA / livePriceB,
+        closeA: livePriceA, closeB: livePriceB, isLive: true });
+    } else {
+      // Replace today's candle with live price
+      spreads[spreads.length-1] = { date: today, spread: livePriceA / livePriceB,
+        closeA: livePriceA, closeB: livePriceB, isLive: true };
+    }
+  }
+
+  return spreads;
+}
+
+function calcZScore(spreads, lookbackDays) {
+  if(spreads.length < 5) return { zscore: null, mean: null, std: null };
+  const lb = lookbackDays || 60;
+  const values = spreads.map(s => s.spread);
+  const dates = spreads.map(s => s.date);
+  const mean = values.reduce((a,b) => a+b, 0) / values.length;
+  const variance = values.reduce((a,b) => a + Math.pow(b-mean, 2), 0) / values.length;
+  const std = Math.sqrt(variance);
+  const current = values[values.length - 1];
+  const zscore = std > 0 ? (current - mean) / std : 0;
+
+  // Calculate Z-score for each historical point
+  const zscores = values.map(v => std > 0 ? (v - mean) / std : 0);
+
+  // Direction: compare last 3 Z-scores to determine trend
+  const recent = zscores.slice(-4);
+  const zTrend = recent.length >= 2 ? recent[recent.length-1] - recent[0] : 0;
+  const direction = Math.abs(zTrend) < 0.1 ? 'flat'
+    : zTrend > 0 ? 'rising' : 'falling';
+
+  // Find recent extreme (max absolute Z in last 10 days)
+  const lookback = Math.min(10, zscores.length);
+  const recentZs = zscores.slice(-lookback);
+  const recentDates = dates.slice(-lookback);
+  let maxAbsIdx = 0;
+  recentZs.forEach((z, i) => { if(Math.abs(z) > Math.abs(recentZs[maxAbsIdx])) maxAbsIdx = i; });
+  const recentMaxZ = recentZs[maxAbsIdx];
+  const recentMaxDate = recentDates[maxAbsIdx];
+
+  // Signal strength: combines Z magnitude + data quality
+  // 0-100 score: 50% from Z-score, 50% from data days
+  const zStrength = Math.min(100, (Math.abs(zscore) / 3) * 100); // 3σ = max
+  const dataStrength = Math.min(100, (values.length / lb) * 100); // full lookback = max
+  const signalStrength = Math.round((zStrength * 0.6) + (dataStrength * 0.4));
+  const strengthLabel = signalStrength >= 70 ? 'Strong'
+    : signalStrength >= 50 ? 'Moderate'
+    : signalStrength >= 30 ? 'Developing'
+    : 'Weak';
+  const strengthColor = signalStrength >= 70 ? 'var(--green)'
+    : signalStrength >= 50 ? '#f39c12'
+    : signalStrength >= 30 ? '#3498db'
+    : 'var(--text2)';
+
+  return { zscore, mean, std, current, n: values.length,
+    direction, zTrend, recentMaxZ, recentMaxDate,
+    signalStrength, strengthLabel, strengthColor };
+}
+
+function getZScoreColor(z) {
+  if(z === null) return 'var(--text2)';
+  const abs = Math.abs(z);
+  if(abs >= 2.0) return z > 0 ? '#e74c3c' : '#2ecc71';
+  if(abs >= 1.5) return z > 0 ? '#f39c12' : '#3498db';
+  return 'var(--text2)';
+}
+
+function getSignal(pair, zscore) {
+  if(zscore === null || Math.abs(zscore) < 1.5) return { text: 'Neutral', color: 'var(--text2)' };
+  const extreme = Math.abs(zscore) >= 2.0;
+  if(zscore > 0) {
+    // Ratio high: A expensive vs B → sell A, buy B
+    return {
+      text: `${extreme?'⚠️ ':''}${pair.a} expensive vs ${pair.b}`,
+      action: `SELL ${pair.a} / BUY ${pair.b}`,
+      color: extreme ? '#e74c3c' : '#f39c12'
+    };
+  } else {
+    // Ratio low: A cheap vs B → buy A, sell B
+    return {
+      text: `${extreme?'⚠️ ':''}${pair.a} cheap vs ${pair.b}`,
+      action: `BUY ${pair.a} / SELL ${pair.b}`,
+      color: extreme ? '#2ecc71' : '#3498db'
+    };
+  }
+}
+
+function renderPairsGrid() {
+  const grid = document.getElementById('pairs-grid');
+  const selector = document.getElementById('pairs-selector');
+  if(!grid) return;
+
+  grid.innerHTML = '';
+  selector.innerHTML = '';
+
+  const COMMODITY_INSTRUMENTS = new Set(['Tokyo First Section','Japan 225']);
+  // Note: Silver, Copper, Brent Oil, Gold, WTI now use Yahoo live prices
+  // which are in the same units as DB candles — safe to use for Z-score
+  PAIRS_CONFIG.forEach(pair => {
+    const candlesA = pairsData[pair.a] || [];
+    const candlesB = pairsData[pair.b] || [];
+    const liveA = COMMODITY_INSTRUMENTS.has(pair.a) ? null : pairsLivePrices[pair.a];
+    const liveB = COMMODITY_INSTRUMENTS.has(pair.b) ? null : pairsLivePrices[pair.b];
+    // Keep full live prices available for profit calculation (separate from Z-score)
+    const priceA = pairsLivePrices[pair.a];
+    const priceB = pairsLivePrices[pair.b];
+    const spreads = calcPairSpread(candlesA, candlesB, liveA, liveB);
+    // Apply per-pair rolling lookback window — matches engine calculation exactly
+    const lb = pair.lookbackDays || 60;
+    const windowedSpreads = spreads.length > lb ? spreads.slice(-lb) : spreads;
+    const { zscore, mean, std, current, n, direction, zTrend,
+              recentMaxZ, recentMaxDate, signalStrength, strengthLabel, strengthColor } = calcZScore(windowedSpreads, lb);
+    const hasLive = spreads.length > 0 && spreads[spreads.length-1].isLive;
+    const signal = getSignal(pair, zscore);
+    const zColor = getZScoreColor(zscore);
+
+    // Gauge bar
+    const clampedZ = Math.max(-3, Math.min(3, zscore || 0));
+    const barPct = ((clampedZ + 3) / 6) * 100;
+
+    // Tier badge config
+    const TIER_BADGE = {
+      deploy: { label:'⭐ Deploy',     bg:'rgba(63,185,80,0.15)',  color:'var(--green)',  border:'rgba(63,185,80,0.3)' },
+      paper:  { label:'👁 Paper trade', bg:'rgba(88,166,255,0.12)', color:'var(--blue)',   border:'rgba(88,166,255,0.25)' },
+      reject: { label:'✕ Reject',      bg:'rgba(248,81,73,0.1)',   color:'var(--red)',    border:'rgba(248,81,73,0.2)' },
+      legacy: { label:'Legacy',        bg:'rgba(139,148,158,0.12)',color:'var(--text2)',  border:'rgba(139,148,158,0.2)' },
+    };
+    const tb = TIER_BADGE[pair.tier] || TIER_BADGE.legacy;
+
+    // Unit-mismatch warning for commodity pairs (Gold, Silver, Copper, Brent stored as Yahoo futures)
+    const hasCommodity = COMMODITY_INSTRUMENTS.has(pair.a) || COMMODITY_INSTRUMENTS.has(pair.b);
+    // Check if ratio looks anomalous — for Gold/Silver ratio should be ~70-90, not ~59 with mean ~81
+    // Flag if current ratio deviates >30% from mean (suggests unit mismatch corrupting the data)
+    const ratioDevPct = mean && current ? Math.abs((current - mean) / mean) * 100 : 0;
+    const unitMismatchWarning = hasCommodity && ratioDevPct > 20 && !hasLive;
+
+    grid.innerHTML += `
+      <div style="background:var(--bg2);border-radius:8px;padding:14px;cursor:pointer;border:1px solid ${Math.abs(zscore||0)>=2?zColor:'var(--border)'}"
+           onclick="selectPair('${pair.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <div style="font-weight:600;font-size:14px">${pair.name}</div>
+              <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;
+                background:${tb.bg};color:${tb.color};border:1px solid ${tb.border}">${tb.label}</span>
+              ${zscore !== null ? `<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:${strengthColor}22;color:${strengthColor}">${strengthLabel} (${signalStrength}%)</span>` : ''}
+            </div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${pair.description}</div>
+            ${zscore !== null && recentMaxZ !== undefined ? `
+            <div style="font-size:11px;margin-top:4px;color:var(--text2)">
+              Recent peak: <span style="color:${Math.abs(recentMaxZ)>=2?'var(--green)':'var(--text1)'}"><strong>${recentMaxZ>0?'+':''}${recentMaxZ.toFixed(2)}σ</strong></span>
+              <span style="color:var(--text2)"> on ${recentMaxDate ? recentMaxDate.substring(8)+'/'+recentMaxDate.substring(5,7) : '?'}</span>
+            </div>` : ''}
+          </div>
+          <div style="text-align:right;min-width:90px">
+            <div style="font-size:22px;font-weight:700;color:${zColor}">
+              ${zscore !== null ? (zscore > 0 ? '+' : '') + zscore.toFixed(2) : 'N/A'}
+              ${zscore !== null ? `<span style="font-size:13px">${direction==='rising'?'↑':direction==='falling'?'↓':'→'}</span>` : ''}
+            </div>
+            <div style="font-size:10px;color:var(--text2)">Z-score (${n||0} days)</div>
+          </div>
+        </div>
+        <!-- Gauge -->
+        <div style="position:relative;height:6px;background:var(--bg1);border-radius:3px;margin:8px 0">
+          <div style="position:absolute;left:33.3%;right:33.3%;top:0;bottom:0;background:var(--border);border-radius:3px"></div>
+          <div style="position:absolute;left:${barPct.toFixed(1)}%;top:-2px;width:10px;height:10px;background:${zColor};border-radius:50%;transform:translateX(-50%)"></div>
+          <div style="position:absolute;left:16.6%;top:-2px;width:2px;height:10px;background:var(--border)"></div>
+          <div style="position:absolute;left:83.3%;top:-2px;width:2px;height:10px;background:var(--border)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-bottom:8px">
+          <span>-3σ</span><span>-2σ</span><span>0</span><span>+2σ</span><span>+3σ</span>
+        </div>
+        ${unitMismatchWarning ? `
+        <div style="background:rgba(210,153,34,0.1);border:1px solid rgba(210,153,34,0.25);border-radius:4px;padding:6px 8px;font-size:11px;color:var(--gold);margin-bottom:6px">
+          ⚠️ Possible unit mismatch — ratio ${current?.toFixed(2)} vs mean ${mean?.toFixed(2)} (${ratioDevPct.toFixed(0)}% deviation). DB candles may use different price units than expected. Z-score unreliable until candle source is verified.
+        </div>` : ''}
+        ${zscore !== null && Math.abs(zscore) >= 1.5 ? `
+        <div style="background:var(--bg1);border-radius:4px;padding:6px 8px;font-size:12px;color:${signal.color}">
+          ${signal.text}${signal.action ? `<br><strong>${signal.action}</strong>` : ''}
+        </div>` : ''}
+        ${pair.expectancy != null && zscore !== null ? (() => {
+          const balance = parseFloat(document.getElementById('balance')?.textContent?.replace(/[^0-9.]/g,'')) || 500;
+          const riskAmt = balance * 0.04;
+          const absZ = Math.abs(zscore);
+          const exitZ = pair.exitZ || 0.5;
+          const entryZ = pair.entryZ || 2.0;
+          const stopZ = pair.stopZ || 3.0;
+          const openTrade = openPairsMap[pair.id];
+
+          // Replicate engine sizing formula exactly:
+          // stopPts = (stopZ - absZ) × std × priceOther × 3
+          // size = (riskAmt/2) / stopPts
+          const priceA = pairsLivePrices[pair.a] || 0;
+          const priceB = pairsLivePrices[pair.b] || 0;
+          const zStopDist = stopZ - Math.max(absZ, entryZ); // σ from entry to stop
+          const effectiveStd = std || 0.01;
+
+          let sizeA, sizeB, projRisk, profitLabel, estProfit;
+
+          if(openTrade) {
+            sizeA = parseFloat(openTrade.size_a) || 0;
+            sizeB = parseFloat(openTrade.size_b) || 0;
+            const zReversion = Math.max(0, absZ - exitZ);
+            if(priceA > 0 && priceB > 0) {
+              // Get IG prices for scale factor calculation
+              const findIgPrice = (instrName) => {
+                const m = (S.markets||[]).find(m => {
+                  const e = m.epic||'';
+                  if(instrName==='Silver')    return e.includes('USCSI');
+                  if(instrName==='Copper')    return e.includes('COPPER');
+                  if(instrName==='Gold')      return e.includes('USCGC');
+                  if(instrName==='Brent Oil') return e.includes('LCO');
+                  return false;
+                });
+                return m ? parseFloat(String(m.price||0).replace(/,/g,'')) : 0;
+              };
+              const igPA = findIgPrice(pair.a) || priceA;
+              const scaleA = priceA > 0 ? igPA / priceA : 1;
+              // Dominant leg: leg A moves std × priceB × scaleA IG points per σ
+              // Add 50% for partial contribution from leg B
+              const legAptPerSigma = effectiveStd * priceB * scaleA;
+              estProfit = zReversion * legAptPerSigma * sizeA;
+            } else {
+              const zRatio = zReversion / Math.max(0.01, Math.abs(parseFloat(openTrade.entry_z)||absZ) - exitZ);
+              estProfit = zRatio * (pair.expectancy/100) * riskAmt;
+            }
+            profitLabel = `open: Z ${absZ.toFixed(2)}→${exitZ}σ`;
+          } else if(priceA > 0 && priceB > 0 && absZ >= entryZ) {
+            // Engine sizing at current Z
+            const stopPtsA = Math.max(5, Math.round(zStopDist * effectiveStd * priceB * 3));
+            const stopPtsB = Math.max(5, Math.round(zStopDist * effectiveStd * priceA * 3));
+            sizeA = Math.max(0.01, parseFloat(((riskAmt/2)/stopPtsA).toFixed(2)));
+            sizeB = Math.max(0.01, parseFloat(((riskAmt/2)/stopPtsB).toFixed(2)));
+            projRisk = riskAmt;
+            const zReversion = absZ - exitZ;
+            estProfit = (zReversion / (stopZ - absZ)) * projRisk * (pair.expectancy/100) * 10;
+            profitLabel = `if Z ${absZ.toFixed(2)}→${exitZ}σ`;
+          } else {
+            // No signal / no live prices — show avg expectancy
+            sizeA = null; sizeB = null;
+            projRisk = riskAmt;
+            estProfit = (pair.expectancy/100) * riskAmt;
+            profitLabel = 'avg per trade';
+          }
+
+          estProfit = Math.max(0, estProfit);
+          const estPct = (estProfit / balance * 100).toFixed(3);
+          const valColor = estProfit > 0 ? 'var(--green)' : 'var(--text2)';
+          const sizingLine = sizeA != null
+            ? `<div><span style="color:var(--text2)">${openTrade?'Actual':'Projected'} size</span> <strong>£${sizeA}/pt : £${sizeB}/pt</strong></div>`
+            : '';
+
+          return `<div style="margin-top:8px;padding:6px 8px;background:var(--bg1);border-radius:4px;font-size:11px">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+              <div><span style="color:var(--text2)">Win rate</span> <strong>${pair.winRate}%</strong></div>
+              <div><span style="color:var(--text2)">Expectancy</span> <strong style="color:var(--green)">+${pair.expectancy}%</strong></div>
+              <div><span style="color:var(--text2)">Est. profit (${profitLabel})</span> <strong style="color:${valColor}">+£${estProfit.toFixed(2)}</strong></div>
+              <div><span style="color:var(--text2)">Account</span> <strong style="color:${valColor}">+${estPct}%</strong></div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;color:var(--text2)">
+              ${sizingLine}
+              <div>4% risk = £${riskAmt.toFixed(0)}</div>
+            </div>
+          </div>`;
+        })() : ''}
+        ${mean ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
+          Ratio: ${current?.toFixed(4)} ${hasLive ? '<span style="color:var(--green);font-size:10px">● LIVE</span>' : ''}| Mean: ${mean.toFixed(4)} | σ: ${std?.toFixed(4)}
+        </div>` : ''}
+      </div>`;
+
+    // Selector button
+    selector.innerHTML += `<button onclick="selectPair('${pair.id}')"
+      style="padding:4px 10px;font-size:12px;border-radius:4px;border:1px solid var(--border);
+      background:${selectedPair===pair.id?'var(--accent)':'var(--bg2)'};
+      color:${selectedPair===pair.id?'#fff':'var(--text1)'};cursor:pointer">
+      ${pair.name}</button>`;
+  });
+}
+
+let chartLookbackMode = 'optimal'; // 'optimal' or '500'
+
+function setChartLookback(mode) {
+  chartLookbackMode = mode;
+  document.getElementById('chart-lb-opt').classList.toggle('active', mode === 'optimal');
+  document.getElementById('chart-lb-500').classList.toggle('active', mode === '500');
+  if(selectedPair) renderPairsChart(selectedPair);
+}
+
+function selectPair(id) {
+  selectedPair = id;
+  renderPairsGrid();
+  renderPairsChart(id);
+}
+
+function renderPairsChart(pairId) {
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return;
+  const canvas = document.getElementById('pairs-chart');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  const candlesA = pairsData[pair.a] || [];
+  const candlesB = pairsData[pair.b] || [];
+  const COMMODITY_INSTRS = new Set(['Gold','Silver','Copper','Brent Oil','WTI Oil','Platinum','Palladium','Natural Gas','Aluminium','Zinc']);
+  const spreads = calcPairSpread(candlesA, candlesB,
+    COMMODITY_INSTRS.has(pair.a) ? null : pairsLivePrices[pair.a],
+    COMMODITY_INSTRS.has(pair.b) ? null : pairsLivePrices[pair.b]);
+  if(spreads.length < 3) {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'var(--text2)';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Insufficient data — need candles for both instruments', canvas.width/2, canvas.height/2);
+    return;
+  }
+
+  const lb = pair.lookbackDays || 60;
+  // Chart window: optimal lookback or full 500-day history
+  const chartDays = chartLookbackMode === '500' ? 500 : lb;
+  const windowedSpreads = spreads.length > chartDays ? spreads.slice(-chartDays) : spreads;
+  // Z-score always calculated on optimal lookback window regardless of chart display
+  const { mean, std } = calcZScore(spreads.length > lb ? spreads.slice(-lb) : spreads, lb);
+  const values = windowedSpreads.map(s => s.spread);
+  const dates = windowedSpreads.map(s => {
+    const parts = s.date.substring(5).split('-'); // MM-DD
+    return parts.length === 2 ? `${parts[1]}/${parts[0]}` : s.date.substring(5);
+  });
+  const upper2 = mean + 2*std;
+  const lower2 = mean - 2*std;
+  const upper1 = mean + std;
+  const lower1 = mean - std;
+  const minV = Math.min(...values, lower2) * 0.999;
+  const maxV = Math.max(...values, upper2) * 1.001;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  const pad = { t:36, r:24, b:44, l:100 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  ctx.clearRect(0,0,W,H);
+
+  const xS = i => pad.l + (i / (values.length-1)) * cw;
+  const yS = v => pad.t + (1 - (v-minV)/(maxV-minV)) * ch;
+
+  // Band fills
+  const fillBand = (top, bot, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, yS(top));
+    ctx.lineTo(pad.l+cw, yS(top));
+    ctx.lineTo(pad.l+cw, yS(bot));
+    ctx.lineTo(pad.l, yS(bot));
+    ctx.fill();
+  };
+  fillBand(upper2, maxV, 'rgba(231,76,60,0.08)');
+  fillBand(minV, lower2, 'rgba(46,204,113,0.08)');
+  fillBand(upper2, upper1, 'rgba(243,156,18,0.06)');
+  fillBand(lower1, lower2, 'rgba(52,152,219,0.06)');
+
+  // Reference lines
+  const drawLine = (v, color, dash=[]) => {
+    ctx.strokeStyle = color; ctx.lineWidth=1; ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(pad.l, yS(v)); ctx.lineTo(pad.l+cw, yS(v)); ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  drawLine(mean, 'rgba(139,148,158,0.6)', [4,4]);
+  drawLine(upper2, '#e74c3c', [3,3]);
+  drawLine(lower2, '#2ecc71', [3,3]);
+  drawLine(upper1, 'rgba(243,156,18,0.5)', [2,4]);
+  drawLine(lower1, 'rgba(52,152,219,0.5)', [2,4]);
+
+  // Y axis labels — larger font, value + sigma label
+  ctx.font = '12px sans-serif'; ctx.fillStyle = 'var(--color-text-secondary)'; ctx.textAlign = 'right';
+  [[mean,'Mean',''],[upper2,'+2σ',''],[lower2,'-2σ',''],[upper1,'+1σ',''],[lower1,'-1σ','']].forEach(([v,sigma,_]) => {
+    ctx.fillStyle = sigma==='+2σ'||sigma==='-2σ' ? '#e8e6e0' : '#b0ada6';
+    ctx.font = sigma==='+2σ'||sigma==='-2σ'||sigma==='Mean' ? 'bold 11px sans-serif' : '10px sans-serif';
+    ctx.fillText(`${sigma} ${v.toFixed(4)}`, pad.l-8, yS(v)+4);
+  });
+
+  // Y axis title
+  ctx.save();
+  ctx.translate(14, pad.t + ch/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.font = '11px sans-serif'; ctx.fillStyle = 'var(--text2)'; ctx.textAlign = 'center';
+  ctx.fillText('Ratio', 0, 0);
+  ctx.restore();
+
+  // Spread line
+  ctx.strokeStyle = 'var(--accent)'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath();
+  values.forEach((v,i) => i===0 ? ctx.moveTo(xS(i),yS(v)) : ctx.lineTo(xS(i),yS(v)));
+  ctx.stroke();
+
+  // Dots at extremes
+  values.forEach((v,i) => {
+    if(Math.abs((v-mean)/std) >= 1.5) {
+      ctx.fillStyle = v > upper2 ? '#e74c3c' : v < lower2 ? '#2ecc71' : '#f39c12';
+      ctx.beginPath(); ctx.arc(xS(i),yS(v),4,0,Math.PI*2); ctx.fill();
+    }
+  });
+
+  // X axis labels — larger, more readable
+  ctx.fillStyle = '#b0ada6'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(dates.length/8));
+  dates.forEach((d,i) => { if(i%step===0) ctx.fillText(d, xS(i), H-8); });
+
+  // X axis title
+  ctx.font = '11px sans-serif'; ctx.fillStyle = '#b0ada6'; ctx.textAlign = 'center';
+  ctx.fillText('Date', pad.l + cw/2, H-2);
+
+  // Title with current Z-score
+  const currentZ = std > 0 ? ((values[values.length-1] - mean) / std).toFixed(2) : '—';
+  const zSign = parseFloat(currentZ) > 0 ? '+' : '';
+  ctx.fillStyle = '#e8e6e0'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(`${pair.name} spread ratio`, pad.l, 18);
+  ctx.fillStyle = Math.abs(parseFloat(currentZ)) >= 2 ? '#e74c3c' : '#b0ada6';
+  ctx.font = '12px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText(`Z-score: ${zSign}${currentZ}σ  |  ${lb}d lookback`, W - pad.r, 18);
+}
+
+// Auto-fill optimal params when pair is selected in backtest
+function prefillPbtParams() {
+  const sel = document.getElementById('pbt-pair');
+  const opt = sel.options[sel.selectedIndex];
+  const entry = opt.dataset.entry;
+  const exit  = opt.dataset.exit;
+  const stop  = opt.dataset.stop;
+  const lb    = opt.dataset.lb;
+  if(entry) {
+    const entryEl = document.getElementById('pbt-entry');
+    [...entryEl.options].forEach(o => { o.selected = o.value === entry; });
+  }
+  if(exit) {
+    const exitEl = document.getElementById('pbt-exit');
+    [...exitEl.options].forEach(o => { o.selected = o.value === exit; });
+  }
+  if(stop) {
+    const stopEl = document.getElementById('pbt-stop');
+    [...stopEl.options].forEach(o => { o.selected = o.value === stop; });
+  }
+  if(lb) {
+    const lbEl = document.getElementById('pbt-lookback');
+    [...lbEl.options].forEach(o => { o.selected = o.value === lb; });
+  }
+}
+
+// ─── PAIRS BACKTEST ──────────────────────────────────────────────────────────
+async function runPairsBacktest() {
+  document.getElementById('pbt-results').style.display='none';
+  document.getElementById('pbt-error').style.display='none';
+  document.getElementById('pbt-loading').style.display='inline';
+  try {
+    const pair    = document.getElementById('pbt-pair').value;
+    const entryZ  = document.getElementById('pbt-entry').value;
+    const exitZ   = document.getElementById('pbt-exit').value;
+    const stopZ   = document.getElementById('pbt-stop').value;
+    const lookback= document.getElementById('pbt-lookback').value;
+    const days    = document.getElementById('pbt-days').value;
+
+    const r = await fetch(`/api/review?action=pairs_backtest&pair=${pair}&entryZ=${entryZ}&exitZ=${exitZ}&stopZ=${stopZ}&lookback=${lookback}&days=${days}`);
+    const d = await r.json();
+    document.getElementById('pbt-loading').style.display='none';
+
+    if(d.error) {
+      document.getElementById('pbt-error-msg').textContent = d.error;
+      document.getElementById('pbt-error').style.display='block';
+      return;
+    }
+
+    const s = d.summary;
+    const wrEl = document.getElementById('pbt-wr');
+    const expEl = document.getElementById('pbt-exp');
+    const pfEl  = document.getElementById('pbt-pf');
+
+    document.getElementById('pbt-trades').textContent = s.totalTrades;
+    document.getElementById('pbt-hold').textContent = s.avgDaysHeld;
+    if(wrEl)  { wrEl.textContent=s.winRate+'%';  wrEl.className='value '+(s.winRate>=60?'pos':s.winRate>=50?'':'neg'); }
+    if(expEl) { expEl.textContent=(s.expectancy>=0?'+':'')+s.expectancy+'%'; expEl.className='value '+(s.expectancy>=0?'pos':'neg'); }
+    if(pfEl)  { pfEl.textContent=s.profitFactor+'x'; pfEl.className='value '+(s.profitFactor>=1.5?'pos':s.profitFactor>=1?'':'neg'); }
+
+    // By exit reason
+    document.getElementById('pbt-exits').innerHTML = Object.entries(d.byExit||{}).map(([reason, stats]) =>
+      `<div class="signal-item">
+        <div><div style="font-weight:500">${reason.replace('_',' ')}</div>
+        <div style="font-size:11px;color:var(--text2)">${stats.trades} trades | ${(stats.wins/stats.trades*100).toFixed(0)}% WR</div></div>
+        <div class="${stats.totalPnl>=0?'pos':'neg'}">${stats.totalPnl>=0?'+':''}${stats.totalPnl.toFixed(2)}%</div>
+      </div>`
+    ).join('') || '<div class="empty">No trades</div>';
+
+    // Recent trades
+    document.getElementById('pbt-trades-list').innerHTML = (d.recentTrades||[]).map(t => `
+      <tr>
+        <td style="font-size:11px">${String(t.entryDate||'').substring(5)}</td>
+        <td style="font-size:11px">${String(t.exitDate||'').substring(5)}</td>
+        <td><span class="badge ${t.direction==='BUY_A'?'badge-buy':'badge-sell'}" style="font-size:10px">${t.direction==='BUY_A'?'BUY A':'SELL A'}</span></td>
+        <td style="font-size:11px;color:var(--text2)">${t.entryZ}σ</td>
+        <td style="font-size:11px;color:var(--text2)">${t.exitZ}σ</td>
+        <td style="font-size:11px">${t.daysHeld}d</td>
+        <td class="${parseFloat(t.pnlPct)>=0?'pos':'neg'}" style="font-size:11px">${parseFloat(t.pnlPct)>=0?'+':''}${t.pnlPct}%</td>
+        <td style="font-size:11px;color:var(--green)">+${t.peakPnl}%</td>
+      </tr>`).join('');
+
+    // Interpretation
+    document.getElementById('pbt-interpretation').innerHTML = `
+      <p><strong>Pair:</strong> ${d.pair} | <strong>Params:</strong> Entry ±${entryZ}σ | Exit ±${exitZ}σ | Stop ±${stopZ}σ | ${lookback}d lookback</p>
+      <p><strong>Edge:</strong> ${s.expectancy>0.5?'<span style="color:var(--green)">Positive — worth trading</span>':s.expectancy>0?'Marginal — monitor closely':'<span style="color:var(--red)">No edge — do not trade</span>'}</p>
+      <p><strong>Could have won:</strong> ${s.couldHaveWon} trades went positive but closed negative</p>
+      <p style="margin-top:8px;font-size:12px;color:var(--text3)">${d.log?.slice(-2).join(' · ')}</p>`;
+
+    document.getElementById('pbt-results').style.display='block';
+  } catch(e) {
+    document.getElementById('pbt-loading').style.display='none';
+    document.getElementById('pbt-error-msg').textContent = 'Error: '+e.message;
+    document.getElementById('pbt-error').style.display='block';
+  }
+}
+
+// Auto-load when pairs tab shown
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+document.addEventListener('DOMContentLoaded', () => {
+  const tabs = document.querySelectorAll('.nav-tab');
+  tabs.forEach(t => {
+    if(t.textContent.includes('Pairs')) {
+      t.addEventListener('click', () => { if(!Object.keys(pairsData).length) loadPairsData(); });
+    }
+  });
+});
+
+
+// ── PAIRS TRADE SIZING CALCULATOR ─────────────────────────────────────────────
+function calcPairSizing() {
+  const pairId = document.getElementById('sizing-pair')?.value;
+  const riskAmt = parseFloat(document.getElementById('sizing-risk')?.value) || 5;
+  const stopSigma = parseFloat(document.getElementById('sizing-stop')?.value) || 1.5;
+  const result = document.getElementById('sizing-result');
+  if(!result) return;
+
+  const pair = PAIRS_CONFIG.find(p => p.id === pairId);
+  if(!pair) return;
+
+  const priceA = pairsLivePrices[pair.a];
+  const priceB = pairsLivePrices[pair.b];
+  const hasLivePrices = priceA && priceB;
+
+  if(!hasLivePrices) {
+    // For commodity pairs without live prices, show signal-only guidance
+    const candlesA = pairsData[pair.a] || [];
+    const candlesB = pairsData[pair.b] || [];
+    if(!candlesA.length || !candlesB.length) {
+      result.innerHTML = '<span style="color:var(--text2)">Load pairs data first (click Refresh)</span>';
+      return;
+    }
+    const spreads = calcPairSpread(candlesA, candlesB);
+    const lbSz = pair.lookbackDays || 60;
+    const wSpreads = spreads.length > lbSz ? spreads.slice(-lbSz) : spreads;
+    const { zscore, mean, std, n } = calcZScore(wSpreads, lbSz);
+    if(!zscore) { result.innerHTML = '<span style="color:var(--text2)">Insufficient data</span>'; return; }
+    const absZ = Math.abs(zscore);
+    const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
+    const dirA = zscore < 0 ? 'BUY' : 'SELL';
+    const dirB = zscore < 0 ? 'SELL' : 'BUY';
+    const conviction = absZ >= 2 ? 'Strong signal' : absZ >= 1.5 ? 'Watch zone' : 'Weak signal';
+    const targetZ = 0;
+    const zToTarget = Math.abs(zscore - targetZ);
+    const zToStop = absZ + stopSigma;
+    const rrRatio = (zToTarget / stopSigma).toFixed(1);
+    result.innerHTML = `
+      <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <span style="color:${zColor};font-weight:600">${conviction}</span>
+        <span style="color:var(--text2);font-size:12px;margin-left:8px">Z=${zscore.toFixed(2)} | ${n} days | σ=${std.toFixed(4)}</span>
+        <span style="font-size:11px;color:#f39c12;margin-left:8px">⚠️ Historical prices only — trade manually on IG</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+        <div style="background:var(--bg2);border-radius:6px;padding:10px">
+          <div style="font-size:11px;color:var(--text2)">${pair.a}</div>
+          <div style="font-size:18px;font-weight:700;color:${dirA==='BUY'?'var(--green)':'var(--red)'}">${dirA}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Size proportional to notional</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:10px">
+          <div style="font-size:11px;color:var(--text2)">${pair.b}</div>
+          <div style="font-size:18px;font-weight:700;color:${dirB==='BUY'?'var(--green)':'var(--red)'}">${dirB}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Equal notional to ${pair.a}</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2)">
+        Stop at Z=${zscore < 0 ? '-' : '+'}${(absZ+stopSigma).toFixed(1)}σ &nbsp;|&nbsp;
+        Target Z=0 &nbsp;|&nbsp; R:R <strong style="color:var(--text1)">${rrRatio}:1</strong>
+        &nbsp;|&nbsp; Risk £${riskAmt}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--text2)">
+        💡 To trade on IG: use equal £ notional for each leg. 
+        For £${riskAmt} risk at ${stopSigma}σ stop: allocate £${(riskAmt/stopSigma*zToTarget).toFixed(0)} per leg.
+      </div>`;
+    return;
+  }
+
+  // Get Z-score stats for this pair
+  const candlesA = pairsData[pair.a] || [];
+  const candlesB = pairsData[pair.b] || [];
+  const spreads = calcPairSpread(candlesA, candlesB, priceA, priceB);
+  const { zscore, mean, std, n } = calcZScore(spreads);
+
+  if(!mean || !std || n < 5) {
+    result.innerHTML = '<span style="color:var(--text2)">Insufficient data for this pair</span>';
+    return;
+  }
+
+  // Direction based on Z-score
+  // Negative Z = A cheap vs B → BUY A, SELL B
+  // Positive Z = A expensive vs B → SELL A, BUY B
+  const dirA = zscore < 0 ? 'BUY' : 'SELL';
+  const dirB = zscore < 0 ? 'SELL' : 'BUY';
+  const absZ = Math.abs(zscore);
+
+  // Stop level: Z-score reverts by stopSigma further (worst case)
+  // Stop ratio = mean ± (absZ + stopSigma) * std
+  const stopRatio = zscore < 0
+    ? mean - (absZ + stopSigma) * std   // if A cheap, stops if ratio falls further
+    : mean + (absZ + stopSigma) * std;  // if A expensive, stops if ratio rises further
+  const currentRatio = priceA / priceB;
+  const stopRatioMove = Math.abs(currentRatio - stopRatio); // ratio move to stop
+
+  // Convert ratio move to price move for each leg
+  // If ratio = priceA / priceB, a ratio move of δ with priceB fixed = priceA moves by δ * priceB
+  const stopPtsA = stopRatioMove * priceB;  // approx price move for A
+  const stopPtsB = stopRatioMove * priceA;  // approx price move for B (inverted)
+
+  // Size each leg so total risk = riskAmt
+  // Total loss if stopped = sizeA * stopPtsA + sizeB * stopPtsB
+  // For delta-neutral: notional A = notional B
+  // notionalA = sizeA * priceA, notionalB = sizeB * priceB
+  // Equal notional: sizeA * priceA = sizeB * priceB → sizeB = sizeA * priceA / priceB
   
-  return'ranging';
+  // Risk per unit of sizeA = stopPtsA + stopPtsB * (priceA/priceB)
+  const riskPerUnitA = stopPtsA + stopPtsB * (priceA / priceB);
+  const sizeA = riskPerUnitA > 0 ? riskAmt / riskPerUnitA : 0;
+  const sizeB = sizeA * priceA / priceB;
+
+  // Round to sensible precision
+  const fmtSize = (s) => s < 0.01 ? s.toFixed(3) : s < 0.1 ? s.toFixed(2) : s.toFixed(2);
+  const notionalA = (sizeA * priceA).toFixed(0);
+  const notionalB = (sizeB * priceB).toFixed(0);
+  const maxLossA = (sizeA * stopPtsA).toFixed(2);
+  const maxLossB = (sizeB * stopPtsB).toFixed(2);
+
+  // Target: Z reverts to 0 (mean)
+  const targetRatio = mean;
+  const targetMoveA = Math.abs(priceA - (targetRatio * priceB));
+  const profitA = (sizeA * targetMoveA).toFixed(2);
+  const rrRatio = (parseFloat(profitA) / riskAmt).toFixed(1);
+
+  const zColor = absZ >= 2 ? 'var(--green)' : absZ >= 1.5 ? '#f39c12' : 'var(--text2)';
+  const conviction = absZ >= 2 ? 'Strong signal' : absZ >= 1.5 ? 'Watch zone' : 'Weak signal';
+
+  const usingHistorical = !pairsLivePrices[pair.a] || !pairsLivePrices[pair.b];
+  result.innerHTML = `
+    <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <span style="color:${zColor};font-weight:600">${conviction}</span>
+      ${usingHistorical ? '<span style="font-size:11px;color:#f39c12;margin-left:8px">⚠️ Using historical prices — sizes indicative</span>' : ''}
+      <span style="color:var(--text2);font-size:12px;margin-left:8px">Z-score ${zscore?.toFixed(2)} | ${n} days data</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+      <div style="background:var(--bg2);border-radius:6px;padding:10px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${pair.a}</div>
+        <div style="font-size:18px;font-weight:700;color:${dirA==='BUY'?'var(--green)':'var(--red)'}">${dirA}</div>
+        <div style="font-size:13px;margin-top:4px">£<strong>${fmtSize(sizeA)}</strong>/pt</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Price: ${priceA.toFixed(1)} | Notional: £${notionalA}</div>
+        <div style="font-size:11px;color:var(--text2)">Stop: ${stopPtsA.toFixed(1)}pts | Max loss: £${maxLossA}</div>
+      </div>
+      <div style="background:var(--bg2);border-radius:6px;padding:10px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${pair.b}</div>
+        <div style="font-size:18px;font-weight:700;color:${dirB==='BUY'?'var(--green)':'var(--red)'}">${dirB}</div>
+        <div style="font-size:13px;margin-top:4px">£<strong>${fmtSize(sizeB)}</strong>/pt</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Price: ${priceB.toFixed(1)} | Notional: £${notionalB}</div>
+        <div style="font-size:11px;color:var(--text2)">Stop: ${stopPtsB.toFixed(1)}pts | Max loss: £${maxLossB}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;font-size:12px;color:var(--text2)">
+      <span>Total risk: <strong style="color:var(--text1)">£${riskAmt}</strong></span>
+      <span>Target profit (Z→0): <strong style="color:var(--green)">£${profitA}</strong></span>
+      <span>R:R ratio: <strong style="color:var(--text1)">${rrRatio}:1</strong></span>
+      <span>Stop at: <strong style="color:var(--text1)">${stopSigma}σ beyond current</strong></span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text2)">
+      ⚡ Enter simultaneously. Stop both legs if either hits its stop level. Close both when Z-score reverts to ±0.5.
+    </div>`;
 }
 
-// ── TREND PULLBACK SIGNAL ────────────────────────────────────────────────────
-// In uptrend: BUY when RSI pulls back to 40-55 (healthy dip, not oversold)
-// In downtrend: SELL when RSI bounces to 45-60 (healthy bounce, not overbought)
-function calcTrendPullback(closes, regime) {
-  const n = closes.length;
-  if(n < 10) return { signal: 0, reason: 'insufficient data' };
-  if(regime !== 'uptrend' && regime !== 'downtrend') return { signal: 0, reason: 'not trending' };
-
-  const rsi = calcRSI(closes);
-  const sma10 = closes.slice(-Math.min(10,n)).reduce((a,b)=>a+b,0)/Math.min(10,n);
-  const sma20 = closes.slice(-Math.min(20,n)).reduce((a,b)=>a+b,0)/Math.min(20,n);
-  const price = closes[n-1];
-  const mom = n>=5 ? ((price - closes[n-5])/closes[n-5])*100 : 0;
-  const ema12 = calcEMA(closes,12);
-  const ema26 = calcEMA(closes,26);
-  const macd = ema12 - ema26;
-
-  if(regime === 'uptrend') {
-    // Pullback entry: RSI dipped to 40-55 (not oversold, just resting)
-    // MACD still positive (trend intact), price near SMA10-SMA20 (support)
-    const rsiPullback = rsi >= 38 && rsi <= 58;
-    const nearSupport = price <= sma10 * 1.01; // within 1% of SMA10
-    const macdPositive = macd > 0;
-    const momentumRecovering = mom > -2; // not falling hard
-
-    if(rsiPullback && nearSupport && macdPositive && momentumRecovering) {
-      return { signal: 3, direction: 'BUY', reason: `Uptrend pullback: RSI ${rsi.toFixed(0)} near SMA10, MACD+` };
-    }
-    if(rsiPullback && macdPositive) {
-      return { signal: 2, direction: 'BUY', reason: `Uptrend pullback: RSI ${rsi.toFixed(0)}, MACD+` };
-    }
-  }
-
-  if(regime === 'downtrend') {
-    // Bounce entry: RSI recovered to 42-62 (not overbought, just bouncing)
-    // MACD still negative (trend intact), price near SMA10 (resistance)
-    const rsiBounce = rsi >= 42 && rsi <= 62;
-    const nearResistance = price >= sma10 * 0.99;
-    const macdNegative = macd < 0;
-    const momentumFading = mom < 2;
-
-    if(rsiBounce && nearResistance && macdNegative && momentumFading) {
-      return { signal: 3, direction: 'SELL', reason: `Downtrend bounce: RSI ${rsi.toFixed(0)} near SMA10, MACD-` };
-    }
-    if(rsiBounce && macdNegative) {
-      return { signal: 2, direction: 'SELL', reason: `Downtrend bounce: RSI ${rsi.toFixed(0)}, MACD-` };
-    }
-  }
-
-  return { signal: 0, reason: `${regime} but no pullback entry` };
-}
-
-// ── BREAKOUT SIGNAL ───────────────────────────────────────────────────────────
-// Price closes above 20-candle high (bullish) or below 20-candle low (bearish)
-// with RSI confirmation and ATR expansion
-function calcBreakout(closes) {
-  const n = closes.length;
-  if(n < 23) return { signal: 0, reason: 'insufficient data' };
-
-  const price = closes[n-1];     // today's close
-  const prev1 = closes[n-2];     // yesterday
-  const prev2 = closes[n-3];     // two days ago
-  // Lookback: 20 candles excluding the last 2 (so we check if both recent candles broke out)
-  const lookback = closes.slice(-22, -2);
-  const high20 = Math.max(...lookback);
-  const low20 = Math.min(...lookback);
-  const rsi = calcRSI(closes);
-  const atr = calcATR(closes);
-  const atrAvg = calcATR(closes.slice(0,-5));
-  const atrExpansion = atr / (atrAvg || atr);
-  const priceMove = Math.abs(price - prev1);
-  const movePct = (priceMove / prev1) * 100;
-
-  // Bullish breakout: BOTH last 2 candles close above 20-candle high (2-candle confirmation)
-  if(price > high20 && prev1 > high20 && prev2 <= high20) {
-    const rsiConfirm = rsi > 52;
-    const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
-    const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
-    if(strength >= 1) {
-      return { signal: strength + 1, direction: 'BUY',
-        reason: `Breakout confirmed (2 candles) above ${high20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
-    }
-  }
-
-  // Bearish breakout: BOTH last 2 candles close below 20-candle low (2-candle confirmation)
-  if(price < low20 && prev1 < low20 && prev2 >= low20) {
-    const rsiConfirm = rsi < 48;
-    const volatilityExpanding = atrExpansion > 1.1 || movePct > 0.5;
-    const strength = (rsiConfirm ? 1 : 0) + (volatilityExpanding ? 1 : 0) + (movePct > 1 ? 1 : 0);
-    if(strength >= 1) {
-      return { signal: strength + 1, direction: 'SELL',
-        reason: `Breakdown confirmed (2 candles) below ${low20.toFixed(0)} | RSI ${rsi.toFixed(0)} | ATR ×${atrExpansion.toFixed(1)}` };
-    }
-  }
-
-  // Show unconfirmed breakout in log for awareness (no signal)
-  if(price < low20 && prev1 >= low20) {
-    return { signal: 0, reason: `Unconfirmed breakdown below ${low20.toFixed(0)} — needs 2nd candle` };
-  }
-  if(price > high20 && prev1 <= high20) {
-    return { signal: 0, reason: `Unconfirmed breakout above ${high20.toFixed(0)} — needs 2nd candle` };
-  }
-
-  return { signal: 0, reason: 'no breakout' };
-}
-
-function calcMomentum(closes) {
-  const n = closes.length;
-  if(n < 10) return { signal: 0 };
-  const ret5 = (closes[n-1] - closes[n-6]) / closes[n-6] * 100;
-  // Strong momentum continuation — >3% move in 5 days
-  if(ret5 > 3.5) return { signal:2, direction:'BUY', reason:`5-day momentum +${ret5.toFixed(1)}%`, type:'trend' };
-  if(ret5 < -3.5) return { signal:2, direction:'SELL', reason:`5-day momentum ${ret5.toFixed(1)}%`, type:'trend' };
-  return { signal: 0 };
-}
-
-function calcSmaCrossover(closes) {
-  const n = closes.length;
-  if(n < 55) return { signal: 0 };
-  const sma20now  = closes.slice(-20).reduce((a,b)=>a+b,0)/20;
-  const sma50now  = closes.slice(-50).reduce((a,b)=>a+b,0)/50;
-  const sma20prev = closes.slice(-21,-1).reduce((a,b)=>a+b,0)/20;
-  const sma50prev = closes.slice(-51,-1).reduce((a,b)=>a+b,0)/50;
-  // Golden cross: SMA20 crosses above SMA50
-  if(sma20prev <= sma50prev && sma20now > sma50now)
-    return { signal:3, direction:'BUY', reason:'Golden cross SMA20>SMA50', type:'trend' };
-  // Death cross: SMA20 crosses below SMA50
-  if(sma20prev >= sma50prev && sma20now < sma50now)
-    return { signal:3, direction:'SELL', reason:'Death cross SMA20<SMA50', type:'trend' };
-  return { signal: 0 };
-}
-
-function calcBB(c,p=20){const n=Math.min(p,c.length);const sma=c.slice(-n).reduce((a,b)=>a+b,0)/n;
-  const std=Math.sqrt(c.slice(-n).reduce((s,v)=>s+Math.pow(v-sma,2),0)/n);
-  return{upper:sma+2*std,middle:sma,lower:sma-2*std};}
-
-function calcATR(closes,p=14){
-  const c=typeof closes[0]==='object'?closes:closes.map(v=>({close:v,high:v*1.001,low:v*0.999}));
-  const n=Math.min(p,c.length-1);if(n<1)return 50;
-  const trs=c.slice(-n).map((x,i,a)=>i===0?x.high-x.low:Math.max(x.high-x.low,Math.abs(x.high-a[i-1].close),Math.abs(x.low-a[i-1].close)));
-  return trs.reduce((a,b)=>a+b,0)/trs.length;}
-
-// RSI Divergence Detection
-// Bearish divergence: price makes higher high but RSI makes lower high → weakening uptrend → SELL signal
-// Bullish divergence: price makes lower low but RSI makes higher low → weakening downtrend → BUY signal
-// Returns: { type: 'bearish'|'bullish'|'none', strength: 0-3, description: string }
-function detectRSIDivergence(closes, lookback=10) {
-  const n = closes.length;
-  if (n < lookback + 5) return { type: 'none', strength: 0, description: 'insufficient data' };
-
-  // Calculate RSI at each point over lookback window
-  const rsiSeries = [];
-  for (let i = n - lookback; i <= n; i++) {
-    if (i >= 14) rsiSeries.push(calcRSI(closes.slice(0, i)));
-  }
-  if (rsiSeries.length < 4) return { type: 'none', strength: 0, description: 'insufficient RSI data' };
-
-  const recentPrices = closes.slice(-lookback);
-  const recentRSI = rsiSeries;
-
-  // Find price highs and lows in the window
-  const priceNow = recentPrices[recentPrices.length - 1];
-  const priceMid = recentPrices[Math.floor(recentPrices.length / 2)];
-  const rsiNow = recentRSI[recentRSI.length - 1];
-  const rsiMid = recentRSI[Math.floor(recentRSI.length / 2)];
-
-  const priceChange = ((priceNow - priceMid) / priceMid) * 100;
-  const rsiChange = rsiNow - rsiMid;
-
-  // Bearish divergence: price up, RSI down (weakening rally)
-  if (priceChange > 0.5 && rsiChange < -3 && rsiNow > 55) {
-    const strength = Math.min(3, Math.floor(Math.abs(rsiChange) / 3));
-    return {
-      type: 'bearish',
-      strength,
-      description: `Price +${priceChange.toFixed(1)}% but RSI ${rsiChange.toFixed(1)} pts (weakening rally)`
-    };
-  }
-
-  // Bullish divergence: price down, RSI up (weakening selloff)
-  if (priceChange < -0.5 && rsiChange > 3 && rsiNow < 45) {
-    const strength = Math.min(3, Math.floor(Math.abs(rsiChange) / 3));
-    return {
-      type: 'bullish',
-      strength,
-      description: `Price ${priceChange.toFixed(1)}% but RSI +${rsiChange.toFixed(1)} pts (weakening selloff)`
-    };
-  }
-
-  return { type: 'none', strength: 0, description: 'no divergence' };
-}
+</script>
+</body>
+</html>
