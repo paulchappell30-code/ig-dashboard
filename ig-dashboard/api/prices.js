@@ -307,17 +307,18 @@ module.exports = async (req, res) => {
   // Refresh last 10 days of candles for instruments not covered by IG API
   // These are stored via backfill but need daily updates to stay current
   const YAHOO_DAILY_REFRESH = [
-    { instrument:'Copper',              symbol:'HG=F' },
-    { instrument:'Gold',                symbol:'GC=F' },
-    { instrument:'Brent Oil',           symbol:'BZ=F' },
-    { instrument:'WTI Oil',             symbol:'CL=F' },
-    { instrument:'Tokyo First Section', symbol:'^N300' },
-    { instrument:'Australia 200',       symbol:'^AXJO' },
-    { instrument:'Russell 2000',        symbol:'^RUT' },
-    { instrument:'Japan 225',           symbol:'^N225' },
-    { instrument:'USD/CAD',             symbol:'USDCAD=X' },
-    { instrument:'Natural Gas',         symbol:'NG=F' },
-    { instrument:'Platinum',            symbol:'PL=F' },
+    { instrument:'Silver',               symbol:'SI=F' },
+    { instrument:'Copper',               symbol:'HG=F' },
+    { instrument:'Gold',                 symbol:'GC=F' },
+    { instrument:'Brent Oil',            symbol:'BZ=F' },
+    { instrument:'WTI Oil',              symbol:'CL=F' },
+    { instrument:'Tokyo First Section',  symbol:'^N300' },
+    { instrument:'Australia 200',        symbol:'^AXJO' },
+    { instrument:'Russell 2000',         symbol:'^RUT' },
+    { instrument:'Japan 225',            symbol:'^N225' },
+    { instrument:'USD/CAD',              symbol:'USDCAD=X' },
+    { instrument:'Natural Gas',          symbol:'NG=F' },
+    { instrument:'Platinum',             symbol:'PL=F' },
   ];
 
   let yahooRefreshed = 0;
