@@ -579,13 +579,14 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
               <option value="eurusd_eurgbp" data-entry="2.0" data-exit="0.25" data-stop="3.0">EUR/USD vs EUR/GBP</option>
             </optgroup>
             <optgroup label="── Deploy ⭐">
-              <option value="dow_sp500"    data-entry="2.25" data-exit="0.75" data-stop="3.0">Dow / S&amp;P 500 ⭐ score 26.8</option>
+              <option value="dow_sp500"    data-entry="2.5"  data-exit="0.5"  data-stop="3.0" data-lb="60">Dow / S&amp;P 500 ⭐ score 36.9</option>
               <option value="copper_gold"  data-entry="1.75" data-exit="0.25" data-stop="3.0" data-lb="45">Copper / Gold ⭐ score 58.2</option>
               <option value="silver_copper" data-entry="1.5" data-exit="0.75" data-stop="3.0" data-lb="60">Silver / Copper ⭐ score 72.7</option>
-              <option value="ftse_sp500"   data-entry="2.0"  data-exit="1.0"  data-stop="3.0" data-lb="60">FTSE / S&amp;P 500 ⭐ score 17.1</option>
+              <option value="ftse_sp500"   data-entry="2.0"  data-exit="1.0"  data-stop="3.0" data-lb="45">FTSE / S&amp;P 500 ⭐ score 11.5</option>
               <option value="nikkei_sp500" data-entry="1.25" data-exit="0.5"  data-stop="3.0" data-lb="60">TOPIX / S&amp;P 500 ⭐ score 107</option>
               <option value="asx_sp500"    data-entry="1.5"  data-exit="0.5"  data-stop="3.0" data-lb="45">ASX / S&amp;P 500 ⭐ score 23.6</option>
               <option value="usdcad_wti"   data-entry="1.25" data-exit="0.75" data-stop="3.0" data-lb="90">USD/CAD vs WTI ⭐ score 57.2</option>
+              <option value="gbpusd_eurusd" data-entry="2.0" data-exit="0.25" data-stop="3.5" data-lb="60">GBP/USD vs EUR/USD ⭐ score 21.3</option>
             </optgroup>
             <optgroup label="── Paper trade">
               <option value="brent_copper"   data-entry="2.0" data-exit="0.75" data-stop="3.0">Brent / Copper 👁 score 46.0</option>
@@ -1540,16 +1541,19 @@ const PAIRS_CONFIG = [
     description:'European indices — same macro drivers, different compositions' },
   { id:'gold_silver', name:'Gold / Silver', a:'Gold', b:'Silver', type:'ratio', tier:'legacy',
     description:'Precious metals ratio — historically mean-reverts strongly' },
-  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio', tier:'legacy',
-    description:'Dollar pairs — divergence often means one is mispriced vs USD' },
+  { id:'gbpusd_eurusd', name:'GBP/USD vs EUR/USD', a:'GBP/USD', b:'EUR/USD', type:'ratio', tier:'deploy',
+    lookbackDays:60, entryZ:2.0, exitZ:0.25, score:21.33, winRate:83.3, expectancy:0.71,
+    description:'Dollar pairs — 83.3% WR, PF 10.41, divergence often means one is mispriced vs USD ⭐' },
   { id:'eurusd_eurgbp', name:'EUR/USD vs EUR/GBP', a:'EUR/USD', b:'EUR/GBP', type:'ratio', tier:'legacy',
-    description:'EUR crosses — triangular arbitrage relationship' },
+    lookbackDays:60, entryZ:2.5, exitZ:1.0, score:17.41, winRate:75.0, expectancy:1.03,
+    description:'EUR crosses — triangular arbitrage relationship, 75% WR at 2.5σ' },
   { id:'brent_gold',  name:'Brent / Gold',      a:'Brent Oil', b:'Gold',      type:'ratio', tier:'legacy',
-    description:'Risk assets — Oil/Gold ratio signals risk-on vs risk-off' },
+    lookbackDays:60, entryZ:1.75, exitZ:0.25, score:27.13, winRate:72.7, expectancy:4.5,
+    description:'Risk assets — Oil/Gold ratio signals risk-on vs risk-off, 4.5% exp' },
   // ── DEPLOY — grid search tier 1 ───────────────────────────────────────────
   { id:'dow_sp500',   name:'Dow / S&P 500',     a:'Dow Jones', b:'S&P 500',   type:'ratio', tier:'deploy',
-    entryZ:2.25, exitZ:0.75, score:26.79, winRate:81.8, expectancy:0.81,
-    description:'US mega-cap vs broad market — 81.8% WR, score 26.8 ⭐' },
+    entryZ:2.5, exitZ:0.5, score:36.91, winRate:80.0, expectancy:1.04,
+    description:'US mega-cap vs broad market — 80% WR, PF 14.03 ⭐' },
   { id:'copper_gold', name:'Copper / Gold',     a:'Copper',    b:'Gold',      type:'ratio', tier:'deploy',
     lookbackDays:45, entryZ:1.75, exitZ:0.25, score:58.21, winRate:77.8, expectancy:3.34,
     description:'Industrial vs safe-haven — risk sentiment proxy, 77.8% WR, 3.34% exp ⭐' },
@@ -1557,8 +1561,8 @@ const PAIRS_CONFIG = [
     lookbackDays:60, entryZ:1.5,  exitZ:0.75, score:72.68, winRate:86.7, expectancy:3.56,
     description:'Precious/industrial ratio — 86.7% WR, 3.56% exp, clean data ⭐' },
   { id:'ftse_sp500',  name:'FTSE / S&P 500',   a:'FTSE 100',  b:'S&P 500',   type:'ratio', tier:'deploy',
-    lookbackDays:60, entryZ:2.0,  exitZ:1.0,  score:17.10, winRate:70.6, expectancy:1.44,
-    description:'UK vs US equity divergence — clean mean-reversion at 2σ ⭐' },
+    lookbackDays:45, entryZ:2.0,  exitZ:1.0,  score:11.50, winRate:77.8, expectancy:1.24,
+    description:'UK vs US equity divergence — 77.8% WR at 2σ ⭐' },
   { id:'nikkei_sp500', name:'TOPIX / S&P 500', a:'Tokyo First Section', b:'S&P 500',  type:'ratio', tier:'deploy',
     lookbackDays:60, entryZ:1.25, exitZ:0.5,  score:107.3, winRate:85.2, expectancy:2.33,
     description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR, 27 trades ⭐' },
