@@ -185,7 +185,7 @@ const DEFAULT_CONFIG = {
   pairsZEntry:2.0,      // Z-score threshold to enter (editable via env var)
   pairsZStop:3.5,       // Z-score stop loss level
   pairsZTarget:0.5,     // Z-score target (close when reverts to this)
-  pairsMaxSlots:2,      // Max simultaneous pairs trades — separate from directional slots
+  pairsMaxSlots:3,      // Max simultaneous pairs trades — separate from directional slots
   pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
   // Note: pairs risk is split across two legs so effective single-leg risk is 2%
   // At 4% with £526 balance = £21 risk per pairs trade
