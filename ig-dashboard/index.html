@@ -219,6 +219,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
 
     <!-- AUTO-TRADE -->
     <div class="tab-content" id="tab-autotrade">
+      <!-- Status bar -->
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div style="display:flex;align-items:center;gap:12px">
@@ -232,7 +233,27 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
           </div>
         </div>
       </div>
-      <div class="two-col">
+
+      <!-- Engine Log — full width, large -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">Engine Log</div>
+          <button class="btn btn-sm" onclick="document.getElementById('at-log').innerHTML='<div class=empty>Cleared</div>'">Clear</button>
+        </div>
+        <div id="at-log" style="max-height:520px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:1.6"><div class="empty">No activity yet — click Run Now</div></div>
+      </div>
+
+      <!-- Performance + Config below -->
+      <div class="two-col" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Today's Performance</div>
+          <div class="metric-grid cols-2" style="margin-bottom:12px">
+            <div class="metric"><div class="label">Daily P&L</div><div class="value" id="at-daily-pl">—</div></div>
+            <div class="metric"><div class="label">P&L %</div><div class="value" id="at-daily-pct">—</div></div>
+          </div>
+          <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span id="at-loss-label">Loss: -1%</span><span id="at-profit-label">Lock: +2%</span></div>
+          <div class="progress-bar"><div id="at-pl-bar" class="progress-fill" style="background:var(--green);width:0;margin-left:50%"></div></div>
+        </div>
         <div class="card">
           <div class="card-title" style="margin-bottom:16px">Configuration</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -249,21 +270,6 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
           <div class="form-row" style="margin-top:14px"><label>Cron Secret</label><input type="password" id="at-cron-secret" placeholder="Your CRON_SECRET"></div>
           <div class="alert alert-warn" style="margin-top:12px;font-size:12px">⚠️ To fully stop, pause cron at <a href="https://cron-job.org" target="_blank" style="color:var(--gold)">cron-job.org</a></div>
           <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" onclick="saveAutoTradeConfig()">Generate Vercel Config</button>
-        </div>
-        <div>
-          <div class="card" style="margin-bottom:12px">
-            <div class="card-title" style="margin-bottom:12px">Today's Performance</div>
-            <div class="metric-grid cols-2" style="margin-bottom:12px">
-              <div class="metric"><div class="label">Daily P&L</div><div class="value" id="at-daily-pl">—</div></div>
-              <div class="metric"><div class="label">P&L %</div><div class="value" id="at-daily-pct">—</div></div>
-            </div>
-            <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span id="at-loss-label">Loss: -1%</span><span id="at-profit-label">Lock: +2%</span></div>
-            <div class="progress-bar"><div id="at-pl-bar" class="progress-fill" style="background:var(--green);width:0;margin-left:50%"></div></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><div class="card-title">Engine Log</div><button class="btn btn-sm" onclick="document.getElementById('at-log').innerHTML='<div class=empty>Cleared</div>'">Clear</button></div>
-            <div id="at-log" style="max-height:240px;overflow-y:auto"><div class="empty">No activity yet — click Run Now</div></div>
-          </div>
         </div>
       </div>
       <!-- Economic Calendar -->
