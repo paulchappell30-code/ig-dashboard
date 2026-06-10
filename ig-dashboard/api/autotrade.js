@@ -1105,6 +1105,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         const volRatioB = calcVolumeRatio(volsB.slice(-lb), 20);
         pairsZScores[pair.instrA] = { zscore, partner: pair.instrB, n: ratios.length,
           mean, std, current, liveZUsed,
+          ratioHistory: ratios, // full ratio history for trend filter
           _volumesA: volsA, _volumesB: volsB,
           volRatioA, volRatioB,
           signal: zscore > 2 ? 'expensive' : zscore < -2 ? 'cheap' : zscore > 1.5 ? 'slightly_expensive' : zscore < -1.5 ? 'slightly_cheap' : 'neutral' };
@@ -2087,6 +2088,35 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           // Use per-pair entry threshold from backtest optimisation
       const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
       if(absZ < pairEntryZ) continue;
+
+      // ── TREND FILTER ─────────────────────────────────────────────────────
+      // Only take reversion pairs trades when the spread is NOT in a sustained trend
+      // away from mean. If ratio has been consistently moving away for 20+ days,
+      // the divergence may be structural rather than temporary.
+      try {
+        const trendWindow = 20;
+        const recentRatios = pz.ratioHistory?.slice(-trendWindow) || [];
+        if(recentRatios.length >= trendWindow) {
+          // Count how many of the last 20 days the ratio moved further from mean
+          const mean = pz.mean;
+          let daysMovingAway = 0;
+          for(let i = 1; i < recentRatios.length; i++) {
+            const prevDist = Math.abs(recentRatios[i-1] - mean);
+            const currDist = Math.abs(recentRatios[i] - mean);
+            if(currDist > prevDist) daysMovingAway++;
+          }
+          const trendPct = daysMovingAway / (trendWindow - 1);
+          if(trendPct > 0.70) {
+            // >70% of days moving away from mean = sustained trend, skip reversion
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — trend filter blocked (${Math.round(trendPct*100)}% of last ${trendWindow}d moving away from mean — possible regime change)`);
+            continue;
+          } else if(trendPct > 0.55) {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — ⚠️ trend warning (${Math.round(trendPct*100)}% of last ${trendWindow}d moving away from mean)`);
+          } else {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} — trend filter passed (${Math.round(trendPct*100)}% trending away)`);
+          }
+        }
+      } catch(e) { /* non-critical — proceed without trend filter */ }
 
       // Volume confirmation for pairs — check if divergence driven by volume
       const pairVolRatioA = pz?.volRatioA || 1.0;
