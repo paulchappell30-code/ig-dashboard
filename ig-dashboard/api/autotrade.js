@@ -605,8 +605,24 @@ module.exports = async (req,res) => {
 
   // Kill switch — return immediately without trading
   if(body.killSwitch === true){
+    // Write pause flag to DB so alert cron knows engine is paused
+    try {
+      const {sql:pauseSql} = require('@vercel/postgres');
+      await pauseSql`INSERT INTO engine_config (key, value) VALUES ('paused', 'true')
+        ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`.catch(()=>{});
+    } catch(e) { /* non-critical */ }
     return res.status(200).json({action:'paused',message:'Trading paused by user',log:['Trading paused via dashboard']});
   }
+
+  // Check DB pause flag — set by killSwitch or external pause
+  try {
+    const {sql:pauseCheckSql} = require('@vercel/postgres');
+    const pauseRow = await pauseCheckSql`SELECT value FROM engine_config WHERE key = 'paused' LIMIT 1`.catch(()=>({rows:[]}));
+    if(pauseRow.rows?.[0]?.value === 'true' && !body.manualOverride) {
+      L('Engine paused via DB flag — skipping run. Send manualOverride:true to force.');
+      return res.status(200).json({action:'paused',message:'Engine paused',log});
+    }
+  } catch(e) { /* non-critical — proceed */ }
   if(body.calendarEnabled!==undefined) cfg.calendarEnabled=!!body.calendarEnabled;
   if(body.requireAIConfirm!==undefined) cfg.requireAIConfirm=!!body.requireAIConfirm;
   if(body.signalThreshold!==undefined) cfg.signalThreshold=parseInt(body.signalThreshold);
