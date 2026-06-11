@@ -229,7 +229,8 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn" onclick="checkAutoTradeStatus()">Check Status</button>
-            <button class="btn btn-danger btn-sm" onclick="stopAutoTrade()">⏹ Stop</button>
+            <button class="btn btn-danger btn-sm" onclick="stopAutoTrade()">⏸ Pause</button>
+            <button class="btn btn-sm" style="background:var(--green-dim);border-color:rgba(63,185,80,.3);color:var(--green)" onclick="resumeAutoTrade()">▶ Resume</button>
             <button class="btn btn-primary" id="at-run-btn" onclick="runAutoTrade()">▶ Run Now</button>
           </div>
         </div>
@@ -1164,11 +1165,16 @@ async function getAIScore(){
 async function checkAutoTradeStatus(){
   try{
     const secret=document.getElementById('at-cron-secret')?.value||'';
-    const res=await fetch('/api/autotrade',{headers:{'Authorization':'Bearer '+secret}});
-    const data=await res.json();const cfg=data.cfg||{};
-    setText('at-status-label','Auto-Trading: '+(cfg.enabled?'Enabled':'Disabled'));
-    setText('at-status-sub','Profit lock: +'+(cfg.dailyProfitLock||2)+'% | Loss limit: -'+(cfg.dailyLossLimit||1)+'% | v'+(data.version||'4'));
-    document.getElementById('at-status-dot').style.background=cfg.enabled?'var(--green)':'var(--text3)';
+    const [res, pauseRes] = await Promise.all([
+      fetch('/api/autotrade',{headers:{'Authorization':'Bearer '+secret}}),
+      fetch('/api/db?action=engine_status')
+    ]);
+    const data=await res.json();const pauseData=await pauseRes.json().catch(()=>({paused:false}));
+    const cfg=data.cfg||{};
+    const isPaused = pauseData.paused;
+    setText('at-status-label','Auto-Trading: '+(isPaused?'⏸ Paused (DB flag)':cfg.enabled?'▶ Active':'Disabled'));
+    setText('at-status-sub',isPaused?'Alert cron trigger blocked — click Resume to unpause':'Profit lock: +'+(cfg.dailyProfitLock||2)+'% | Loss limit: -'+(cfg.dailyLossLimit||1)+'% | v'+(data.version||'4'));
+    document.getElementById('at-status-dot').style.background=isPaused?'var(--red)':cfg.enabled?'var(--green)':'var(--text3)';
     updateDailyPLDisplay();
   }catch(e){setText('at-status-label','Auto-Trading: Error — '+e.message);}
 }
@@ -1182,11 +1188,31 @@ function updateDailyPLDisplay(){
   setText('at-loss-label','Loss limit: -'+lim+'%');setText('at-profit-label','Profit lock: +'+lock+'%');
 }
 
+async function resumeAutoTrade(){
+  try {
+    await fetch('/api/db?action=resume_engine');
+    setText('at-status-label','Auto-Trading: ▶ Active');
+    setText('at-status-sub','Engine resumed — alert cron trigger re-enabled');
+    document.getElementById('at-status-dot').style.background='var(--green)';
+    appendAtLog('▶ Engine resumed — DB pause flag cleared.');
+  } catch(e) {
+    appendAtLog('❌ Resume error: '+e.message);
+  }
+}
+
 async function stopAutoTrade(){
-  if(!confirm('Pause auto-trading this session? Go to cron-job.org to fully stop.'))return;
-  setText('at-status-label','Auto-Trading: Paused');setText('at-status-sub','Session paused — cron still active at cron-job.org');
-  document.getElementById('at-status-dot').style.background='var(--red)';
-  appendAtLog('⏹ Trading paused this session.');
+  if(!confirm('Pause auto-trading? This will also prevent the Alert cron from triggering the engine.'))return;
+  try {
+    // Set DB pause flag — blocks both autotrade cron AND alert cron trigger
+    await fetch('/api/db?action=pause_engine');
+    setText('at-status-label','Auto-Trading: ⏸ Paused');
+    setText('at-status-sub','Engine paused via DB flag — Alert cron trigger also blocked');
+    document.getElementById('at-status-dot').style.background='var(--red)';
+    appendAtLog('⏸ Engine paused via DB flag — alert cron trigger disabled.');
+    appendAtLog('▶ Click Run Now with Override to force a run, or Resume to unpause.');
+  } catch(e) {
+    appendAtLog('❌ Pause error: '+e.message);
+  }
 }
 
 async function runAutoTrade(){
