@@ -180,6 +180,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <div class="nav-tab" onclick="switchTab('log',this)">Log</div>
     <div class="nav-tab" onclick="switchTab('research',this)">🧬 Research</div>
     <div class="nav-tab" onclick="switchTab('pairs',this)">⚖️ Pairs</div>
+    <div class="nav-tab" onclick="switchTab('commodities',this)">🛢️ Commodities</div>
   </div>
   <!-- Live bar -->
   <div id="live-bar" style="display:none"></div>
@@ -674,6 +675,58 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
 
 
   </div><!-- /content -->
+
+  <!-- ══ COMMODITIES TAB ══════════════════════════════════════════════════ -->
+  <div id="tab-commodities" class="tab-content" style="padding:16px;max-width:1100px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:15px">🛢️ Commodity Sentiment Dashboard</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="comm-updated" style="font-size:11px;color:var(--text2)"></span>
+          <button class="btn btn-sm" onclick="loadCommodities()">↻ Refresh</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:6px">
+        Price momentum, volume analysis, and supply/demand signals across key commodities. Volume-based accumulation/distribution tracking.
+      </div>
+    </div>
+
+    <!-- Signal Summary -->
+    <div id="comm-signals" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px"></div>
+
+    <!-- Detail Table -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:12px">Price & Volume Analysis</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px" id="comm-table">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--text2)">
+              <th style="text-align:left;padding:6px 8px">Commodity</th>
+              <th style="text-align:right;padding:6px 8px">Price</th>
+              <th style="text-align:right;padding:6px 8px">1D</th>
+              <th style="text-align:right;padding:6px 8px">5D</th>
+              <th style="text-align:right;padding:6px 8px">30D</th>
+              <th style="text-align:right;padding:6px 8px">Vol Ratio</th>
+              <th style="text-align:center;padding:6px 8px">Trend</th>
+              <th style="text-align:right;padding:6px 8px">52w High</th>
+              <th style="text-align:right;padding:6px 8px">From High</th>
+              <th style="text-align:center;padding:6px 8px">Signal</th>
+            </tr>
+          </thead>
+          <tbody id="comm-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sentiment Analysis -->
+    <div id="comm-sentiment-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:16px"></div>
+
+    <!-- Correlation with your trades -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Relevance to Current Pairs Trades</div>
+      <div id="comm-pairs-context" style="font-size:13px;color:var(--text2)">Loading...</div>
+    </div>
+  </div>
 
   <!-- Health Check Modal -->
   <div id="health-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
@@ -1382,6 +1435,7 @@ function switchTab(id,el){
   if(id==='pairs'){
     if(!Object.keys(pairsData).length) loadPairsData();
   }
+  if(id==='commodities') loadCommodities();
   if(id==='charts'&&S.connected){
     const key=chartState.epic+'_'+chartState.resolution+'_'+chartState.count;
     const cached=S.priceCache[key]&&(Date.now()-S.priceCache[key].ts<30*60*1000);
@@ -2460,6 +2514,182 @@ function calcPairSizing() {
     </div>`;
 }
 
-</script>
-</body>
-</html>
+// ── COMMODITY SENTIMENT DASHBOARD ────────────────────────────────────────────
+let commLoaded = false;
+let commData = null;
+
+async function loadCommodities() {
+  if(commLoaded && commData && (Date.now() - commData._ts < 5*60*1000)) {
+    renderCommodities(commData);
+    return;
+  }
+  document.getElementById('comm-updated').textContent = 'Loading...';
+  try {
+    const r = await fetch('/api/commodity?action=overview');
+    const d = await r.json();
+    if(d.success) {
+      d._ts = Date.now();
+      commData = d;
+      commLoaded = true;
+      renderCommodities(d);
+      loadCommoditySentiment();
+    }
+  } catch(e) {
+    document.getElementById('comm-updated').textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderCommodities(d) {
+  document.getElementById('comm-updated').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString('en-GB');
+
+  const signalColors = {
+    strong_bull: 'var(--green)', bull: '#5fb88a',
+    neutral: 'var(--text2)',
+    bear: '#e07070', strong_bear: 'var(--red)'
+  };
+  const signalLabels = {
+    strong_bull:'🚀 Strong Bull', bull:'📈 Bull',
+    neutral:'➡️ Neutral',
+    bear:'📉 Bear', strong_bear:'🔻 Strong Bear'
+  };
+  const typeColors = {precious:'#f0c040', industrial:'#4090e0', energy:'#e08040', agricultural:'#60c060'};
+
+  // Signal cards
+  document.getElementById('comm-signals').innerHTML = d.commodities.filter(c=>!c.error).map(c => `
+    <div class="card" style="padding:10px;border-left:3px solid ${typeColors[c.type]||'var(--border)'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="font-weight:600;font-size:13px">${c.name}</div>
+        <div style="font-size:10px;color:${typeColors[c.type]||'var(--text2)'};background:${typeColors[c.type]||'var(--bg3)'}22;padding:1px 5px;border-radius:3px">${c.type}</div>
+      </div>
+      <div style="font-size:18px;font-weight:700;margin:4px 0">${c.price?.toFixed(c.price>100?1:2)} <span style="font-size:11px;color:var(--text2);font-weight:400">${c.unit}</span></div>
+      <div style="font-size:12px;color:${c.change1d>=0?'var(--green)':'var(--red)'}">
+        ${c.change1d>=0?'▲':'▼'} ${Math.abs(c.change1d).toFixed(2)}% today
+      </div>
+      <div style="margin-top:6px;font-size:11px;font-weight:600;color:${signalColors[c.signalLabel]||'var(--text2)'}">
+        ${signalLabels[c.signalLabel]||c.signalLabel}
+      </div>
+      <div style="font-size:10px;color:var(--text2);margin-top:2px">Vol: ${c.volRatio?.toFixed(1)}x avg ${c.volRatio>1.3?'📊':c.volRatio<0.7?'😴':''}</div>
+    </div>
+  `).join('');
+
+  // Detail table
+  document.getElementById('comm-tbody').innerHTML = d.commodities.filter(c=>!c.error).map(c => {
+    const pct = (v, decimals=2) => v==null?'—':`<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'+':''}${v.toFixed(decimals)}%</span>`;
+    const trendColor = c.trend==='bullish'?'var(--green)':c.trend==='bearish'?'var(--red)':'var(--text2)';
+    const signalColor = signalColors[c.signalLabel] || 'var(--text2)';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:7px 8px;font-weight:500">${c.name}</td>
+      <td style="text-align:right;padding:7px 8px">${c.price?.toFixed(c.price>100?1:2)}</td>
+      <td style="text-align:right;padding:7px 8px">${pct(c.change1d)}</td>
+      <td style="text-align:right;padding:7px 8px">${pct(c.change5d)}</td>
+      <td style="text-align:right;padding:7px 8px">${pct(c.change30d)}</td>
+      <td style="text-align:right;padding:7px 8px;color:${c.volRatio>1.5?'var(--gold)':c.volRatio<0.5?'var(--text3)':'var(--text1)'}">${c.volRatio?.toFixed(2)}x</td>
+      <td style="text-align:center;padding:7px 8px;color:${trendColor}">${c.trend}</td>
+      <td style="text-align:right;padding:7px 8px;color:var(--text2)">${c.wk52High?.toFixed(c.wk52High>100?1:2)||'—'}</td>
+      <td style="text-align:right;padding:7px 8px">${pct(c.fromHigh)}</td>
+      <td style="text-align:center;padding:7px 8px;color:${signalColor};font-size:11px;font-weight:600">${signalLabels[c.signalLabel]||'—'}</td>
+    </tr>`;
+  }).join('');
+
+  // Pairs trade context
+  renderCommodityPairsContext(d);
+}
+
+async function loadCommoditySentiment() {
+  const toAnalyse = [
+    {sym:'SI=F', name:'Silver'},
+    {sym:'HG=F', name:'Copper'},
+    {sym:'GC=F', name:'Gold'},
+    {sym:'CL=F', name:'WTI Oil'},
+  ];
+  const grid = document.getElementById('comm-sentiment-grid');
+  grid.innerHTML = '<div style="color:var(--text2);font-size:12px;grid-column:1/-1">Loading sentiment analysis...</div>';
+  const results = await Promise.all(toAnalyse.map(async c => {
+    try {
+      const r = await fetch(`/api/commodity?action=sentiment&symbol=${c.sym}&name=${encodeURIComponent(c.name)}`);
+      return await r.json();
+    } catch(e) { return {error: e.message, name: c.name}; }
+  }));
+  grid.innerHTML = results.filter(r=>!r.error).map(r => `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">${r.name} — Volume Sentiment</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div><div style="font-size:10px;color:var(--text2)">Money Flow Index</div>
+          <div style="font-size:16px;font-weight:700;color:${r.mfi<30?'var(--green)':r.mfi>70?'var(--red)':'var(--text1)'}">${r.mfi}</div>
+          <div style="font-size:11px;color:${r.mfi<30?'var(--green)':r.mfi>70?'var(--red)':'var(--text2)'}">${r.mfiSignal}</div>
+        </div>
+        <div><div style="font-size:10px;color:var(--text2)">OBV Trend</div>
+          <div style="font-size:14px;font-weight:600;color:${r.obvTrend==='accumulation'?'var(--green)':'var(--red)'}">${r.obvTrend}</div>
+          <div style="font-size:11px;color:var(--text2)">Vol-weighted flow</div>
+        </div>
+        <div><div style="font-size:10px;color:var(--text2)">vs VWAP (20d)</div>
+          <div style="font-size:14px;font-weight:600;color:${parseFloat(r.priceVsVwap)>=0?'var(--green)':'var(--red)'}">${parseFloat(r.priceVsVwap)>=0?'+':''}${r.priceVsVwap}%</div>
+          <div style="font-size:11px;color:var(--text2)">${r.vwapSignal?.replace(/_/g,' ')}</div>
+        </div>
+        <div><div style="font-size:10px;color:var(--text2)">Overall</div>
+          <div style="font-size:13px;font-weight:600;color:${r.interpretation?.bullish?'var(--green)':r.interpretation?.bearish?'var(--red)':'var(--text2)'}">
+            ${r.interpretation?.bullish?'🟢 Accumulating':r.interpretation?.bearish?'🔴 Distributing':'⚪ Mixed'}
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);border-top:1px solid var(--border);padding-top:8px">${r.interpretation?.summary||''}</div>
+    </div>
+  `).join('');
+}
+
+function renderCommodityPairsContext(d) {
+  const silver = d.commodities.find(c=>c.name==='Silver');
+  const copper = d.commodities.find(c=>c.name==='Copper');
+  const gold = d.commodities.find(c=>c.name==='Gold');
+  if(!silver||!copper||!gold) return;
+
+  const ratio_sc = silver.price && copper.price ? (silver.price/copper.price).toFixed(3) : '—';
+  const ratio_cg = copper.price && gold.price ? (copper.price/gold.price*1000).toFixed(3) : '—';
+
+  document.getElementById('comm-pairs-context').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="background:var(--bg2);border-radius:var(--radius);padding:12px">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text1)">Silver/Copper Pair (currently open)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
+          <div><div style="color:var(--text2);font-size:10px">Silver 1D</div>
+            <div style="color:${silver.change1d>=0?'var(--green)':'var(--red)'}">${silver.change1d>=0?'+':''}${silver.change1d?.toFixed(2)}%</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Copper 1D</div>
+            <div style="color:${copper.change1d>=0?'var(--green)':'var(--red)'}">${copper.change1d>=0?'+':''}${copper.change1d?.toFixed(2)}%</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Ratio</div>
+            <div style="color:var(--text1)">${ratio_sc}</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Silver Vol</div>
+            <div style="color:${silver.volRatio>1.3?'var(--gold)':'var(--text1)'}">${silver.volRatio?.toFixed(1)}x avg</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Copper Vol</div>
+            <div style="color:${copper.volRatio>1.3?'var(--gold)':'var(--text1)'}">${copper.volRatio?.toFixed(1)}x avg</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Spread signal</div>
+            <div style="color:${silver.change1d > copper.change1d?'var(--green)':'var(--red)'}">
+              ${silver.change1d > copper.change1d ? '✅ Compressing' : '⚠️ Widening'}</div></div>
+        </div>
+      </div>
+      <div style="background:var(--bg2);border-radius:var(--radius);padding:12px">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text1)">Copper/Gold Pair (currently open)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">
+          <div><div style="color:var(--text2);font-size:10px">Copper 1D</div>
+            <div style="color:${copper.change1d>=0?'var(--green)':'var(--red)'}">${copper.change1d>=0?'+':''}${copper.change1d?.toFixed(2)}%</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Gold 1D</div>
+            <div style="color:${gold.change1d>=0?'var(--green)':'var(--red)'}">${gold.change1d>=0?'+':''}${gold.change1d?.toFixed(2)}%</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Ratio (×1000)</div>
+            <div style="color:var(--text1)">${ratio_cg}</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Copper Vol</div>
+            <div style="color:${copper.volRatio>1.3?'var(--gold)':'var(--text1)'}">${copper.volRatio?.toFixed(1)}x avg</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Gold Vol</div>
+            <div style="color:${gold.volRatio>1.3?'var(--gold)':'var(--text1)'}">${gold.volRatio?.toFixed(1)}x avg</div></div>
+          <div><div style="color:var(--text2);font-size:10px">Spread signal</div>
+            <div style="color:${copper.change1d < gold.change1d?'var(--green)':'var(--red)'}">
+              ${copper.change1d < gold.change1d ? '✅ Compressing' : '⚠️ Widening'}</div></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text2)">
+      Silver from 52w high: <span style="color:var(--red)">${silver.fromHigh?.toFixed(1)}%</span> &nbsp;|&nbsp;
+      Gold from 52w high: <span style="color:var(--red)">${gold.fromHigh?.toFixed(1)}%</span> &nbsp;|&nbsp;
+      Silver trend: <span style="color:${silver.trend==='bullish'?'var(--green)':silver.trend==='bearish'?'var(--red)':'var(--text2)'}">${silver.trend}</span> &nbsp;|&nbsp;
+      Gold trend: <span style="color:${gold.trend==='bullish'?'var(--green)':gold.trend==='bearish'?'var(--red)':'var(--text2)'}">${gold.trend}</span>
+    </div>
+  `;
+}
