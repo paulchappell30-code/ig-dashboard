@@ -719,6 +719,78 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <!-- Sentiment Analysis -->
     <div id="comm-sentiment-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:16px"></div>
 
+    <!-- Silver Fundamentals -->
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div class="card-title">🥈 Silver Fundamentals — Physical Supply & Demand</div>
+        <button class="btn btn-sm" onclick="loadSilverFundamentals()">↻ Refresh</button>
+      </div>
+
+      <!-- Key metrics row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px" id="silver-fund-cards">
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;border-left:3px solid var(--gold)">
+          <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">COMEX Registered</div>
+          <div style="font-size:22px;font-weight:800;color:var(--gold);margin:4px 0">85.2M</div>
+          <div style="font-size:11px;color:var(--text2)">troy oz deliverable</div>
+          <div style="font-size:10px;color:var(--red);margin-top:4px">↓ 80% from 2021 peak</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;border-left:3px solid var(--red)">
+          <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">Delivery Stress</div>
+          <div style="font-size:22px;font-weight:800;color:var(--red);margin:4px 0">323%</div>
+          <div style="font-size:11px;color:var(--text2)">paper claims vs physical</div>
+          <div style="font-size:10px;color:var(--red);margin-top:4px">⚠️ Extreme pressure</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;border-left:3px solid var(--green)">
+          <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">Annual Deficit</div>
+          <div style="font-size:22px;font-weight:800;color:var(--green);margin:4px 0">-205M</div>
+          <div style="font-size:11px;color:var(--text2)">oz structural shortfall</div>
+          <div style="font-size:10px;color:var(--gold);margin-top:4px">6th consecutive year</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;border-left:3px solid #a78bfa">
+          <div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">China SHFE Premium</div>
+          <div style="font-size:22px;font-weight:800;color:#a78bfa;margin:4px 0">+12%</div>
+          <div style="font-size:11px;color:var(--text2)">Shanghai vs COMEX</div>
+          <div style="font-size:10px;color:var(--gold);margin-top:4px">Imports 173% above avg</div>
+        </div>
+      </div>
+
+      <!-- Combined chart: Price + Inventory trend -->
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text1);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <span>Silver Price vs COMEX Registered Inventory</span>
+          <div style="display:flex;gap:12px;font-size:11px;font-weight:400">
+            <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:2px;background:#6366f1;display:inline-block"></span>Price (USD/oz)</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:2px;background:var(--gold);display:inline-block;border-top:2px dashed var(--gold)"></span>Registered Inventory (Moz)</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:2px;background:var(--red);display:inline-block"></span>Annual Deficit (Moz)</span>
+          </div>
+        </div>
+        <canvas id="silver-fund-chart" height="180" style="width:100%"></canvas>
+      </div>
+
+      <!-- Demand breakdown -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text1)">2024 Demand by Sector (Moz)</div>
+          <div id="demand-bars"></div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text1)">Supply vs Demand Balance</div>
+          <div id="supply-demand-bars"></div>
+        </div>
+      </div>
+
+      <!-- Growth catalysts -->
+      <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;font-size:12px">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text1)">🚀 Demand Growth Catalysts</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;color:var(--text2)">
+          <div>☀️ Solar PV: +150M oz/yr additional by 2028 (IEA: solar doubles)</div>
+          <div>🚗 EVs: 25-50g silver each vs 15-28g ICE · +78% per vehicle</div>
+          <div>🤖 Humanoid robots: 705M oz potential if 1B units built (20g each)</div>
+          <div>🇨🇳 China export controls: only 44 authorised exporters from 2026</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Correlation with your trades -->
     <div class="card">
       <div class="card-title" style="margin-bottom:12px">Relevance to Current Pairs Trades</div>
@@ -1433,7 +1505,7 @@ function switchTab(id,el){
   if(id==='pairs'){
     if(!Object.keys(pairsData).length) loadPairsData();
   }
-  if(id==='commodities') loadCommodities();
+  if(id==='commodities') { loadCommodities(); loadSilverFundamentals(); }
   if(id==='charts'&&S.connected){
     const key=chartState.epic+'_'+chartState.resolution+'_'+chartState.count;
     const cached=S.priceCache[key]&&(Date.now()-S.priceCache[key].ts<30*60*1000);
@@ -2512,7 +2584,177 @@ function calcPairSizing() {
     </div>`;
 }
 
-// ── COMMODITY SENTINEL — loaded in separate script block ─────────────────────
+// ── SILVER FUNDAMENTALS ───────────────────────────────────────────────────────
+function loadSilverFundamentals() {
+  renderDemandBars();
+  renderSupplyDemandBars();
+  renderSilverFundChart();
+}
+
+function renderDemandBars() {
+  const sectors = [
+    { label:'☀️ Solar PV',        value:232, max:232, color:'#fbbf24' },
+    { label:'💻 Electronics/5G',  value:180, max:232, color:'#6366f1' },
+    { label:'🏭 Industrial Other', value:183, max:232, color:'#6b7280' },
+    { label:'🚗 Electric Vehicles',value:85,  max:232, color:'#22c55e' },
+    { label:'💰 Investment/Jewel', value:560, max:600, color:'#a78bfa' },
+  ];
+  document.getElementById('demand-bars').innerHTML = sectors.map(s => `
+    <div style="margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:2px">
+        <span>${s.label}</span><span style="font-weight:600;color:var(--text1)">${s.value}M oz</span>
+      </div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${(s.value/s.max*100).toFixed(0)}%;background:${s.color};border-radius:3px;transition:width 0.6s ease"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderSupplyDemandBars() {
+  const items = [
+    { label:'🔨 Mine Supply',  value:843,  total:1240, color:'#6b7280', side:'supply' },
+    { label:'♻️ Recycling',    value:192,  total:1240, color:'#4b5563', side:'supply' },
+    { label:'⚡ Total Demand', value:1240, total:1240, color:'#6366f1', side:'demand' },
+    { label:'📉 Deficit',      value:205,  total:1240, color:'#ef4444', side:'deficit' },
+  ];
+  document.getElementById('supply-demand-bars').innerHTML = items.map(s => `
+    <div style="margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:2px">
+        <span>${s.label}</span>
+        <span style="font-weight:600;color:${s.side==='deficit'?'var(--red)':s.side==='demand'?'var(--green)':'var(--text1)'}">${s.value}M oz</span>
+      </div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${(s.value/s.total*100).toFixed(0)}%;background:${s.color};border-radius:3px"></div>
+      </div>
+    </div>
+  `).join('') + `<div style="font-size:11px;color:var(--gold);font-weight:600;margin-top:8px">⚠️ 6th consecutive annual deficit — structural shortage</div>`;
+}
+
+function renderSilverFundChart() {
+  const canvas = document.getElementById('silver-fund-chart');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 700;
+  const H = 180;
+  canvas.width = W;
+  canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+
+  // Historical data: price, inventory, deficit (annual, approximate)
+  const years = ['2019','2020','2021','2022','2023','2024','2025','2026*'];
+  const prices =    [16.2, 21.4, 25.1, 21.8, 23.4, 28.5, 74.0, 64.2];
+  const inventory = [420,  390,  310,  220,  160,  120,  95,   85];  // COMEX registered Moz approx
+  const deficit =   [0,    0,    50,   87,   142,  184,  205,  210]; // annual deficit Moz
+
+  const padL = 45, padR = 50, padT = 15, padB = 30;
+  const cW = W - padL - padR;
+  const cH = H - padT - padB;
+  const n = years.length;
+
+  // Grid
+  ctx.strokeStyle = '#1a2030'; ctx.lineWidth = 1;
+  for(let i = 0; i <= 4; i++) {
+    const y = padT + (i/4)*cH;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+  }
+
+  // Y axes labels
+  const maxPrice = 80; const minPrice = 0;
+  const maxInv = 450;
+  ctx.font = '9px system-ui'; ctx.textAlign = 'right';
+  for(let i = 0; i <= 4; i++) {
+    const val = maxPrice - (i/4)*maxPrice;
+    ctx.fillStyle = '#6366f1';
+    ctx.fillText('$'+val.toFixed(0), padL-3, padT + (i/4)*cH + 3);
+  }
+  ctx.textAlign = 'left';
+  for(let i = 0; i <= 4; i++) {
+    const val = maxInv - (i/4)*maxInv;
+    ctx.fillStyle = '#d97706';
+    ctx.fillText(val.toFixed(0)+'M', W-padR+3, padT + (i/4)*cH + 3);
+  }
+
+  const xPos = i => padL + (i/(n-1))*cW;
+  const yPrice = v => padT + ((maxPrice-v)/maxPrice)*cH;
+  const yInv = v => padT + ((maxInv-v)/maxInv)*cH;
+
+  // Deficit area (red fill under price)
+  ctx.beginPath();
+  deficit.forEach((d, i) => {
+    const x = xPos(i);
+    const y = padT + cH - (d/250)*cH*0.4;
+    if(i===0) ctx.moveTo(x, padT+cH); else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(xPos(n-1), padT+cH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(239,68,68,0.15)';
+  ctx.fill();
+
+  // Deficit line
+  ctx.beginPath();
+  deficit.forEach((d, i) => {
+    const x = xPos(i);
+    const y = padT + cH - (d/250)*cH*0.4;
+    if(i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = 'rgba(239,68,68,0.6)'; ctx.lineWidth = 1.5;
+  ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+
+  // Inventory area
+  ctx.beginPath();
+  inventory.forEach((v, i) => { const x=xPos(i), y=yInv(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.lineTo(xPos(n-1), padT+cH); ctx.lineTo(padL, padT+cH); ctx.closePath();
+  ctx.fillStyle = 'rgba(217,119,6,0.12)'; ctx.fill();
+
+  // Inventory line
+  ctx.beginPath();
+  inventory.forEach((v, i) => { const x=xPos(i), y=yInv(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.strokeStyle = '#d97706'; ctx.lineWidth = 2; ctx.stroke();
+
+  // Price gradient fill
+  const grad = ctx.createLinearGradient(0, padT, 0, padT+cH);
+  grad.addColorStop(0, 'rgba(99,102,241,0.25)');
+  grad.addColorStop(1, 'rgba(99,102,241,0)');
+  ctx.beginPath();
+  prices.forEach((v,i) => { const x=xPos(i), y=yPrice(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.lineTo(xPos(n-1), padT+cH); ctx.lineTo(padL, padT+cH); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Price line
+  ctx.beginPath();
+  prices.forEach((v,i) => { const x=xPos(i), y=yPrice(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // X axis labels
+  ctx.fillStyle = '#4b5563'; ctx.font = '9px system-ui'; ctx.textAlign = 'center';
+  years.forEach((y, i) => ctx.fillText(y, xPos(i), H-6));
+
+  // Dots on price
+  prices.forEach((v, i) => {
+    ctx.beginPath();
+    ctx.arc(xPos(i), yPrice(v), 3, 0, Math.PI*2);
+    ctx.fillStyle = i === n-1 ? '#ef4444' : '#6366f1';
+    ctx.fill();
+  });
+
+  // Current price label
+  const lastX = xPos(n-1), lastY = yPrice(prices[n-1]);
+  ctx.fillStyle = 'rgba(239,68,68,0.9)';
+  ctx.fillRect(lastX-22, lastY-20, 44, 14);
+  ctx.fillStyle = 'white'; ctx.font = '9px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('$'+prices[n-1], lastX, lastY-10);
+
+  // Entry price dashed line
+  const entryY = yPrice(74.16);
+  ctx.beginPath(); ctx.moveTo(padL, entryY); ctx.lineTo(W-padR, entryY);
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.setLineDash([4,4]); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#f59e0b'; ctx.font = '9px system-ui'; ctx.textAlign = 'right';
+  ctx.fillText('Entry $74.16', W-padR-2, entryY-3);
+}
+
+
 </script>
 <script>
 // ── COMMODITY SENTIMENT DASHBOARD ────────────────────────────────────────────
@@ -2534,6 +2776,7 @@ async function loadCommodities() {
       commLoaded = true;
       renderCommodities(d);
       loadCommoditySentiment();
+      loadSilverFundamentals();
     }
   } catch(e) {
     document.getElementById('comm-updated').textContent = 'Error: ' + e.message;
