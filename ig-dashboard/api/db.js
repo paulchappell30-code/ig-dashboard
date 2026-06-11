@@ -107,6 +107,24 @@ module.exports = async (req, res) => {
         return res.status(200).json(stats);
       }
 
+      // Engine pause/resume controls
+      if (action === 'pause_engine') {
+        await sql`INSERT INTO engine_config (key, value) VALUES ('paused', 'true')
+          ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`;
+        return res.status(200).json({ success: true, paused: true });
+      }
+      if (action === 'resume_engine') {
+        await sql`INSERT INTO engine_config (key, value) VALUES ('paused', 'false')
+          ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`;
+        return res.status(200).json({ success: true, paused: false });
+      }
+      if (action === 'engine_status') {
+        const row = await sql`SELECT value, updated_at FROM engine_config WHERE key = 'paused' LIMIT 1`.catch(()=>({rows:[]}));
+        const paused = row.rows?.[0]?.value === 'true';
+        const updatedAt = row.rows?.[0]?.updated_at;
+        return res.status(200).json({ paused, updatedAt });
+      }
+
       if (action === 'sentiment_history') {
       const instrument = req.query.instrument || '';
       const days = parseInt(req.query.days) || 30;
@@ -780,6 +798,11 @@ module.exports = async (req, res) => {
 async function initTables() {
   // Core trades table with v4 columns
   await sql`
+    CREATE TABLE IF NOT EXISTS engine_config (
+      key VARCHAR(50) PRIMARY KEY,
+      value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS trades (
       id SERIAL PRIMARY KEY,
       deal_id VARCHAR(50) UNIQUE,
