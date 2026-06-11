@@ -108,7 +108,21 @@ module.exports = async (req, res) => {
   }
 
   // ── Trigger engine if RSI extreme found ───────────────────────────────────────
+  // Only trigger if autotrade cron is active — check DB flag first
   if (alerts.length > 0) {
+    // Check if engine is paused via DB flag before triggering
+    let enginePaused = false;
+    try {
+      const { sql: pauseSql } = require('@vercel/postgres');
+      const pauseRow = await pauseSql`SELECT value FROM engine_config WHERE key = 'paused' LIMIT 1`.catch(() => ({ rows: [] }));
+      enginePaused = pauseRow.rows?.[0]?.value === 'true';
+    } catch(e) { /* non-critical — proceed */ }
+
+    if(enginePaused) {
+      L(`Engine paused — skipping trigger for ${alerts.length} alert(s)`);
+      return res.status(200).json({ action: 'engine_paused', alerts, log });
+    }
+
     L(`Triggering engine for ${alerts.length} alert(s)...`);
     try {
       const engineRes = await fetch(`${BASE}/api/autotrade`, {
