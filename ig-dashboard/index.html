@@ -2525,7 +2525,7 @@ async function loadCommodities() {
   }
   document.getElementById('comm-updated').textContent = 'Loading...';
   try {
-    const r = await fetch('/api/commodity?action=overview');
+    const r = await fetch('/api/prices?action=commodity_overview');
     const d = await r.json();
     if(d.success) {
       d._ts = Date.now();
@@ -2606,7 +2606,7 @@ async function loadCommoditySentiment() {
   grid.innerHTML = '<div style="color:var(--text2);font-size:12px;grid-column:1/-1">Loading sentiment analysis...</div>';
   const results = await Promise.all(toAnalyse.map(async c => {
     try {
-      const r = await fetch(`/api/commodity?action=sentiment&symbol=${c.sym}&name=${encodeURIComponent(c.name)}`);
+      const r = await fetch(`/api/prices?action=commodity_sentiment&symbol=${c.sym}&name=${encodeURIComponent(c.name)}`);
       return await r.json();
     } catch(e) { return {error: e.message, name: c.name}; }
   }));
