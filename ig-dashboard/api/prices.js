@@ -57,6 +57,117 @@ module.exports = async (req, res) => {
       }
     }
 
+    // ── COMMODITY OVERVIEW ────────────────────────────────────────────────
+    if (req.query.action === 'commodity_overview') {
+      const commodities = [
+        {sym:'SI=F', name:'Silver',   unit:'USD/oz',   type:'precious'},
+        {sym:'HG=F', name:'Copper',   unit:'USD/lb',   type:'industrial'},
+        {sym:'GC=F', name:'Gold',     unit:'USD/oz',   type:'precious'},
+        {sym:'CL=F', name:'WTI Oil',  unit:'USD/bbl',  type:'energy'},
+        {sym:'BZ=F', name:'Brent',    unit:'USD/bbl',  type:'energy'},
+        {sym:'ZC=F', name:'Corn',     unit:'USc/bu',   type:'agricultural'},
+        {sym:'ZW=F', name:'Wheat',    unit:'USc/bu',   type:'agricultural'},
+        {sym:'PL=F', name:'Platinum', unit:'USD/oz',   type:'precious'},
+        {sym:'NG=F', name:'Nat Gas',  unit:'USD/MMBtu',type:'energy'},
+      ];
+      const results = await Promise.all(commodities.map(async c => {
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(c.sym)}?interval=1d&range=30d`;
+          const r = await fetch(url, {headers:{'User-Agent':'Mozilla/5.0'}});
+          const d = await r.json();
+          const meta = d.chart?.result?.[0]?.meta;
+          const q = d.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+          const ts = d.chart?.result?.[0]?.timestamp || [];
+          const closes = q.close || [];
+          const volumes = q.volume || [];
+          const highs = q.high || [];
+          const lows = q.low || [];
+          if(!meta || closes.length < 2) return {...c, error:'no data'};
+          const price = meta.regularMarketPrice;
+          const prevClose = closes[closes.length-2] || price;
+          const change1d = ((price - prevClose) / prevClose * 100);
+          const close5d = closes[Math.max(0,closes.length-6)];
+          const close30d = closes[0];
+          const change5d = close5d ? ((price - close5d) / close5d * 100) : 0;
+          const change30d = close30d ? ((price - close30d) / close30d * 100) : 0;
+          const recentVols = volumes.slice(-20).filter(v => v > 0);
+          const avgVol = recentVols.length ? recentVols.reduce((a,b)=>a+b,0)/recentVols.length : 0;
+          const currentVol = volumes[volumes.length-1] || 0;
+          const volRatio = avgVol > 0 ? currentVol/avgVol : 1;
+          const sma5 = closes.slice(-5).reduce((a,b)=>a+(b||0),0)/5;
+          const sma20 = closes.slice(-20).filter(Boolean).reduce((a,b)=>a+b,0)/Math.min(20,closes.filter(Boolean).length);
+          const trend = sma5 > sma20*1.01 ? 'bullish' : sma5 < sma20*0.99 ? 'bearish' : 'neutral';
+          const wk52High = meta.fiftyTwoWeekHigh;
+          const wk52Low = meta.fiftyTwoWeekLow;
+          const fromHigh = wk52High ? ((price-wk52High)/wk52High*100) : null;
+          let signal = 0;
+          if(change1d > 1) signal++; else if(change1d < -1) signal--;
+          if(change5d > 3) signal++; else if(change5d < -3) signal--;
+          if(trend === 'bullish') signal++; else if(trend === 'bearish') signal--;
+          if(volRatio > 1.5 && change1d > 0) signal++; else if(volRatio > 1.5 && change1d < 0) signal--;
+          const signalLabel = signal >= 2 ? 'strong_bull' : signal === 1 ? 'bull' :
+                             signal <= -2 ? 'strong_bear' : signal === -1 ? 'bear' : 'neutral';
+          return {...c, price, change1d, change5d, change30d, avgVol, currentVol, volRatio,
+                  trend, wk52High, wk52Low, fromHigh, signal, signalLabel};
+        } catch(e) { return {...c, error: e.message}; }
+      }));
+      return res.status(200).json({success:true, commodities:results, updated:new Date().toISOString()});
+    }
+
+    // ── COMMODITY SENTIMENT (OBV + MFI) ──────────────────────────────────
+    if (req.query.action === 'commodity_sentiment') {
+      const symbol = req.query.symbol || 'SI=F';
+      const name = req.query.name || 'Silver';
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=90d`;
+        const r = await fetch(url, {headers:{'User-Agent':'Mozilla/5.0'}});
+        const d = await r.json();
+        const q = d.chart?.result?.[0]?.indicators?.quote?.[0] || {};
+        const ts = d.chart?.result?.[0]?.timestamp || [];
+        const closes = q.close || [];
+        const volumes = q.volume || [];
+        const highs = q.high || closes;
+        const lows = q.low || closes;
+        if(closes.length < 20) return res.status(200).json({error:'insufficient data'});
+        let obv = 0;
+        closes.forEach((c,i) => { if(i>0) { const v=volumes[i]||0; if(c>closes[i-1]) obv+=v; else if(c<closes[i-1]) obv-=v; }});
+        const obvStart = closes.slice(0,10).reduce((o,c,i) => {
+          if(i>0 && volumes[i]) { if(c>closes[i-1]) return o+volumes[i]; if(c<closes[i-1]) return o-volumes[i]; } return o;
+        }, 0);
+        const obvEnd = obv;
+        const obvTrend = obvEnd > obvStart ? 'accumulation' : 'distribution';
+        const mfiPeriod = 14;
+        let posFlow = 0, negFlow = 0;
+        for(let i = closes.length-mfiPeriod; i < closes.length; i++) {
+          const tp = ((highs[i]||closes[i]) + (lows[i]||closes[i]) + closes[i]) / 3;
+          const tpPrev = i > 0 ? ((highs[i-1]||closes[i-1]) + (lows[i-1]||closes[i-1]) + closes[i-1]) / 3 : tp;
+          const mf = tp * (volumes[i]||0);
+          if(tp >= tpPrev) posFlow += mf; else negFlow += mf;
+        }
+        const mfi = negFlow > 0 ? 100 - (100/(1+posFlow/negFlow)) : 100;
+        const recentCloses = closes.slice(-20);
+        const recentVols = volumes.slice(-20);
+        const vwapNum = recentCloses.reduce((s,c,i)=>s+c*(recentVols[i]||0),0);
+        const vwapDen = recentVols.reduce((a,b)=>a+(b||0),0);
+        const vwap = vwapDen > 0 ? vwapNum/vwapDen : closes[closes.length-1];
+        const currentPrice = closes[closes.length-1];
+        const priceVsVwap = ((currentPrice-vwap)/vwap*100);
+        const mfiSignal = mfi > 70 ? 'overbought' : mfi < 30 ? 'oversold' : 'neutral';
+        const vwapSignal = priceVsVwap > 2 ? 'above_vwap' : priceVsVwap < -2 ? 'below_vwap' : 'at_vwap';
+        return res.status(200).json({
+          success:true, symbol, name,
+          mfi:mfi.toFixed(1), mfiSignal, obvTrend,
+          vwap:vwap.toFixed(2), currentPrice,
+          priceVsVwap:priceVsVwap.toFixed(2), vwapSignal,
+          interpretation:{
+            summary:`${name} showing ${obvTrend} with MFI ${mfi.toFixed(0)} (${mfiSignal}). Price is ${Math.abs(priceVsVwap).toFixed(1)}% ${vwapSignal.replace(/_/g,' ')}.`,
+            bullish: obvTrend==='accumulation' && mfi < 50,
+            bearish: obvTrend==='distribution' && mfi > 50,
+          }
+        });
+      } catch(e) { return res.status(500).json({error:e.message}); }
+    }
+
     // Return stored price history for an instrument
     const epic = req.query.epic;
     const resolution = req.query.resolution || 'DAY';
