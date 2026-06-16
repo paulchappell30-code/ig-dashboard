@@ -642,6 +642,55 @@ module.exports = async (req,res) => {
   if(body.eodClose!==undefined) cfg.eodClose=!!body.eodClose;
   if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
 
+  // ── MANUAL PAIRS CLOSE ───────────────────────────────────────────────────────
+  if(body.manualPairsClose) {
+    const log=[]; const L=msg=>{console.log('[Manual close]',msg);log.push(msg);};
+    const igBase=IG_BASES[process.env.IG_ENV||'live'];
+    try {
+      const cstR=await fetch(`${igBase.replace('/gateway/deal','')}/gateway/deal/session`,{method:'POST',
+        headers:{'Content-Type':'application/json','VERSION':'2','X-IG-API-KEY':process.env.IG_API_KEY},
+        body:JSON.stringify({identifier:process.env.IG_USER,password:process.env.IG_PASS})});
+      const cstD=await cstR.json();
+      const cst=cstR.headers.get('CST');const xst=cstR.headers.get('X-SECURITY-TOKEN');
+      const igH={'Content-Type':'application/json','CST':cst,'X-SECURITY-TOKEN':xst,'X-IG-API-KEY':process.env.IG_API_KEY,'Version':'1'};
+      const {sql:pSql}=require('@vercel/postgres');
+      const ptR=await pSql`SELECT * FROM pairs_trades WHERE id=${parseInt(body.manualPairsClose)} AND status='open' LIMIT 1`;
+      const pt=ptR.rows[0];
+      if(!pt){L('Trade not found or not open');return res.status(200).json({action:'error',message:'Trade not found',log});}
+      L(`Manual close: ${pt.instr_a}/${pt.instr_b}`);
+      const posR=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+      const posD=await posR.json();
+      let totalPnl=0;
+      for(const dealId of [pt.deal_id_a,pt.deal_id_b].filter(Boolean)){
+        const pos=(posD.positions||[]).find(p=>p.position.dealId===dealId);
+        if(!pos){L(`Position ${dealId} not found on IG`);continue;}
+        const dir=pos.position.direction;
+        const sz=pos.position.dealSize||pos.position.size;
+        const openLvl=pos.position.openLevel;
+        const curLvl=pos.market.bid||openLvl;
+        const upl=dir==='BUY'?(curLvl-openLvl)*sz:(openLvl-curLvl)*sz;
+        totalPnl+=upl;
+        const closeBody={dealId,direction:dir==='BUY'?'SELL':'BUY',size:sz,orderType:'MARKET',expiry:'DFB'};
+        const cR=await fetch(`${igBase}/positions/otc`,{method:'DELETE',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
+        const cD=await cR.json();
+        if(cD.dealReference){
+          await new Promise(r=>setTimeout(r,500));
+          const cfR=await fetch(`${igBase}/confirms/${cD.dealReference}`,{headers:{...igH,'Version':'1'}});
+          const cfD=await cfR.json();
+          L(`Closed ${pos.market.instrumentName} ${cfD.dealStatus} at ${cfD.level} UPL £${upl.toFixed(2)}`);
+        }
+      }
+      await pSql`UPDATE pairs_trades SET status='closed',close_reason='manual',
+        profit_loss=${parseFloat(totalPnl.toFixed(2))},closed_at=NOW()
+        WHERE id=${parseInt(body.manualPairsClose)}`;
+      L(`✅ Manual close complete — P&L £${totalPnl.toFixed(2)}`);
+      return res.status(200).json({action:'manual_pairs_close',pnl:totalPnl,log});
+    } catch(e){
+      return res.status(200).json({action:'error',message:e.message,log:[e.message]});
+    }
+  }
+  if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
+
   const igBase=IG_BASES[process.env.IG_ENV||'demo'];
   let cst,xst;
   const log=[];
