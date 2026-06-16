@@ -1012,6 +1012,171 @@ async function loadPairsOverview() {
       });
     }
 
+    // Fetch current Z-scores from the review/pairs endpoint directly
+    // so we don't depend on pairsData being loaded on the pairs tab
+    let liveZScores = {};
+    try {
+      const zr = await fetch('/api/review?action=pairs_zscore');
+      if(zr.ok) { const zd = await zr.json(); liveZScores = zd.zscores || {}; }
+    } catch(e) { /* non-critical */ }
+
+    el.innerHTML = openTrades.map(pt => {
+      const entryZ = Math.abs(parseFloat(pt.entry_z) || 0);
+      const exitZ = Math.abs(parseFloat(pt.target_z) || 0.25);
+      const stopZ = Math.abs(parseFloat(pt.stop_z) || 3.0);
+
+      // Get current Z — from live endpoint, or fall back to pairsData if loaded
+      let currentZ = liveZScores[pt.pair_id] ?? null;
+      if(currentZ === null && typeof PAIRS_CONFIG !== 'undefined' && Object.keys(pairsData).length > 0) {
+        const pairCfg = PAIRS_CONFIG.find(p => p.id === pt.pair_id);
+        if(pairCfg && pairsData[pairCfg.a]) {
+          const spreads = calcPairSpread(pairsData[pairCfg.a]||[], pairsData[pairCfg.b]||[],
+            pairsLivePrices[pairCfg.a], pairsLivePrices[pairCfg.b]);
+          const lb = pairCfg.lookbackDays || 60;
+          const windowed = spreads.length > lb ? spreads.slice(-lb) : spreads;
+          currentZ = calcZScore(windowed, lb).zscore;
+        }
+      }
+      const absCurrentZ = currentZ !== null ? Math.abs(currentZ) : null;
+
+      // Progress: how far has Z compressed from entry toward exit?
+      const totalRange = entryZ - exitZ;
+      const compressed = absCurrentZ !== null ? (entryZ - absCurrentZ) : 0;
+      const progressPct = absCurrentZ !== null && totalRange > 0
+        ? Math.max(0, Math.min(100, (compressed / totalRange) * 100))
+        : null;
+
+      // Est. profit target — based on Z reversion distance × size × std
+      // Use peak UPL as proxy for target if available, otherwise estimate from
+      // (entryZ - exitZ) / (entryZ - stopZ) × risk amount
+      const sizeA = parseFloat(pt.size_a || 0);
+      const sizeB = parseFloat(pt.size_b || 0);
+      const balance = S.accountData?.balance?.balance || 350;
+      const riskAmt = balance * 0.04;
+      const pairCfg = typeof PAIRS_CONFIG !== 'undefined' ? PAIRS_CONFIG.find(p => p.id === pt.pair_id) : null;
+      // Target = risk × (reversion distance / stop distance) × reward ratio
+      const reversionDist = entryZ - exitZ;  // e.g. 2.17 - 0.25 = 1.92σ
+      const stopDist = stopZ - entryZ;        // e.g. 3.0 - 2.17 = 0.83σ
+      const rrRatio = stopDist > 0 ? reversionDist / stopDist : 2.0;
+      const estTarget = riskAmt * rrRatio;    // e.g. £14 × 2.31 = £32.34
+
+      // Live combined UPL
+      const uplA = pt.deal_id_a && liveUPL[pt.deal_id_a] !== undefined ? liveUPL[pt.deal_id_a] : null;
+      const uplB = pt.deal_id_b && liveUPL[pt.deal_id_b] !== undefined ? liveUPL[pt.deal_id_b] : null;
+      const totalUPL = (uplA !== null && uplB !== null) ? uplA + uplB : null;
+      const hasLiveUPL = totalUPL !== null;
+
+      // Profit capture % vs estimated target
+      const capturePct = hasLiveUPL && estTarget > 0
+        ? Math.max(0, Math.min(150, (totalUPL / estTarget) * 100))
+        : null;
+
+      const daysOpen = pt.opened_at ? Math.round((Date.now() - new Date(pt.opened_at)) / 86400000) : 0;
+      const uplColor = !hasLiveUPL ? 'var(--text2)' : totalUPL >= 0 ? 'var(--green)' : 'var(--red)';
+      const progressColor = progressPct === null ? 'var(--text3)'
+        : progressPct >= 75 ? 'var(--green)' : progressPct >= 40 ? 'var(--gold)' : 'var(--blue)';
+      const peakUPL = parseFloat(pt.peak_upl || 0);
+      const trailActive = peakUPL >= balance * 0.02;
+      const trailClose = peakUPL * 0.75;
+
+      return `
+        <div style="background:var(--bg3);border:1px solid ${progressPct!==null&&progressPct>=75?'var(--green)':progressPct!==null&&progressPct>=40?'rgba(210,153,34,0.4)':'var(--border)'};border-radius:var(--radius);padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-weight:600;font-size:14px">${pt.instr_a} / ${pt.instr_b}</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">
+                ${pt.direction_a==='BUY'?'BUY':'SELL'} ${pt.instr_a} · ${pt.direction_b==='BUY'?'BUY':'SELL'} ${pt.instr_b}
+                · ${daysOpen}d open · AI ${pt.ai_confidence}%
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:20px;font-weight:800;color:${uplColor}">${hasLiveUPL?(totalUPL>=0?'+':'')+'£'+Math.abs(totalUPL).toFixed(2):'—'}</div>
+              <div style="font-size:11px;color:var(--text2)">live UPL</div>
+            </div>
+          </div>
+
+          <!-- Z-score progress -->
+          <div style="margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px">
+              <span>Z-score compression toward exit</span>
+              <span style="color:${progressColor};font-weight:600">${progressPct!==null?progressPct.toFixed(0)+'% complete':'loading...'}</span>
+            </div>
+            <div style="height:8px;background:var(--bg1);border-radius:4px;overflow:hidden">
+              <div style="height:100%;width:${progressPct!==null?progressPct.toFixed(0):0}%;background:${progressColor};border-radius:4px;transition:width 0.5s ease"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:2px">
+              <span style="color:var(--red)">Stop ±${stopZ}σ</span>
+              <span>Entry ${entryZ.toFixed(2)}σ</span>
+              <span style="color:${absCurrentZ!==null?'var(--text1)':'var(--text3)'}">Now ${absCurrentZ!==null?absCurrentZ.toFixed(2)+'σ':'—'}</span>
+              <span style="color:var(--green)">Exit ±${exitZ}σ ✓</span>
+            </div>
+          </div>
+
+          <!-- Profit capture -->
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px">
+              <span>Profit capture vs R:R target</span>
+              <span>${capturePct!==null?`<span style="color:${capturePct>=75?'var(--green)':capturePct>=40?'var(--gold)':'var(--text2)'}">${capturePct.toFixed(0)}% of est. +£${estTarget.toFixed(2)}</span>`:'—'}</span>
+            </div>
+            ${capturePct!==null?`
+            <div style="height:5px;background:var(--bg1);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100,capturePct).toFixed(0)}%;background:${capturePct>=75?'var(--green)':capturePct>=40?'var(--gold)':'var(--blue)'};border-radius:3px"></div>
+            </div>`:''}
+          </div>
+
+          <!-- Stats row -->
+          <div style="display:flex;gap:16px;font-size:11px;color:var(--text2);margin-bottom:10px;flex-wrap:wrap">
+            <span>Entry Z: <strong style="color:var(--text1)">${pt.entry_z>0?'+':''}${parseFloat(pt.entry_z).toFixed(2)}σ</strong></span>
+            <span>Size: <strong style="color:var(--text1)">£${parseFloat(pt.size_a||0).toFixed(2)}/pt : £${parseFloat(pt.size_b||0).toFixed(2)}/pt</strong></span>
+            ${trailActive?`<span style="color:var(--gold)">🛡 Trail active · peak £${peakUPL.toFixed(2)} · close@£${trailClose.toFixed(2)}</span>`:`<span>Trail activates @ £${(balance*0.02).toFixed(2)}</span>`}
+            ${pairCfg?`<span>WR: <strong style="color:var(--green)">${pairCfg.winRate}%</strong> · Exp: <strong style="color:var(--green)">+${pairCfg.expectancy}%</strong></span>`:''}
+          </div>
+
+          <!-- Action buttons -->
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="switchTab('pairs',null);setTimeout(()=>selectPair('${pt.pair_id}'),300)">📊 View Chart</button>
+            ${hasLiveUPL && totalUPL > 0 ? `
+            <button class="btn btn-sm" style="background:rgba(63,185,80,0.15);border-color:rgba(63,185,80,0.3);color:var(--green)"
+              onclick="confirmManualPairsClose('${pt.id}','${pt.instr_a}/${pt.instr_b}',${totalUPL.toFixed(2)})">
+              ✅ Close +£${totalUPL.toFixed(2)}
+            </button>` : ''}
+            ${hasLiveUPL && totalUPL <= 0 ? `
+            <button class="btn btn-sm btn-danger"
+              onclick="confirmManualPairsClose('${pt.id}','${pt.instr_a}/${pt.instr_b}',${totalUPL.toFixed(2)})">
+              ✕ Close £${totalUPL.toFixed(2)}
+            </button>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+  }
+}
+  const el = document.getElementById('pairs-overview-list');
+  if(!el) return;
+  try {
+    const [pr, posR] = await Promise.all([
+      fetch('/api/db?action=pairs_trades'),
+      S.connected ? igFetch('positions') : Promise.resolve(null)
+    ]);
+    const pd = await pr.json();
+    const openTrades = (pd.pairs_trades || []).filter(p => p.status === 'open');
+    if(!openTrades.length) { el.innerHTML = '<div class="empty">No open pairs trades</div>'; return; }
+
+    // Get live UPL from IG positions
+    let liveUPL = {};
+    if(posR && posR.ok) {
+      const posD = await posR.json();
+      (posD.positions || []).forEach(p => {
+        const dealId = p.position.dealId;
+        const dir = p.position.direction;
+        const open = p.position.openLevel;
+        const cur = p.market.bid || open;
+        const sz = p.position.dealSize || p.position.size || 1;
+        liveUPL[dealId] = dir === 'BUY' ? (cur - open) * sz : (open - cur) * sz;
+      });
+    }
+
     el.innerHTML = openTrades.map(pt => {
       const entryZ = Math.abs(parseFloat(pt.entry_z) || 0);
       const exitZ = Math.abs(parseFloat(pt.target_z) || 0.25);
