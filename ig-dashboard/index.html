@@ -433,7 +433,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
           </div>
           <div style="display:flex;gap:8px"><input type="text" id="ai-custom-q" placeholder="Ask anything..."><button class="btn btn-primary" onclick="runAICustom()">Ask</button></div>
         </div>
-        <div class="card"><div class="card-title" style="margin-bottom:8px">Model</div><div style="font-size:13px;color:var(--text2);line-height:1.7">Using <strong style="color:var(--text1)">Claude Sonnet</strong> for analysis.</div><button class="btn btn-sm" style="margin-top:10px" onclick="clearAI()">Clear</button></div>
+        <div class="card"><div class="card-title" style="margin-bottom:8px">Model</div><div style="font-size:13px;color:var(--text2);line-height:1.7">Using <strong style="color:var(--text1)">Claude Sonnet 4.6</strong> for analysis.</div><button class="btn btn-sm" style="margin-top:10px" onclick="clearAI()">Clear</button></div>
       </div>
       <div class="card">
         <div class="card-title" style="margin-bottom:12px">Conversation</div>
@@ -479,7 +479,7 @@ code{font-family:var(--font-mono);font-size:12px;background:var(--bg3);padding:2
     <div class="tab-content" id="tab-research">
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <div><div style="font-weight:600;margin-bottom:4px">AI Pattern Discovery</div><div style="font-size:12px;color:var(--text2)">Claude Sonnet analyses trade history to find patterns. Requires 30+ closed trades.</div></div>
+          <div><div style="font-weight:600;margin-bottom:4px">AI Pattern Discovery</div><div style="font-size:12px;color:var(--text2)">Claude Sonnet 4.6 analyses trade history to find patterns. Requires 30+ closed trades.</div></div>
           <button class="btn btn-primary" onclick="runResearch()">▶ Run Analysis</button>
         </div>
       </div>
@@ -1154,7 +1154,7 @@ async function getAIScore(){
   const signals=ind.signals;const buys=signals.filter(s=>s.signal==='buy').length;const sells=signals.filter(s=>s.signal==='sell').length;
   const prompt=`Technical analyst. Analyse signals for ${chartState.name} and give recommendation.\n\nSIGNALS:\n${signals.map(s=>s.name+': '+s.signal.toUpperCase()+' ('+s.value+')').join('\n')}\nSummary: ${buys} Buy, ${sells} Sell\nPrice: ${document.getElementById('chart-price')?.textContent}\nTimeframe: ${chartState.resolution} x${chartState.count}\n\nJSON only: {"recommendation":"BUY","confidence":72,"reasoning":"2-3 sentences","keyLevel":"key level","risk":"main risk"}`;
   try{
-    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:300,messages:[{role:'user',content:prompt}]})});
     const data=await res.json();const result=JSON.parse((data.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim());
     const col=result.recommendation==='BUY'?'var(--green)':result.recommendation==='SELL'?'var(--red)':'var(--gold)';
     panel.innerHTML=`<div style="text-align:center;margin-bottom:14px"><div style="font-size:24px;font-weight:700;color:${col}">${result.recommendation}</div><div style="font-size:36px;font-weight:700;font-family:var(--font-mono);color:${col}">${result.confidence}%</div></div><div style="font-size:13px;line-height:1.6;color:var(--text2)"><p>${result.reasoning}</p><div style="margin-top:8px"><strong style="color:var(--text1)">Key level:</strong> ${result.keyLevel}</div><div style="margin-top:4px"><strong style="color:var(--text1)">Risk:</strong> ${result.risk}</div></div>`;
@@ -1444,7 +1444,7 @@ async function runAICustom(){const q=document.getElementById('ai-custom-q')?.val
 async function callClaude(prompt,type){
   const h=document.getElementById('ai-history');const l=document.getElementById('ai-loading');
   if(h)h.innerHTML='';if(l)l.style.display='block';
-  try{const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+  try{const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
   const data=await r.json();if(l)l.style.display='none';
   const text=data.content?.[0]?.text||'No response';
   const fmt=text.replace(/^### (.+)$/gm,'<h3>$1</h3>').replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'</p><p>');
