@@ -4,6 +4,14 @@
 const fetch = require('node-fetch');
 const TD_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hour TD cache TTL — alert cron runs 3x/day (7am, 12pm, 4pm UTC)
 
+// ── AI MODEL CONFIG ─────────────────────────────────────────────────────────
+// Anthropic does not provide an "always latest" alias for current-gen models —
+// dateless IDs (e.g. claude-sonnet-4-6) are pinned snapshots, not evergreen.
+// Update these manually when a new generation is released.
+// Check current models: https://docs.claude.com/en/docs/about-claude/models/overview
+const AI_MODEL_FAST = 'claude-haiku-4-5-20251001'; // quick pairs confidence checks
+const AI_MODEL_MAIN = 'claude-sonnet-4-6';          // main trade confirmation
+
 const IG_BASES = {
   live: 'https://api.ig.com/gateway/deal',
   demo: 'https://demo-api.ig.com/gateway/deal',
@@ -140,6 +148,7 @@ const PAIRS_DEFINITIONS = [
     minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
     dbPriceScaleA: 78.5,  // TOPIX Yahoo ~828 → IG Nikkei ~65000
     dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
+    marginFactorA: 0.10,  // IG margin 10% on Tokyo First Section — caps sizing
     description:'TOPIX vs S&P 500 — yen dynamics + risk divergence, 85.2% WR ⭐' },
   // Universe search: score 23.57 | 84.8% WR | 1.12% exp | 33 trades over 500d
   // Highest trade count (33) = most statistically reliable result in entire search
@@ -389,7 +398,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
   const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
   const r = await fetch(`${base}/api/claude`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150,
+    body: JSON.stringify({ model: AI_MODEL_FAST, max_tokens: 150,
       messages: [{ role: 'user', content: prompt }] }),
   });
   if(!r.ok){ throw new Error(`Claude API ${r.status}`); }
@@ -2176,7 +2185,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
             const base2 = process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
             const aiR = await fetch(`${base2}/api/claude`,{method:'POST',
               headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:150,
+              body:JSON.stringify({model:AI_MODEL_FAST,max_tokens:150,
                 messages:[{role:'user',content:pairsPrompt}]})});
             if(aiR.ok){
               const aiD = await aiR.json();
@@ -2320,12 +2329,22 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
           const sizeB = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsB).toFixed(2)), cfg.maxSizePerTrade));
 
-          L(`Pairs sizing: ${pair.instrA} £${sizeA}/pt stop ${stopPtsA}pts | ${pair.instrB} £${sizeB}/pt stop ${stopPtsB}pts`);
+          // Margin-aware size cap — for high-margin instruments (e.g. TOPIX at 10%)
+          // ensure each leg's margin requirement doesn't exceed 25% of available funds
+          const availFunds = balance - (cfg.pairsHeatLimit || 300) * (openPairsCount / (cfg.pairsMaxSlots || 3));
+          const marginCapA = pair.marginFactorA ? Math.max(0.01, parseFloat(((availFunds * 0.25) / (priceA * pair.marginFactorA)).toFixed(2))) : sizeA;
+          const marginCapB = pair.marginFactorB ? Math.max(0.01, parseFloat(((availFunds * 0.25) / (priceB * pair.marginFactorB)).toFixed(2))) : sizeB;
+          const finalSizeA = Math.min(sizeA, marginCapA);
+          const finalSizeB = Math.min(sizeB, marginCapB);
+          if(finalSizeA < sizeA) L(`Pairs: ${pair.instrA} size capped ${sizeA}→${finalSizeA}/pt (margin factor ${(pair.marginFactorA*100).toFixed(0)}%)`);
+          if(finalSizeB < sizeB) L(`Pairs: ${pair.instrB} size capped ${sizeB}→${finalSizeB}/pt (margin factor ${(pair.marginFactorB*100).toFixed(0)}%)`);
+
+          L(`Pairs sizing: ${pair.instrA} £${finalSizeA}/pt stop ${stopPtsA}pts | ${pair.instrB} £${finalSizeB}/pt stop ${stopPtsB}pts`);
 
           // Open leg A
           let dealIdA = null, dealIdB = null;
           try {
-            const bodyA = {epic:pair.epicA,direction:dirA,size:sizeA,orderType:'MARKET',
+            const bodyA = {epic:pair.epicA,direction:dirA,size:finalSizeA,orderType:'MARKET',
               expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
               dealType:'SPREADBET'};
             // Only attach stop distance when using IG prices (in correct IG units)
@@ -2344,7 +2363,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           // Open leg B — if this fails, close leg A immediately
           try {
-            const bodyB = {epic:pair.epicB,direction:dirB,size:sizeB,orderType:'MARKET',
+            const bodyB = {epic:pair.epicB,direction:dirB,size:finalSizeB,orderType:'MARKET',
               expiry:'DFB',guaranteedStop:false,forceOpen:true,currencyCode:'GBP',
               dealType:'SPREADBET'};
             if(!usingYahooLive) bodyB.stopDistance = stopPtsB * 3;
@@ -2377,14 +2396,14 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
               direction_a, direction_b, size_a, size_b, deal_id_a, deal_id_b,
               entry_z, stop_z, target_z, ai_confidence, status, opened_at)
               VALUES (${pair.id},${pair.instrA},${pair.instrB},${pair.epicA},${pair.epicB},
-              ${dirA},${dirB},${sizeA},${sizeB},${dealIdA},${dealIdB},
+              ${dirA},${dirB},${finalSizeA},${finalSizeB},${dealIdA},${dealIdB},
               ${pz.zscore},${pz.zscore<0?-pair.stopZ:pair.stopZ},${pz.zscore<0?-pair.exitZ:pair.exitZ},
               ${pairsConfidence},'open',NOW())`;
             L(`Pairs trade saved: ${pair.instrA}/${pair.instrB} Z=${pz.zscore.toFixed(2)}`);
           } catch(e){ L(`Pairs DB save error: ${e.message}`); }
 
           await sendNotify('trade',`⚖️ Pairs Trade: ${pair.instrA}/${pair.instrB}`,
-            `${dirA} ${pair.instrA} £${sizeA}/pt | ${dirB} ${pair.instrB} £${sizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${pairEntryZ} | Exit: ±${pair.exitZ} | Stop: ±${pair.stopZ}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
+            `${dirA} ${pair.instrA} £${finalSizeA}/pt | ${dirB} ${pair.instrB} £${finalSizeB}/pt\nZ-score: ${pz.zscore.toFixed(2)} | Entry: ±${pairEntryZ} | Exit: ±${pair.exitZ} | Stop: ±${pair.stopZ}\nAI: ${pairsConfidence}% — ${pairsReasoning}`);
           break; // One pairs trade per run
         }
       }
