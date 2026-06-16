@@ -2331,7 +2331,7 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           // Margin-aware size cap — for high-margin instruments (e.g. TOPIX at 10%)
           // ensure each leg's margin requirement doesn't exceed 25% of available funds
-          const availFunds = balance - (cfg.pairsHeatLimit || 300) * (openPairsCount / (cfg.pairsMaxSlots || 3));
+          const availFunds = balance - (cfg.pairsHeatLimit || 300) * (openPairs.rows.length / (cfg.pairsMaxSlots || 3));
           const marginCapA = pair.marginFactorA ? Math.max(0.01, parseFloat(((availFunds * 0.25) / (priceA * pair.marginFactorA)).toFixed(2))) : sizeA;
           const marginCapB = pair.marginFactorB ? Math.max(0.01, parseFloat(((availFunds * 0.25) / (priceB * pair.marginFactorB)).toFixed(2))) : sizeB;
           const finalSizeA = Math.min(sizeA, marginCapA);
