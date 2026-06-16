@@ -14,6 +14,7 @@ module.exports = async (req, res) => {
   if (action === 'optimize') return await runOptimization(req, res);
   if (action === 'backtest') return await runBacktest(req, res);
   if (action === 'pairs_backtest') return await runPairsBacktest(req, res);
+  if (action === 'pairs_zscore') return await getPairsZScores(req, res);
   if (action === 'discover') return await runDiscovery(req, res);
   if (action === 'novel') return await runNovelDiscovery(req, res);
   if (action === 'aipatterns') return await runAIPatterns(req, res);
@@ -1936,5 +1937,57 @@ Be specific. Cite actual numbers and times. Max 700 words.`;
   } catch(e) {
     L('Error: ' + e.message);
     return res.status(500).json({ error: e.message, log });
+  }
+}
+
+async function getPairsZScores(req, res) {
+  try {
+    const { sql } = require('@vercel/postgres');
+    // Get all unique instruments needed for open pairs trades
+    const openPairs = await sql`SELECT pair_id, instr_a, instr_b FROM pairs_trades WHERE status='open'`;
+    if(!openPairs.rows.length) return res.status(200).json({ zscores: {} });
+
+    const PAIRS_CONFIG = [
+      { id:'gbpusd_eurusd', a:'GBP/USD',   b:'EUR/USD',   lb:60 },
+      { id:'brent_gold',    a:'Brent Oil',  b:'Gold',      lb:60 },
+      { id:'eurusd_eurgbp', a:'EUR/USD',    b:'EUR/GBP',   lb:60 },
+      { id:'dow_sp500',     a:'Dow Jones',  b:'S&P 500',   lb:60 },
+      { id:'copper_gold',   a:'Copper',     b:'Gold',      lb:45 },
+      { id:'silver_copper', a:'Silver',     b:'Copper',    lb:60 },
+      { id:'ftse_sp500',    a:'FTSE 100',   b:'S&P 500',   lb:45 },
+      { id:'nikkei_sp500',  a:'Tokyo First Section', b:'S&P 500', lb:60 },
+      { id:'usdcad_wti',    a:'USD/CAD',    b:'WTI Oil',   lb:90 },
+    ];
+
+    const zscores = {};
+    for(const pt of openPairs.rows) {
+      const cfg = PAIRS_CONFIG.find(p => p.id === pt.pair_id);
+      if(!cfg) continue;
+      try {
+        const [rA, rB] = await Promise.all([
+          sql`SELECT close_price, candle_time FROM price_history WHERE instrument=${pt.instr_a} ORDER BY candle_time DESC LIMIT ${cfg.lb + 5}`,
+          sql`SELECT close_price, candle_time FROM price_history WHERE instrument=${pt.instr_b} ORDER BY candle_time DESC LIMIT ${cfg.lb + 5}`
+        ]);
+        const candlesA = rA.rows.reverse();
+        const candlesB = rB.rows.reverse();
+        const mapB = {};
+        candlesB.forEach(c => { mapB[c.candle_time?.toISOString?.().substring(0,10) || String(c.candle_time).substring(0,10)] = parseFloat(c.close_price); });
+        const ratios = [];
+        candlesA.forEach(c => {
+          const date = c.candle_time?.toISOString?.().substring(0,10) || String(c.candle_time).substring(0,10);
+          const a = parseFloat(c.close_price);
+          const b = mapB[date];
+          if(a && b && b > 0) ratios.push(a/b);
+        });
+        if(ratios.length < 5) continue;
+        const mean = ratios.reduce((s,v)=>s+v,0)/ratios.length;
+        const std = Math.sqrt(ratios.reduce((s,v)=>s+Math.pow(v-mean,2),0)/ratios.length);
+        const current = ratios[ratios.length-1];
+        zscores[pt.pair_id] = std > 0 ? (current-mean)/std : 0;
+      } catch(e) { /* skip this pair */ }
+    }
+    return res.status(200).json({ success: true, zscores });
+  } catch(e) {
+    return res.status(500).json({ error: e.message, zscores: {} });
   }
 }
