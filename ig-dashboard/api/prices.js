@@ -227,7 +227,7 @@ module.exports = async (req, res) => {
   }
 
   // POST — collect latest prices from IG and store
-  const igBase = IG_BASES[process.env.IG_ENV || 'demo'];
+  const igBase = IG_BASES[process.env.IG_ENV || 'live'];
   const log = [];
   const addLog = msg => { console.log('[PriceCollector]', msg); log.push(msg); };
 
@@ -239,7 +239,7 @@ module.exports = async (req, res) => {
     const authRes = await fetch(`${igBase}/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-IG-API-KEY': process.env.IG_API_KEY || '', 'Version': '2' },
-      body: JSON.stringify({ identifier: process.env.IG_USERNAME, password: process.env.IG_PASSWORD })
+      body: JSON.stringify({ identifier: process.env.IG_USER || process.env.IG_USERNAME, password: process.env.IG_PASS || process.env.IG_PASSWORD })
     });
     if (!authRes.ok) return res.status(500).json({ error: 'IG auth failed', log });
     cst = authRes.headers.get('CST');
