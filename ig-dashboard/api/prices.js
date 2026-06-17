@@ -282,234 +282,137 @@ module.exports = async (req, res) => {
   // (IG candles use different units/scale vs Yahoo, causing Z-score corruption)
   const YAHOO_ONLY_INSTRUMENTS = new Set(['Silver', 'Gold', 'Copper', 'Brent Oil', 'WTI Oil']);
 
-  // Fetch and store prices for each instrument
-  const results = [];
-  let totalStored = 0;
+  // Run IG collection, Yahoo volume and Yahoo daily refresh in parallel
+  // Sequential loops exceeded Vercel's 30s timeout — parallelise all three
 
-  for (const [name, epic] of Object.entries(INSTRUMENTS)) {
+  // ── 1. IG CANDLE COLLECTION ──────────────────────────────────────────────
+  const igCollect = async (name, epic) => {
     try {
-      if(YAHOO_ONLY_INSTRUMENTS.has(name)) {
-        addLog(`${name}: skipped — using Yahoo as source of truth`);
-        results.push({ name, status: 'skipped', reason: 'yahoo_only' });
-        continue;
-      }
-      // Skip if we already have today's candle — avoids burning IG allowance
-      // Unless force=true is passed in the request body
+      if(YAHOO_ONLY_INSTRUMENTS.has(name)) return { name, status:'skipped', reason:'yahoo_only' };
       const forceRefresh = (req.body && req.body.force) || req.query.force === 'true';
       if (!forceRefresh) {
         const today = new Date().toISOString().split('T')[0];
-        const existsRes = await sql`
-          SELECT 1 FROM price_history
-          WHERE epic = ${epic} AND resolution = 'DAY'
-          AND DATE(candle_time) = ${today}
-          LIMIT 1
-        `;
-        if (existsRes.rows.length > 0) {
-          log.push(name + ': today candle already stored — skip');
-          continue;
-        }
+        const existsRes = await sql`SELECT 1 FROM price_history
+          WHERE epic=${epic} AND resolution='DAY' AND DATE(candle_time)=${today} LIMIT 1`;
+        if (existsRes.rows.length > 0) return { name, status:'skipped', reason:'today_exists' };
       }
-      // Fetch last 10 daily candles (conservative to preserve allowance)
-      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=10&pageSize=0`, {
-        headers: { ...igHeaders, 'Version': '3' }
-      });
-
-      if (!priceRes.ok) {
-        addLog(`${name}: price fetch failed (${priceRes.status})`);
-        results.push({ name, status: 'failed', statusCode: priceRes.status });
-        continue;
-      }
-
+      const priceRes = await fetch(`${igBase}/prices/${epic}?resolution=DAY&max=10&pageSize=0`,
+        { headers:{...igHeaders,'Version':'3'} });
+      if (!priceRes.ok) return { name, status:'failed', statusCode:priceRes.status };
       const priceData = await priceRes.json();
       const candles = priceData.prices || [];
-
-      if (!candles.length) {
-        addLog(`${name}: no candles returned`);
-        continue;
-      }
-
-      // Store each candle in DB
+      if (!candles.length) return { name, status:'no_candles' };
       let stored = 0;
-
       for (const candle of candles) {
+        const closePrice = candle.closePrice?.bid || candle.closePrice?.mid || 0;
+        if (!closePrice) continue;
+        const rawTime = candle.snapshotTime;
+        let parsedTime = null;
+        if (rawTime) {
+          if (/^\d{4}\/\d{2}\/\d{2}/.test(rawTime))
+            parsedTime = rawTime.replace('/', '-').replace('/', '-').replace(' ', 'T');
+          else if (/^\d{2}[\/-]\d{2}[\/-]\d{4}/.test(rawTime)) {
+            const m = rawTime.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
+            if (m) parsedTime = m[3]+'-'+m[2]+'-'+m[1]+'T00:00:00';
+          }
+        }
+        if (!parsedTime) continue;
         try {
-          const closePrice = candle.closePrice?.bid || candle.closePrice?.mid || 0;
-          if (!closePrice) continue;
-
-          // Parse IG date formats: "2026/05/05 00:00:00" or "05-05-2026T00:00:00"
-          const rawTime = candle.snapshotTime;
-          let parsedTime = null;
-          if (rawTime) {
-            // Format 1: YYYY/MM/DD HH:MM:SS
-            if (/^\d{4}\/\d{2}\/\d{2}/.test(rawTime)) {
-              parsedTime = rawTime.replace('/', '-').replace('/', '-').replace(' ', 'T');
-            }
-            // Format 2: DD-MM-YYYY or DD/MM/YYYY
-            else if (/^\d{2}[\/-]\d{2}[\/-]\d{4}/.test(rawTime)) {
-              const m = rawTime.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})/);
-              if (m) parsedTime = m[3] + '-' + m[2] + '-' + m[1] + 'T00:00:00';
-            }
-          }
-          if (!parsedTime) continue;
-
-          await sql`
-            INSERT INTO price_history (epic, instrument, resolution, candle_time, open_price, high_price, low_price, close_price)
-            VALUES (
-              ${epic}, ${name}, 'DAY', ${parsedTime},
-              ${candle.openPrice?.bid || 0},
-              ${candle.highPrice?.bid || 0},
-              ${candle.lowPrice?.bid || 0},
-              ${closePrice}
-            )
-            ON CONFLICT (epic, resolution, candle_time) DO UPDATE SET
-              close_price = EXCLUDED.close_price,
-              high_price = EXCLUDED.high_price,
-              low_price = EXCLUDED.low_price
-          `;
+          await sql`INSERT INTO price_history (epic,instrument,resolution,candle_time,open_price,high_price,low_price,close_price)
+            VALUES (${epic},${name},'DAY',${parsedTime},${candle.openPrice?.bid||0},${candle.highPrice?.bid||0},${candle.lowPrice?.bid||0},${closePrice})
+            ON CONFLICT (epic,resolution,candle_time) DO UPDATE SET close_price=EXCLUDED.close_price,high_price=EXCLUDED.high_price,low_price=EXCLUDED.low_price`;
           stored++;
-        } catch(e) {
-          if (!e.message.includes('unique')) {
-            addLog(`${name}: candle insert error — ${e.message}`);
-          }
-        }
+        } catch(e) { if(!e.message.includes('unique')) addLog(`${name}: insert error — ${e.message}`); }
       }
-
       totalStored += stored;
-      addLog(`${name}: ${stored} candles stored (${candles.length} fetched)`);
-      results.push({ name, epic, candles: candles.length, stored, status: 'ok' });
+      addLog(`${name}: ${stored} candles stored`);
+      return { name, epic, stored, status:'ok' };
+    } catch(e) { addLog(`${name}: error — ${e.message}`); return { name, status:'error', error:e.message }; }
+  };
 
-      // Also store current snapshot price (doesn't count against allowance)
-      try {
-        const snapRes = await fetch(`${igBase}/markets/${epic}`, {
-          headers: { ...igHeaders, 'Version': '3' }
-        });
-        if (snapRes.ok) {
-          const snapData = await snapRes.json();
-          const bid = snapData.snapshot?.bid;
-          if (bid) {
-            const now = new Date().toISOString();
-            await sql`
-              INSERT INTO price_history (epic, instrument, resolution, candle_time, open_price, high_price, low_price, close_price)
-              VALUES (${epic}, ${name}, 'SNAPSHOT', ${now}, ${bid}, ${bid}, ${bid}, ${bid})
-              ON CONFLICT (epic, resolution, candle_time) DO NOTHING
-            `;
-          }
-        }
-      } catch(e) { /* Snapshot storage is best-effort */ }
+  // ── 2. YAHOO VOLUME SUPPLEMENT ───────────────────────────────────────────
+  const yahooVolume = async ({name, ticker}) => {
+    try {
+      const yr = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=5d`,
+        {headers:{'User-Agent':'Mozilla/5.0'}});
+      if(!yr.ok) return 0;
+      const yd = await yr.json();
+      const chart = yd.chart?.result?.[0];
+      if(!chart) return 0;
+      const timestamps = chart.timestamp||[];
+      const volumes = chart.indicators?.quote?.[0]?.volume||[];
+      let updated = 0;
+      for(let i=Math.max(0,timestamps.length-2);i<timestamps.length;i++) {
+        const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10);
+        const vol = volumes[i];
+        if(!vol||vol<=0) continue;
+        await sql`UPDATE price_history SET volume=${String(vol)}
+          WHERE instrument=${name} AND resolution='DAY'
+          AND candle_time::date=${dt}::date AND (volume IS NULL OR volume=0)`;
+        updated++;
+      }
+      return updated;
+    } catch(e) { return 0; }
+  };
 
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 300));
+  // ── 3. YAHOO DAILY CANDLE REFRESH ────────────────────────────────────────
+  const yahooRefresh = async ({instrument, symbol}) => {
+    try {
+      const yr = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`,
+        {headers:{'User-Agent':'Mozilla/5.0'}});
+      if(!yr.ok) return 0;
+      const yd = await yr.json();
+      const chart = yd.chart?.result?.[0];
+      if(!chart) return 0;
+      const timestamps = chart.timestamp||[];
+      const closes = chart.indicators?.quote?.[0]?.close||[];
+      const yahooEpic = `YAHOO:${symbol}`;
+      let inserted = 0;
+      for(let i=0;i<timestamps.length;i++) {
+        const close = closes[i];
+        if(!close||close<=0) continue;
+        const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10)+'T00:00:00Z';
+        try {
+          await sql`INSERT INTO price_history (epic,instrument,resolution,candle_time,close_price)
+            VALUES (${yahooEpic},${instrument},'DAY',${dt},${close})
+            ON CONFLICT (epic,resolution,candle_time) DO UPDATE SET close_price=EXCLUDED.close_price`;
+          inserted++;
+        } catch(e) { /* skip */ }
+      }
+      return inserted;
+    } catch(e) { return 0; }
+  };
 
-    } catch(e) {
-      addLog(`${name}: error — ${e.message}`);
-      results.push({ name, status: 'error', error: e.message });
-    }
-  }
-
-  addLog(`Collection complete. Total candles stored: ${totalStored}`);
-
-  // ── SUPPLEMENT DAILY VOLUME FROM YAHOO FINANCE ───────────────────────────
-  // IG API doesn't provide volume — fetch yesterday's volume from Yahoo
   const YAHOO_VOLUME_MAP = [
-    { name:'FTSE 100',  ticker:'%5EFTSE' },
-    { name:'S&P 500',   ticker:'%5EGSPC' },
-    { name:'DAX 40',    ticker:'%5EGDAXI' },
-    { name:'Nasdaq',    ticker:'%5EIXIC' },
-    { name:'Gold',      ticker:'GC%3DF' },
-    { name:'Brent Oil', ticker:'BZ%3DF' },
-    { name:'GBP/USD',   ticker:'GBPUSD%3DX' },
-    { name:'EUR/USD',   ticker:'EURUSD%3DX' },
-    { name:'EUR/GBP',   ticker:'EURGBP%3DX' },
-    { name:'USD/JPY',   ticker:'USDJPY%3DX' },
+    {name:'FTSE 100',ticker:'%5EFTSE'},{name:'S&P 500',ticker:'%5EGSPC'},
+    {name:'DAX 40',ticker:'%5EGDAXI'},{name:'Nasdaq',ticker:'%5EIXIC'},
+    {name:'Gold',ticker:'GC%3DF'},{name:'Brent Oil',ticker:'BZ%3DF'},
+    {name:'GBP/USD',ticker:'GBPUSD%3DX'},{name:'EUR/USD',ticker:'EURUSD%3DX'},
+    {name:'EUR/GBP',ticker:'EURGBP%3DX'},{name:'USD/JPY',ticker:'USDJPY%3DX'},
   ];
 
-  let volUpdated = 0;
-  try {
-    for(const instr of YAHOO_VOLUME_MAP) {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${instr.ticker}?interval=1d&range=5d`;
-        const yr = await fetch(url, { headers:{'User-Agent':'Mozilla/5.0'} });
-        if(!yr.ok) continue;
-        const yd = await yr.json();
-        const chart = yd.chart?.result?.[0];
-        if(!chart) continue;
-
-        const timestamps = chart.timestamp || [];
-        const volumes = chart.indicators?.quote?.[0]?.volume || [];
-
-        // Update volume for the last 2 days in price_history
-        for(let i = Math.max(0, timestamps.length-2); i < timestamps.length; i++) {
-          const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10);
-          const vol = volumes[i];
-          if(!vol || vol <= 0) continue;
-          await sql`
-            UPDATE price_history SET volume=${String(vol)}
-            WHERE instrument=${instr.name} AND resolution='DAY'
-            AND candle_time::date = ${dt}::date AND (volume IS NULL OR volume = 0)`;
-          volUpdated++;
-        }
-        await new Promise(r => setTimeout(r, 200));
-      } catch(e) { /* skip instrument on error */ }
-    }
-    addLog(`Volume supplement: updated ${volUpdated} daily candles from Yahoo`);
-  } catch(e) {
-    addLog(`Volume supplement error: ${e.message}`);
-  }
-
-  // ── DAILY YAHOO CANDLE REFRESH ────────────────────────────────────────────
-  // Refresh last 10 days of candles for instruments not covered by IG API
-  // These are stored via backfill but need daily updates to stay current
   const YAHOO_DAILY_REFRESH = [
-    { instrument:'Silver',               symbol:'SI=F' },
-    { instrument:'Copper',               symbol:'HG=F' },
-    { instrument:'Gold',                 symbol:'GC=F' },
-    { instrument:'Brent Oil',            symbol:'BZ=F' },
-    { instrument:'WTI Oil',              symbol:'CL=F' },
-    { instrument:'Tokyo First Section',  symbol:'^N300' },
-    { instrument:'Australia 200',        symbol:'^AXJO' },
-    { instrument:'Russell 2000',         symbol:'^RUT' },
-    { instrument:'Japan 225',            symbol:'^N225' },
-    { instrument:'USD/CAD',              symbol:'USDCAD=X' },
-    { instrument:'Natural Gas',          symbol:'NG=F' },
-    { instrument:'Platinum',             symbol:'PL=F' },
+    {instrument:'Silver',symbol:'SI=F'},{instrument:'Copper',symbol:'HG=F'},
+    {instrument:'Gold',symbol:'GC=F'},{instrument:'Brent Oil',symbol:'BZ=F'},
+    {instrument:'WTI Oil',symbol:'CL=F'},{instrument:'Tokyo First Section',symbol:'^N300'},
+    {instrument:'Australia 200',symbol:'^AXJO'},{instrument:'Russell 2000',symbol:'^RUT'},
+    {instrument:'Japan 225',symbol:'^N225'},{instrument:'USD/CAD',symbol:'USDCAD=X'},
+    {instrument:'Natural Gas',symbol:'NG=F'},{instrument:'Platinum',symbol:'PL=F'},
   ];
 
-  let yahooRefreshed = 0;
-  try {
-    for(const inst of YAHOO_DAILY_REFRESH) {
-      try {
-        const range = '1mo';
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(inst.symbol)}?interval=1d&range=${range}`;
-        const yr = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if(!yr.ok) continue;
-        const yd = await yr.json();
-        const chart = yd.chart?.result?.[0];
-        if(!chart) continue;
-        const timestamps = chart.timestamp || [];
-        const quote = chart.indicators?.quote?.[0] || {};
-        const closes = quote.close || [];
-        const yahooEpic = `YAHOO:${inst.symbol}`;
-        let inserted = 0;
-        for(let i = 0; i < timestamps.length; i++) {
-          const close = closes[i];
-          if(!close || close <= 0) continue;
-          const dt = new Date(timestamps[i]*1000).toISOString().substring(0,10) + 'T00:00:00Z';
-          try {
-            await sql`INSERT INTO price_history (epic, instrument, resolution, candle_time, close_price)
-              VALUES (${yahooEpic}, ${inst.instrument}, 'DAY', ${dt}, ${close})
-              ON CONFLICT (epic, resolution, candle_time) DO UPDATE SET close_price = EXCLUDED.close_price`;
-            inserted++;
-          } catch(e) { /* skip */ }
-        }
-        yahooRefreshed += inserted;
-        await new Promise(r => setTimeout(r, 300));
-      } catch(e) { /* skip instrument */ }
-    }
-    addLog(`Yahoo daily refresh: updated ${yahooRefreshed} candles for ${YAHOO_DAILY_REFRESH.length} instruments`);
-  } catch(e) {
-    addLog(`Yahoo daily refresh error: ${e.message}`);
-  }
+  // Run all three in parallel
+  const [igResults, volResults, yahooResults] = await Promise.all([
+    Promise.all(Object.entries(INSTRUMENTS).map(([name, epic]) => igCollect(name, epic))),
+    Promise.all(YAHOO_VOLUME_MAP.map(yahooVolume)),
+    Promise.all(YAHOO_DAILY_REFRESH.map(yahooRefresh)),
+  ]);
 
+  results.push(...igResults.filter(Boolean));
+  const volUpdated = volResults.reduce((a,b)=>a+b, 0);
+  const yahooRefreshed = yahooResults.reduce((a,b)=>a+b, 0);
+  addLog(`Volume supplement: updated ${volUpdated} candles`);
+  addLog(`Yahoo daily refresh: updated ${yahooRefreshed} candles for ${YAHOO_DAILY_REFRESH.length} instruments`);
+  addLog(`Collection complete. Total IG candles stored: ${totalStored}`);
   return res.status(200).json({
     success: true,
     totalStored,
