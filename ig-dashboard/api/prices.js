@@ -282,6 +282,9 @@ module.exports = async (req, res) => {
   // (IG candles use different units/scale vs Yahoo, causing Z-score corruption)
   const YAHOO_ONLY_INSTRUMENTS = new Set(['Silver', 'Gold', 'Copper', 'Brent Oil', 'WTI Oil']);
 
+  const results = [];
+  let totalStored = 0;
+
   // Run IG collection, Yahoo volume and Yahoo daily refresh in parallel
   // Sequential loops exceeded Vercel's 30s timeout — parallelise all three
 
@@ -326,7 +329,7 @@ module.exports = async (req, res) => {
       }
       totalStored += stored;
       addLog(`${name}: ${stored} candles stored`);
-      return { name, epic, stored, status:'ok' };
+      return { name, epic, stored, status:'ok', _stored: stored };
     } catch(e) { addLog(`${name}: error — ${e.message}`); return { name, status:'error', error:e.message }; }
   };
 
@@ -408,6 +411,7 @@ module.exports = async (req, res) => {
   ]);
 
   results.push(...igResults.filter(Boolean));
+  totalStored = igResults.filter(Boolean).reduce((a, r) => a + (r._stored || 0), 0);
   const volUpdated = volResults.reduce((a,b)=>a+b, 0);
   const yahooRefreshed = yahooResults.reduce((a,b)=>a+b, 0);
   addLog(`Volume supplement: updated ${volUpdated} candles`);
