@@ -109,16 +109,19 @@ module.exports = async (req, res) => {
 
       // Engine pause/resume controls
       if (action === 'pause_engine') {
+        await sql`CREATE TABLE IF NOT EXISTS engine_config (key VARCHAR(50) PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())`.catch(()=>{});
         await sql`INSERT INTO engine_config (key, value) VALUES ('paused', 'true')
           ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()`;
         return res.status(200).json({ success: true, paused: true });
       }
       if (action === 'resume_engine') {
+        await sql`CREATE TABLE IF NOT EXISTS engine_config (key VARCHAR(50) PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())`.catch(()=>{});
         await sql`INSERT INTO engine_config (key, value) VALUES ('paused', 'false')
           ON CONFLICT (key) DO UPDATE SET value = 'false', updated_at = NOW()`;
         return res.status(200).json({ success: true, paused: false });
       }
       if (action === 'engine_status') {
+        await sql`CREATE TABLE IF NOT EXISTS engine_config (key VARCHAR(50) PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())`.catch(()=>{});
         const row = await sql`SELECT value, updated_at FROM engine_config WHERE key = 'paused' LIMIT 1`.catch(()=>({rows:[]}));
         const paused = row.rows?.[0]?.value === 'true';
         const updatedAt = row.rows?.[0]?.updated_at;
@@ -796,13 +799,17 @@ module.exports = async (req, res) => {
 };
 
 async function initTables() {
-  // Core trades table with v4 columns
+  // engine_config table — must be separate query (Vercel Postgres doesn't support multi-statement)
   await sql`
     CREATE TABLE IF NOT EXISTS engine_config (
       key VARCHAR(50) PRIMARY KEY,
       value TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
+    )
+  `.catch(()=>{});
+
+  // Core trades table
+  await sql`
     CREATE TABLE IF NOT EXISTS trades (
       id SERIAL PRIMARY KEY,
       deal_id VARCHAR(50) UNIQUE,
@@ -831,10 +838,9 @@ async function initTables() {
       ai_was_correct BOOLEAN,
       holding_minutes INTEGER,
       partial_close BOOLEAN DEFAULT false,
-      trade_type VARCHAR(20) DEFAULT 'hourly_mr',
-      close_reason VARCHAR(30)
+      trade_type VARCHAR(20) DEFAULT 'hourly_mr'
     )
-  `;
+  `.catch(()=>{});
 
   // Pending entries table (pullback entry timing)
   await sql`
