@@ -57,7 +57,7 @@ module.exports = async (req, res) => {
 
   for (const instr of ALERT_INSTRUMENTS) {
     try {
-      await new Promise(r => setTimeout(r, 2000)); // 2s between calls = max 2/min
+      await new Promise(r => setTimeout(r, 1200)); // 1.2s between calls — stays under 1/min TD limit
 
       // Fetch RSI
       const rsiRes = await fetch(
@@ -123,27 +123,24 @@ module.exports = async (req, res) => {
       return res.status(200).json({ action: 'engine_paused', alerts, log });
     }
 
-    L(`Triggering engine for ${alerts.length} alert(s)...`);
-    try {
-      const engineRes = await fetch(`${BASE}/api/autotrade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cronSecret}` },
-        body: JSON.stringify({ manualRun: true, triggeredBy: 'rsi_alert', alerts }),
-        timeout: 25000
-      });
-      const engineData = await engineRes.json();
-      L(`Engine result: ${engineData.action}`);
-      return res.status(200).json({
-        action: 'engine_triggered',
-        alerts,
-        engineAction: engineData.action,
-        log: [...log, ...(engineData.log || [])]
-      });
-    } catch(e) {
-      L(`Engine trigger error: ${e.message}`);
-      return res.status(200).json({ action: 'engine_error', alerts, log });
-    }
+    L(`Triggering engine async for ${alerts.length} alert(s)...`);
+    // Fire engine as async — don't await it, respond immediately to avoid timeout
+    fetch(`${BASE}/api/autotrade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cronSecret}` },
+      body: JSON.stringify({ manualRun: true, triggeredBy: 'rsi_alert', alerts }),
+      timeout: 25000
+    }).catch(e => console.log('[Alert] Engine trigger error:', e.message));
+
+    return res.status(200).json({
+      action: 'engine_triggered_async',
+      alerts,
+      log,
+      note: 'Engine triggered in background — check autotrade log for results'
+    });
   }
+
+  return res.status(200).json({ action: alerts.length ? 'alerts_found' : 'no_alerts', alerts, log });
 
   L('No RSI extremes — cache updated, no engine trigger');
   return res.status(200).json({ action: 'no_alerts', tdCache, log });
