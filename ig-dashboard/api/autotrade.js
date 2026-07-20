@@ -1321,6 +1321,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       let trendPullback=null;
       let breakoutSignal=null;
       let dir='BUY'; // default, overridden by scoring
+      let tradeType='daily_mr'; // default, overridden by signal type
 
       if(closes&&closes.length>=5){
         L(`${instr}: ${closes.length} candles from ${src}`);
@@ -1617,34 +1618,43 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     L(`${sig.instr}: size £${sz}/pt (risk £${riskAmt.toFixed(2)} / ${stopPts.toFixed(0)}pt stop)`);
 
     // Margin check — verify account has sufficient funds before placing
+    const KNOWN_MARGIN_RATES = {
+      'CS.D.USCSI.TODAY.IP': 0.10,  // Silver 10%
+      'CS.D.USCGC.TODAY.IP': 0.05,  // Gold 5%
+      'CS.D.COPPER.TODAY.IP': 0.05, // Copper 5%
+      'CC.D.LCO.USS.IP': 0.05,      // Brent Oil 5%
+      'IX.D.NIKKEI.DAILY.IP': 0.10, // Japan 225 10%
+      'IX.D.TPXC.DAILY.IP': 0.10,   // TOPIX 10%
+    };
     try {
       const mktRes=await fetch(`${igBase}/markets/${sig.epic}`,{headers:{...igH,'Version':'3'}});
+      const currentPrice=sig.lastClose||10000;
+      const notional=currentPrice*sz;
+      let marginPct = KNOWN_MARGIN_RATES[sig.epic] || 0.005; // default 0.5%
+      let minSize = 0.01;
       if(mktRes.ok){
         const mktData=await mktRes.json();
-        // Get margin % from marginDepositBands for our position size
         const bands=mktData.instrument?.marginDepositBands||[];
-        const currentPrice=sig.lastClose||10000;
-        const notional=currentPrice*sz;
-        const band=bands.find(b=>notional>=b.min&&(b.max===null||notional<b.max))||bands[0]||{margin:5};
-        const marginPct=band.margin/100;
-        const requiredMargin=notional*marginPct;
-        const minNotional=currentPrice*0.01; // Min 0.01 units
-        const minMargin=minNotional*marginPct;
-        L(`${sig.instr}: notional £${notional.toFixed(0)}, margin ${band.margin}%, need £${requiredMargin.toFixed(0)}, have £${available.toFixed(0)}`);
-        if(requiredMargin>available*0.85){
-          // Calculate max affordable size
-          const maxAffordable=Math.floor((available*0.85)/(currentPrice*marginPct)*100)/100;
-          const minSize=mktData.dealingRules?.minDealSize?.value||0.01;
-          if(maxAffordable>=minSize){
-            L(`${sig.instr}: reducing size to ${maxAffordable} units (max affordable)`);
-            sig.suggestedSize=maxAffordable;
-          }else{
-            L(`${sig.instr}: cannot afford minimum size (need £${minMargin.toFixed(0)}) — skip`);
-            continue;
-          }
+        const band=bands.find(b=>notional>=b.min&&(b.max===null||notional<b.max))||bands[0];
+        if(band) marginPct=band.margin/100;
+        minSize=mktData.dealingRules?.minDealSize?.value||0.01;
+      } else {
+        L(`${sig.instr}: IG markets endpoint blocked (${mktRes.status}) — using known margin rate ${(marginPct*100).toFixed(0)}%`);
+      }
+      const requiredMargin=notional*marginPct;
+      const minMargin=(currentPrice*minSize)*marginPct;
+      L(`${sig.instr}: notional £${notional.toFixed(0)}, margin ${(marginPct*100).toFixed(0)}%, need £${requiredMargin.toFixed(0)}, have £${available.toFixed(0)}`);
+      if(requiredMargin>available*0.85){
+        const maxAffordable=Math.floor((available*0.85)/(currentPrice*marginPct)*100)/100;
+        if(maxAffordable>=minSize){
+          L(`${sig.instr}: reducing size to ${maxAffordable} units (max affordable)`);
+          sig.suggestedSize=maxAffordable;
         }else{
-          L(`${sig.instr}: margin OK ✅`);
+          L(`${sig.instr}: cannot afford minimum size (need £${minMargin.toFixed(0)}) — skip`);
+          continue;
         }
+      }else{
+        L(`${sig.instr}: margin OK ✅`);
       }
     }catch(e){L('Margin check error: '+e.message);}
 
@@ -2015,6 +2025,7 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
         // Calculate current combined UPL from both legs
         let currentUpl = 0;
         let uplCalcOk = false;
+        let legsFound = 0;
         try {
           const posR = await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
           const posD = await posR.json();
@@ -2024,11 +2035,24 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
               const dir = pos.position.direction;
               const sz = pos.position.size || pos.position.dealSize;
               const openLvl = pos.position.openLevel;
-              const curLvl = pos.market.bid || openLvl;
-              currentUpl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+              // Use bid if available, else offer, else last known price
+              const curLvl = pos.market.bid || pos.market.offer || pos.market.price || openLvl;
+              // Only count if market is open OR we have a valid price different from open
+              const marketOpen = pos.market.marketStatus === 'TRADEABLE' || pos.market.marketStatus === 'OTCT';
+              if(marketOpen || curLvl !== openLvl) {
+                currentUpl += dir==='BUY' ? (curLvl-openLvl)*sz : (openLvl-curLvl)*sz;
+                legsFound++;
+              } else {
+                // Market closed — use stored open level as proxy (conservative: assume no P&L on this leg)
+                // This means trail is based on whatever legs are open/priced
+                L(`Pairs trail: ${pos.market.instrumentName} market closed — using open level as proxy`);
+                legsFound++; // still count leg as found, just contributes 0 to UPL
+              }
               uplCalcOk = true;
             }
           }
+          // Only valid if both legs accounted for
+          if(legsFound < 2) uplCalcOk = false;
         } catch(e) { L('UPL calc error: ' + e.message); }
 
         if(uplCalcOk) {
@@ -2072,7 +2096,9 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           // Check if trail retreat triggered (engine-based for non-dominant or equal pairs)
           const newPeak = Math.max(currentUpl, peakUpl);
           const retreatThreshold = newPeak * (1 - cfg.pairsTrailRetreatPct / 100);
-          const trailTriggered = newPeak >= activationThreshold && currentUpl < retreatThreshold && currentUpl > 0;
+          // Trail triggers if: peak was above activation AND current UPL has retreated below threshold
+          // Note: removed currentUpl > 0 guard — should close even if UPL went negative after big retreat
+          const trailTriggered = newPeak >= activationThreshold && currentUpl < retreatThreshold;
 
           if(trailTriggered && !shouldClose) {
             L(`Pairs trail triggered: ${pt.pair_id} UPL £${currentUpl.toFixed(2)} retreated from peak £${newPeak.toFixed(2)} (close level £${retreatThreshold.toFixed(2)})`);
@@ -2363,16 +2389,23 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
 
           if(usingYahooLive) {
             // Yahoo prices in commodity units — use IG minimum stops directly
-            // minStopA/B already set to IG-appropriate values above
-            stopPtsA = Math.round(minStopA * 2.0); // 2× minimum for reasonable stop
+            stopPtsA = Math.round(minStopA * 2.0);
             stopPtsB = Math.round(minStopB * 2.0);
           } else {
-            // IG prices — derive stop from Z-score std × price scale
-            const scaleA = CONTRACT_PRICE_SCALE[pair.epicA] || 1.0;
-            const scaleB = CONTRACT_PRICE_SCALE[pair.epicB] || 1.0;
+            // IG prices — DB stores in IG pence units already
+            // For FX pairs: ratio std is in ratio units (e.g. 0.005 for GBPUSD/EURUSD)
+            // Stop in IG pts = zStopDist × std × priceB (no scale — both already in IG units)
+            // CONTRACT_PRICE_SCALE only applies for Yahoo→IG conversion, not here
             const rawStd = pzStats?.std || 0.01;
-            stopPtsA = Math.max(minStopA*1.5, Math.round(zStopDist * rawStd * scaleA * (priceB * scaleB)));
-            stopPtsB = Math.max(minStopB*1.5, Math.round(zStopDist * rawStd * scaleB * (priceA * scaleA)));
+            const rawStopA = Math.round(zStopDist * rawStd * priceB);
+            const rawStopB = Math.round(zStopDist * rawStd * priceA);
+            stopPtsA = Math.max(minStopA * 1.5, rawStopA > 0 ? rawStopA : minStopA * 3);
+            stopPtsB = Math.max(minStopB * 1.5, rawStopB > 0 ? rawStopB : minStopB * 3);
+            // Sanity cap — stop should never exceed 5% of price
+            const maxStopA = Math.round(priceA * 0.05);
+            const maxStopB = Math.round(priceB * 0.05);
+            if(stopPtsA > maxStopA) { L(`Pairs: ${pair.instrA} stop capped ${stopPtsA}→${maxStopA}pts (5% of price)`); stopPtsA = maxStopA; }
+            if(stopPtsB > maxStopB) { L(`Pairs: ${pair.instrB} stop capped ${stopPtsB}→${maxStopB}pts (5% of price)`); stopPtsB = maxStopB; }
           }
 
           const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
