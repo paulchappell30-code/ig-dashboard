@@ -1071,8 +1071,50 @@ async function loadPairsOverview() {
         ? Math.max(0, Math.min(150, (totalUPL / estTarget) * 100))
         : null;
 
-      const daysOpen = pt.opened_at ? Math.round((Date.now() - new Date(pt.opened_at)) / 86400000) : 0;
-      const uplColor = !hasLiveUPL ? 'var(--text2)' : totalUPL >= 0 ? 'var(--green)' : 'var(--red)';
+      // ── FINANCING COST CALCULATION ──────────────────────────────────────────
+      // IG charges daily financing on DFB positions:
+      // Admin fee: ~£0.02-0.04/day per leg (fixed)
+      // Financing: (position notional × SONIA rate) / 365
+      // For BUY positions: pay financing. For SELL: receive (usually smaller)
+      // Approximate IG rates based on observed history:
+      // Gold BUY £0.12/pt: ~£0.08/day (admin £0.02 + financing £0.06)
+      // Copper SELL £0.04/pt: ~-£0.02/day (receive small amount net of admin)
+      // Per-leg daily cost approximation (pence per pt per day at current rates ~5.25%)
+      const DAILY_FINANCING = {
+        // [adminFee, financingRate] — admin is fixed, financing scales with size×price
+        'Gold':      { adminPerDay: 0.02, rateAnnual: 0.0525, igPriceApprox: 40000 },
+        'Silver':    { adminPerDay: 0.02, rateAnnual: 0.0525, igPriceApprox: 5700  },
+        'Copper':    { adminPerDay: 0.02, rateAnnual: 0.0525, igPriceApprox: 13500 },
+        'Brent Oil': { adminPerDay: 0.02, rateAnnual: 0.0525, igPriceApprox: 9000  },
+        'GBP/USD':   { adminPerDay: 0.01, rateAnnual: 0.0525, igPriceApprox: 13400 },
+        'EUR/USD':   { adminPerDay: 0.01, rateAnnual: 0.0525, igPriceApprox: 11500 },
+        'S&P 500':   { adminPerDay: 0.01, rateAnnual: 0.0000, igPriceApprox: 7500  },
+        'Dow Jones': { adminPerDay: 0.01, rateAnnual: 0.0000, igPriceApprox: 44000 },
+        'FTSE 100':  { adminPerDay: 0.01, rateAnnual: 0.0000, igPriceApprox: 10400 },
+        'Tokyo First Section': { adminPerDay: 0.02, rateAnnual: 0.0000, igPriceApprox: 62000 },
+      };
+
+      const calcLegFinancing = (instrName, size, direction) => {
+        const f = DAILY_FINANCING[instrName];
+        if(!f || !size) return 0;
+        // Financing cost per day = size × igPrice × annualRate / 365
+        const financingPerDay = size * f.igPriceApprox * f.rateAnnual / 365;
+        // BUY positions pay financing, SELL positions receive (but admin fee always paid)
+        const netPerDay = direction === 'BUY'
+          ? -(f.adminPerDay + financingPerDay)   // pay admin + financing
+          : -(f.adminPerDay) + financingPerDay * 0.3; // pay admin, receive small rebate
+        return netPerDay; // negative = cost, positive = credit
+      };
+
+      const dailyCostA = calcLegFinancing(pt.instr_a, sizeA, pt.direction_a);
+      const dailyCostB = calcLegFinancing(pt.instr_b, sizeB, pt.direction_b);
+      const totalDailyCarry = dailyCostA + dailyCostB;
+      const totalAccruedCarry = totalDailyCarry * daysOpen;
+      const uplAfterCarry = hasLiveUPL ? totalUPL + totalAccruedCarry : null;
+      const carryColor = totalAccruedCarry < -2 ? 'var(--red)' : totalAccruedCarry < -0.5 ? 'var(--gold)' : 'var(--text2)';
+      const daysUntilCarryEatsProfit = hasLiveUPL && totalUPL > 0 && totalDailyCarry < 0
+        ? Math.round(totalUPL / Math.abs(totalDailyCarry))
+        : null;
       const progressColor = progressPct === null ? 'var(--text3)'
         : progressPct >= 75 ? 'var(--green)' : progressPct >= 40 ? 'var(--gold)' : 'var(--blue)';
       const peakUPL = parseFloat(pt.peak_upl || 0);
@@ -1091,7 +1133,7 @@ async function loadPairsOverview() {
             </div>
             <div style="text-align:right">
               <div style="font-size:20px;font-weight:800;color:${uplColor}">${hasLiveUPL?(totalUPL>=0?'+':'')+'£'+Math.abs(totalUPL).toFixed(2):'—'}</div>
-              <div style="font-size:11px;color:var(--text2)">live UPL</div>
+              <div style="font-size:11px;color:var(--text2)">live UPL${uplAfterCarry!==null&&Math.abs(totalAccruedCarry)>0.5?` · <span style="color:${uplAfterCarry>=0?'var(--green)':'var(--red)'}">${uplAfterCarry>=0?'+':''}£${uplAfterCarry.toFixed(2)} after carry</span>`:''}</div>
             </div>
           </div>
 
@@ -1122,6 +1164,22 @@ async function loadPairsOverview() {
             <div style="height:5px;background:var(--bg1);border-radius:3px;overflow:hidden">
               <div style="height:100%;width:${Math.min(100,capturePct).toFixed(0)}%;background:${capturePct>=75?'var(--green)':capturePct>=40?'var(--gold)':'var(--blue)'};border-radius:3px"></div>
             </div>`:''}
+          </div>
+
+          <!-- Financing cost -->
+          <div style="background:var(--bg1);border-radius:var(--radius);padding:8px 10px;margin-bottom:10px;font-size:11px">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+              <span style="color:var(--text2)">📅 Carry cost</span>
+              <span>Daily: <strong style="color:${totalDailyCarry<-0.05?'var(--red)':totalDailyCarry>0?'var(--green)':'var(--text2)'}">${totalDailyCarry>=0?'+':''}£${totalDailyCarry.toFixed(3)}/day</strong></span>
+              <span>Accrued (${daysOpen}d): <strong style="color:${carryColor}">${totalAccruedCarry>=0?'+':''}£${totalAccruedCarry.toFixed(2)}</strong></span>
+              ${uplAfterCarry !== null ? `<span>UPL after carry: <strong style="color:${uplAfterCarry>=0?'var(--green)':'var(--red)'}">${uplAfterCarry>=0?'+':''}£${uplAfterCarry.toFixed(2)}</strong></span>` : ''}
+              ${daysUntilCarryEatsProfit !== null ? `<span style="color:var(--gold)">⚠️ Carry eats profit in ~${daysUntilCarryEatsProfit}d</span>` : ''}
+            </div>
+            <div style="margin-top:5px;height:3px;background:var(--bg3);border-radius:2px;overflow:hidden">
+              ${hasLiveUPL && totalUPL > 0 ? `
+              <div style="height:100%;width:${Math.min(100, Math.abs(totalAccruedCarry)/totalUPL*100).toFixed(0)}%;background:${carryColor};border-radius:2px" title="Carry as % of UPL"></div>` : ''}
+            </div>
+            ${hasLiveUPL && totalUPL > 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:3px">Carry is ${(Math.abs(totalAccruedCarry)/Math.max(0.01,totalUPL)*100).toFixed(0)}% of current UPL</div>` : ''}
           </div>
 
           <!-- Stats row -->
