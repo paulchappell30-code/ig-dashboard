@@ -1626,20 +1626,31 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
       'IX.D.NIKKEI.DAILY.IP': 0.10, // Japan 225 10%
       'IX.D.TPXC.DAILY.IP': 0.10,   // TOPIX 10%
     };
+    // IG contract prices for commodity instruments (DB stores Yahoo prices in different units)
+    // Used for correct margin calculation when IG markets endpoint is blocked
+    const IG_APPROX_PRICES = {
+      'CS.D.USCSI.TODAY.IP': 5700,   // Silver ~5700 pence/oz
+      'CS.D.USCGC.TODAY.IP': 400000, // Gold ~400000 pence/oz
+      'CS.D.COPPER.TODAY.IP': 13500, // Copper ~13500 pence/lb
+      'CC.D.LCO.USS.IP': 9000,       // Brent ~9000 pence/bbl
+    };
     try {
       const mktRes=await fetch(`${igBase}/markets/${sig.epic}`,{headers:{...igH,'Version':'3'}});
-      const currentPrice=sig.lastClose||10000;
+      // Use IG price for margin calculation (not Yahoo price which is in different units)
+      const igApproxPrice = IG_APPROX_PRICES[sig.epic];
+      const currentPrice = mktRes.ok ? (sig.lastClose||10000) : (igApproxPrice || sig.lastClose || 10000);
       const notional=currentPrice*sz;
       let marginPct = KNOWN_MARGIN_RATES[sig.epic] || 0.005; // default 0.5%
       let minSize = 0.01;
       if(mktRes.ok){
         const mktData=await mktRes.json();
         const bands=mktData.instrument?.marginDepositBands||[];
-        const band=bands.find(b=>notional>=b.min&&(b.max===null||notional<b.max))||bands[0];
+        const livePrice = mktData.snapshot?.bid || currentPrice;
+        const band=bands.find(b=>(livePrice*sz)>=b.min&&(b.max===null||(livePrice*sz)<b.max))||bands[0];
         if(band) marginPct=band.margin/100;
         minSize=mktData.dealingRules?.minDealSize?.value||0.01;
       } else {
-        L(`${sig.instr}: IG markets endpoint blocked (${mktRes.status}) — using known margin rate ${(marginPct*100).toFixed(0)}%`);
+        L(`${sig.instr}: IG markets endpoint blocked (${mktRes.status}) — using known margin rate ${(marginPct*100).toFixed(0)}% at IG price ~${currentPrice}`);
       }
       const requiredMargin=notional*marginPct;
       const minMargin=(currentPrice*minSize)*marginPct;
@@ -1732,7 +1743,12 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
     const riskPct = profitLockActive ? 0.005 : Math.min(baseRiskPct * aiBoost, 0.04);
     const tradeRiskAmt = balance * riskPct;
     const riskSz = parseFloat((tradeRiskAmt / tradeStopDist).toFixed(2));
-    const finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
+    let finalSz = Math.max(0.01, Math.min(riskSz, cfg.maxSizePerTrade));
+    // Apply margin cap if set by margin check above
+    if(sig.suggestedSize && sig.suggestedSize < finalSz) {
+      L(`${sig.instr}: size capped by margin check ${finalSz}→${sig.suggestedSize}/pt`);
+      finalSz = sig.suggestedSize;
+    }
     const actualRisk = (finalSz * tradeStopDist).toFixed(2);
     L(`${sig.instr}: size £${finalSz}/pt | risk ${(riskPct*100).toFixed(1)}% = £${tradeRiskAmt.toFixed(2)} | stop ${tradeStopDist}pt | ${stopType}`);
 
