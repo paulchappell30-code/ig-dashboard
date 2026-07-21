@@ -863,7 +863,44 @@ module.exports = async (req,res) => {
         for(const pt of openPairsRows.rows) {
           const hasA = !pt.deal_id_a || openDealIdSet.has(pt.deal_id_a);
           const hasB = !pt.deal_id_b || openDealIdSet.has(pt.deal_id_b);
-          if(pt.deal_id_a && pt.deal_id_b && !hasA && hasB) {
+          if(pt.deal_id_a && pt.deal_id_b && !hasA && !hasB) {
+            // Both legs gone — manually closed on IG
+            L(`Manual close detected: ${pt.pair_id} — both legs missing from IG positions`);
+            // Fetch P&L from IG transaction history
+            let totalPnl = null;
+            try {
+              const today = new Date().toISOString().split('T')[0];
+              const weekAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
+              const txR = await fetch(
+                `${igBase}/history/transactions?type=ALL_DEAL&from=${weekAgo}&to=${today}&pageSize=20`,
+                {headers:{...igH,'Version':'2'}}
+              );
+              if(txR.ok) {
+                const txD = await txR.json();
+                const txs = txD.transactions || [];
+                let pnlA = 0, pnlB = 0;
+                // Match transactions by deal reference stored in DB
+                txs.forEach(tx => {
+                  if(tx.reference === pt.deal_id_a || tx.transactionType === 'TRADE') {
+                    const profit = parseFloat(tx.profitAndLoss?.replace(/[^0-9.-]/g,'') || 0);
+                    if(tx.reference === pt.deal_id_a) pnlA = profit;
+                    if(tx.reference === pt.deal_id_b) pnlB = profit;
+                  }
+                });
+                if(pnlA !== 0 || pnlB !== 0) {
+                  totalPnl = pnlA + pnlB;
+                  L(`Manual close P&L: leg A £${pnlA.toFixed(2)} + leg B £${pnlB.toFixed(2)} = £${totalPnl.toFixed(2)}`);
+                }
+              }
+            } catch(e) { L('P&L fetch error: ' + e.message); }
+
+            await orphSql`UPDATE pairs_trades SET status='closed', close_reason='manual',
+              profit_loss=${totalPnl}, closed_at=NOW()
+              WHERE id=${pt.id} AND status='open'`;
+            L(`✅ Pairs trade ${pt.pair_id} marked closed (manual)${totalPnl!==null?' P&L £'+totalPnl.toFixed(2):' — P&L unknown, update via journal'}`);
+            // Set cooldown so same pair isn't re-entered immediately
+            activeCooldowns.set(pt.pair_id, { reason: 'manual_close', until: Date.now() + 4*60*60*1000 });
+          } else if(pt.deal_id_a && pt.deal_id_b && !hasA && hasB) {
             // Leg A gone — close leg B
             L(`Orphaned leg detected: ${pt.pair_id} leg A missing — closing leg B`);
             const legB = openPos.find(p => p.position.dealId === pt.deal_id_b);
