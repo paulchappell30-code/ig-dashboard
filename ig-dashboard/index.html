@@ -1072,6 +1072,7 @@ async function loadPairsOverview() {
         : null;
 
       // ── FINANCING COST CALCULATION ──────────────────────────────────────────
+      const daysOpen = pt.opened_at ? Math.round((Date.now() - new Date(pt.opened_at)) / 86400000) : 0;
       // IG charges daily financing on DFB positions:
       // Admin fee: ~£0.02-0.04/day per leg (fixed)
       // Financing: (position notional × SONIA rate) / 365
@@ -1112,11 +1113,12 @@ async function loadPairsOverview() {
       const totalAccruedCarry = totalDailyCarry * daysOpen;
       const uplAfterCarry = hasLiveUPL ? totalUPL + totalAccruedCarry : null;
       const carryColor = totalAccruedCarry < -2 ? 'var(--red)' : totalAccruedCarry < -0.5 ? 'var(--gold)' : 'var(--text2)';
+      const uplColor = !hasLiveUPL ? 'var(--text2)' : totalUPL >= 0 ? 'var(--green)' : 'var(--red)';
+      const progressColor = progressPct === null ? 'var(--text3)'
+        : progressPct >= 75 ? 'var(--green)' : progressPct >= 40 ? 'var(--gold)' : 'var(--blue)';
       const daysUntilCarryEatsProfit = hasLiveUPL && totalUPL > 0 && totalDailyCarry < 0
         ? Math.round(totalUPL / Math.abs(totalDailyCarry))
         : null;
-      const progressColor = progressPct === null ? 'var(--text3)'
-        : progressPct >= 75 ? 'var(--green)' : progressPct >= 40 ? 'var(--gold)' : 'var(--blue)';
       const peakUPL = parseFloat(pt.peak_upl || 0);
       const trailActive = peakUPL >= balance * 0.02;
       const trailClose = peakUPL * 0.75;
