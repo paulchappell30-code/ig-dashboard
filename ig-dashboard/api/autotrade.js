@@ -645,46 +645,74 @@ module.exports = async (req,res) => {
   // ── MANUAL PAIRS CLOSE ───────────────────────────────────────────────────────
   if(body.manualPairsClose) {
     const log=[]; const L=msg=>{console.log('[Manual close]',msg);log.push(msg);};
-    const igBase=IG_BASES[process.env.IG_ENV||'live'];
+    const mcIgBase=IG_BASES[process.env.IG_ENV||'live'];
     try {
-      const cstR=await fetch(`${igBase.replace('/gateway/deal','')}/gateway/deal/session`,{method:'POST',
-        headers:{'Content-Type':'application/json','VERSION':'2','X-IG-API-KEY':process.env.IG_API_KEY},
-        body:JSON.stringify({identifier:process.env.IG_USER,password:process.env.IG_PASS})});
-      const cstD=await cstR.json();
+      // Authenticate fresh for this close operation
+      const cstR=await fetch(`${mcIgBase}/session`,{method:'POST',
+        headers:{'Content-Type':'application/json','Version':'2','X-IG-API-KEY':process.env.IG_API_KEY||''},
+        body:JSON.stringify({identifier:process.env.IG_USER||process.env.IG_USERNAME,
+          password:process.env.IG_PASS||process.env.IG_PASSWORD})});
+      if(!cstR.ok){L('Auth failed: '+cstR.status);return res.status(200).json({action:'error',message:'Auth failed',log});}
       const cst=cstR.headers.get('CST');const xst=cstR.headers.get('X-SECURITY-TOKEN');
-      const igH={'Content-Type':'application/json','CST':cst,'X-SECURITY-TOKEN':xst,'X-IG-API-KEY':process.env.IG_API_KEY,'Version':'1'};
+      const mcH={'Content-Type':'application/json','CST':cst,'X-SECURITY-TOKEN':xst,
+        'X-IG-API-KEY':process.env.IG_API_KEY||''};
       const {sql:pSql}=require('@vercel/postgres');
       const ptR=await pSql`SELECT * FROM pairs_trades WHERE id=${parseInt(body.manualPairsClose)} AND status='open' LIMIT 1`;
       const pt=ptR.rows[0];
       if(!pt){L('Trade not found or not open');return res.status(200).json({action:'error',message:'Trade not found',log});}
       L(`Manual close: ${pt.instr_a}/${pt.instr_b}`);
-      const posR=await fetch(`${igBase}/positions`,{headers:{...igH,'Version':'1'}});
+      // Fetch open positions to get current prices and deal info
+      const posR=await fetch(`${mcIgBase}/positions`,{headers:{...mcH,'Version':'1'}});
       const posD=await posR.json();
-      let totalPnl=0;
+      let totalPnl=0; let closedCount=0;
       for(const dealId of [pt.deal_id_a,pt.deal_id_b].filter(Boolean)){
         const pos=(posD.positions||[]).find(p=>p.position.dealId===dealId);
-        if(!pos){L(`Position ${dealId} not found on IG`);continue;}
+        if(!pos){L(`Position ${dealId} not found on IG — may already be closed`);continue;}
         const dir=pos.position.direction;
         const sz=pos.position.dealSize||pos.position.size;
         const openLvl=pos.position.openLevel;
         const curLvl=pos.market.bid||openLvl;
         const upl=dir==='BUY'?(curLvl-openLvl)*sz:(openLvl-curLvl)*sz;
         totalPnl+=upl;
-        const closeBody={dealId,direction:dir==='BUY'?'SELL':'BUY',size:sz,orderType:'MARKET',expiry:'DFB'};
-        const cR=await fetch(`${igBase}/positions/otc`,{method:'DELETE',headers:{...igH,'Version':'1'},body:JSON.stringify(closeBody)});
+        // IG closes via POST with opposite direction and forceOpen:false
+        const closeBody={
+          epic:pos.market.epic,
+          direction:dir==='BUY'?'SELL':'BUY',
+          size:sz,
+          orderType:'MARKET',
+          expiry:'DFB',
+          forceOpen:false,
+          currencyCode:'GBP',
+          dealType:'SPREADBET'
+        };
+        L(`Closing ${pos.market.instrumentName} ${dir==='BUY'?'SELL':'BUY'} ${sz}/pt at market...`);
+        const cR=await fetch(`${mcIgBase}/positions/otc`,{method:'POST',headers:{...mcH,'Version':'1'},body:JSON.stringify(closeBody)});
         const cD=await cR.json();
         if(cD.dealReference){
-          await new Promise(r=>setTimeout(r,500));
-          const cfR=await fetch(`${igBase}/confirms/${cD.dealReference}`,{headers:{...igH,'Version':'1'}});
+          await new Promise(r=>setTimeout(r,600));
+          const cfR=await fetch(`${mcIgBase}/confirms/${cD.dealReference}`,{headers:{...mcH,'Version':'1'}});
           const cfD=await cfR.json();
-          L(`Closed ${pos.market.instrumentName} ${cfD.dealStatus} at ${cfD.level} UPL £${upl.toFixed(2)}`);
+          if(cfD.dealStatus==='ACCEPTED'){
+            L(`✅ Closed ${pos.market.instrumentName} at ${cfD.level} — UPL £${upl.toFixed(2)}`);
+            closedCount++;
+          } else {
+            L(`❌ Close rejected: ${cfD.reason||cfD.dealStatus}`);
+          }
+        } else {
+          L(`❌ No deal reference returned — ${JSON.stringify(cD).substring(0,100)}`);
         }
+        await new Promise(r=>setTimeout(r,300));
       }
-      await pSql`UPDATE pairs_trades SET status='closed',close_reason='manual',
-        profit_loss=${parseFloat(totalPnl.toFixed(2))},closed_at=NOW()
-        WHERE id=${parseInt(body.manualPairsClose)}`;
-      L(`✅ Manual close complete — P&L £${totalPnl.toFixed(2)}`);
-      return res.status(200).json({action:'manual_pairs_close',pnl:totalPnl,log});
+      // Update DB
+      if(closedCount > 0) {
+        await pSql`UPDATE pairs_trades SET status='closed',close_reason='manual',
+          profit_loss=${parseFloat(totalPnl.toFixed(2))},closed_at=NOW()
+          WHERE id=${parseInt(body.manualPairsClose)}`;
+        L(`✅ DB updated — manual close complete. P&L £${totalPnl.toFixed(2)}`);
+      } else {
+        L('⚠️ No legs closed on IG — DB not updated');
+      }
+      return res.status(200).json({action:'manual_pairs_close',pnl:totalPnl,closedCount,log});
     } catch(e){
       return res.status(200).json({action:'error',message:e.message,log:[e.message]});
     }
@@ -2475,6 +2503,62 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           if(finalSizeB < sizeB) L(`Pairs: ${pair.instrB} size capped ${sizeB}→${finalSizeB}/pt (margin factor ${(pair.marginFactorB*100).toFixed(0)}%)`);
 
           L(`Pairs sizing: ${pair.instrA} £${finalSizeA}/pt stop ${stopPtsA}pts | ${pair.instrB} £${finalSizeB}/pt stop ${stopPtsB}pts`);
+
+          // ── LIVE Z-SCORE SANITY CHECK ──────────────────────────────────────
+          // Re-fetch live prices and recalculate Z immediately before placing order
+          try {
+            const YAHOO_SYMBOL_MAP = {
+              'Silver':'SI=F','Copper':'HG=F','Gold':'GC=F',
+              'Brent Oil':'BZ=F','WTI Oil':'CL=F','USD/CAD':'USDCAD=X',
+              'GBP/USD':'GBPUSD=X','EUR/USD':'EURUSD=X','EUR/GBP':'EURGBP=X',
+            };
+            const symA = YAHOO_SYMBOL_MAP[pair.instrA];
+            const symB = YAHOO_SYMBOL_MAP[pair.instrB];
+            let liveA = null, liveB = null;
+
+            // Fetch Yahoo prices for commodity/FX pairs
+            if(symA && symB) {
+              const [qa, qb] = await Promise.all([
+                fetch(`${BASE}/api/prices?action=quote&symbol=${encodeURIComponent(symA)}`).catch(()=>null),
+                fetch(`${BASE}/api/prices?action=quote&symbol=${encodeURIComponent(symB)}`).catch(()=>null)
+              ]);
+              const qdA = qa ? await qa.json().catch(()=>null) : null;
+              const qdB = qb ? await qb.json().catch(()=>null) : null;
+              if(qdA?.price) liveA = qdA.price;
+              if(qdB?.price) liveB = qdB.price;
+            }
+
+            // For index pairs — use IG snapshots
+            if(!liveA && pair.epicA) {
+              try {
+                const sr = await fetch(`${igBase}/markets/${pair.epicA}`,{headers:{...igH,'Version':'1'}});
+                if(sr.ok) { const sd = await sr.json(); liveA = sd.snapshot?.bid; }
+              } catch(e) {}
+            }
+            if(!liveB && pair.epicB) {
+              try {
+                const sr = await fetch(`${igBase}/markets/${pair.epicB}`,{headers:{...igH,'Version':'1'}});
+                if(sr.ok) { const sd = await sr.json(); liveB = sd.snapshot?.bid; }
+              } catch(e) {}
+            }
+
+            if(liveA && liveB && pz.std > 0) {
+              const liveRatio = liveA / liveB;
+              const liveZ = (liveRatio - pz.mean) / pz.std;
+              const liveAbsZ = Math.abs(liveZ);
+              const stillValid = liveAbsZ >= pairEntryZ * 0.75; // 25% fade tolerance
+              L(`Pairs Z sanity: live Z=${liveZ.toFixed(2)}σ (was ${pz.zscore.toFixed(2)}σ, threshold ${(pairEntryZ*0.75).toFixed(2)}σ) ${stillValid?'✅':'❌ faded'}`);
+              if(!stillValid) {
+                L(`Pairs: ${pair.instrA}/${pair.instrB} signal faded — skipping (Z ${pz.zscore.toFixed(2)}→${liveZ.toFixed(2)}σ)`);
+                continue;
+              }
+              pz.zscore = liveZ; // update to live Z for accurate DB storage
+            } else {
+              L(`Pairs Z sanity: prices unavailable (A:${liveA} B:${liveB}) — using cached Z=${pz.zscore.toFixed(2)}σ`);
+            }
+          } catch(e) {
+            L(`Pairs Z sanity check error: ${e.message} — proceeding`);
+          }
 
           // Open leg A
           let dealIdA = null, dealIdB = null;
