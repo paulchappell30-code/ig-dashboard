@@ -682,6 +682,7 @@ module.exports = async (req,res) => {
           orderType:'MARKET',
           expiry:'DFB',
           forceOpen:false,
+          guaranteedStop:false,
           currencyCode:'GBP',
           dealType:'SPREADBET'
         };
