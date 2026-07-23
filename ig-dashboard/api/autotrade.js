@@ -1138,14 +1138,35 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
   let newsSentiment={};
   if(cfg.useNewsFilter&&process.env.NEWS_API_KEY) newsSentiment=await fetchNews(L);
 
-  // Kelly win rate
-  let winRate=0.5;
-  try{
-    const base=process.env.PRODUCTION_URL||`https://${process.env.VERCEL_URL}`;
-    const sr=await fetch(`${base}/api/db?action=stats`);
-    const stats=await sr.json();
-    if(stats.totalTrades>=5){winRate=stats.winRate/100;L(`Kelly win rate: ${stats.winRate}%`);}
-  }catch(e){}
+  // Kelly win rates — separate for directional and pairs trades
+  // Pairs trades have ~75-85% historical WR; directional ~40-55%
+  // Using combined rate unfairly penalises pairs sizing
+  let winRate = 0.5;        // directional Kelly
+  let pairsWinRate = 0.75;  // pairs Kelly (default to historical backtest rate)
+  try {
+    const base = process.env.PRODUCTION_URL || `https://${process.env.VERCEL_URL}`;
+    const sr = await fetch(`${base}/api/db?action=stats`);
+    const stats = await sr.json();
+    // Directional win rate
+    const dirTotal = stats.totalTrades - (stats.pairsStats?.total || 0);
+    const dirWins = stats.winningTrades - (stats.pairsStats?.wins || 0);
+    if(dirTotal >= 5) {
+      winRate = dirWins / dirTotal;
+      L(`Kelly win rate (directional): ${(winRate*100).toFixed(1)}% (${dirWins}W/${dirTotal}T)`);
+    } else if(stats.totalTrades >= 5) {
+      winRate = stats.winRate / 100;
+      L(`Kelly win rate: ${stats.winRate}% (combined — insufficient directional trades)`);
+    }
+    // Pairs win rate — use live data if enough trades, else backtest default
+    const pairsTotal = stats.pairsStats?.total || 0;
+    const pairsWins = stats.pairsStats?.wins || 0;
+    if(pairsTotal >= 5) {
+      pairsWinRate = pairsWins / pairsTotal;
+      L(`Kelly win rate (pairs): ${(pairsWinRate*100).toFixed(1)}% (${pairsWins}W/${pairsTotal}T)`);
+    } else {
+      L(`Kelly win rate (pairs): ${(pairsWinRate*100).toFixed(0)}% (default — only ${pairsTotal} live trades)`);
+    }
+  } catch(e) { L('Kelly calc error: ' + e.message); }
 
   // ── PAIRS Z-SCORE CALCULATION ─────────────────────────────────────────────
   // Calculate live Z-scores for instrument pairs using DB candle history
@@ -2361,8 +2382,13 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           if(!pairsApproved || pairsConfidence < cfg.aiConfidenceMin) continue;
 
           // Size both legs — pairs trades exempt from profit lock
-          // (multi-day positions shouldn't be blocked by intraday P&L)
-          const riskAmt = balance * cfg.pairsRiskPct;
+          // Use pairs-specific Kelly win rate for sizing (typically higher than directional)
+          const pairsKellyR = 2.5; // avg reward/risk ratio for pairs trades
+          const pairsKelly = Math.max(0, pairsWinRate - (1 - pairsWinRate) / pairsKellyR);
+          const pairsQuarterKelly = pairsKelly * 0.25; // quarter Kelly for safety
+          const pairsRiskPctKelly = Math.min(cfg.pairsRiskPct, Math.max(0.01, pairsQuarterKelly));
+          const riskAmt = balance * pairsRiskPctKelly;
+          L(`Pairs Kelly: ${(pairsWinRate*100).toFixed(0)}% WR → ${(pairsQuarterKelly*100).toFixed(1)}% risk → £${riskAmt.toFixed(2)}/trade`);
           const zStopDist = pair.stopZ - absZ; // σ distance to stop (per-pair threshold)
           // Get current prices for sizing — IG market snapshot primary, DB candle fallback
           const [priceFeedA, priceFeedB] = await Promise.all([
