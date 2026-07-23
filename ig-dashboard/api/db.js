@@ -989,7 +989,7 @@ async function getStats() {
       sql`SELECT instrument, profit_loss FROM trades WHERE status = 'closed' ORDER BY profit_loss ASC LIMIT 1`,
       sql`SELECT * FROM daily_stats LIMIT 30`,
       sql`SELECT AVG(CASE WHEN ai_was_correct THEN 1.0 ELSE 0.0 END) as ai_accuracy, COUNT(*) as ai_total FROM trades WHERE status = 'closed' AND ai_was_correct IS NOT NULL`,
-      sql`SELECT COUNT(*) as total FROM pairs_trades WHERE status='closed' AND profit_loss IS NOT NULL`.catch(()=>({rows:[{total:0}]})),
+      sql`SELECT COUNT(*) as total FROM pairs_trades WHERE status='closed' AND profit_loss IS NOT NULL AND profit_loss != 0`.catch(()=>({rows:[{total:0}]})),
       sql`SELECT COUNT(*) as wins FROM pairs_trades WHERE status='closed' AND profit_loss > 0`.catch(()=>({rows:[{wins:0}]})),
       sql`SELECT COALESCE(SUM(profit_loss),0) as total_pnl FROM pairs_trades WHERE status='closed' AND profit_loss IS NOT NULL`.catch(()=>({rows:[{total_pnl:0}]})),
     ]);
