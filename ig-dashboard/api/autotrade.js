@@ -26,6 +26,8 @@ const DB_EPIC_MAP = {
   'CS.D.USCGC.TODAY.IP':  'YAHOO:GC=F',   // Gold — Yahoo USD/oz
   'CC.D.LCO.USS.IP':      'YAHOO:BZ=F',   // Brent Oil — Yahoo USD/bbl
   'CS.D.USCRUDE.TODAY.IP':'YAHOO:CL=F',   // WTI Oil — Yahoo USD/bbl
+  'IX.D.TPXC.DAILY.IP':  'YAHOO:^N300',   // Tokyo First Section — Yahoo ^N300
+  'IX.D.NIKKEI.DAILY.IP': 'YAHOO:^N225',  // Nikkei 225 — Yahoo ^N225
 };
 
 // TODAY FX contracts are priced in pips*10000 not decimal
