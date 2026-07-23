@@ -23,7 +23,9 @@ const DB_EPIC_MAP = {
   // Directional engine uses IG epic from EPIC_MAP, but DB has Yahoo epic
   'CS.D.COPPER.TODAY.IP': 'YAHOO:HG=F',   // Copper — Yahoo USD/lb
   'CS.D.USCSI.TODAY.IP':  'YAHOO:SI=F',   // Silver — Yahoo USD/oz
+  'CS.D.USCGC.TODAY.IP':  'YAHOO:GC=F',   // Gold — Yahoo USD/oz
   'CC.D.LCO.USS.IP':      'YAHOO:BZ=F',   // Brent Oil — Yahoo USD/bbl
+  'CS.D.USCRUDE.TODAY.IP':'YAHOO:CL=F',   // WTI Oil — Yahoo USD/bbl
 };
 
 // TODAY FX contracts are priced in pips*10000 not decimal
