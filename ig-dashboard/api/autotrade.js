@@ -389,8 +389,8 @@ TECHNICALS: SMA20/50:${sig.sma20.toFixed(0)}/${sig.sma50.toFixed(0)} MACD:${sig.
 ${sig.divergence&&sig.divergence.type!=='none'?`RSI DIVERGENCE: ${sig.divergence.type.toUpperCase()} — ${sig.divergence.description} (strength:${sig.divergence.strength}/3)`:''}
 ATR:${sig.atr.toFixed(0)} DATA:${sig.candles} candles from ${sig.src}
 WinRate:${(winRate*100).toFixed(1)}% P&L:${plPct.toFixed(2)}% OpenPos:${openCount}/${cfg.maxPositions}
-Reasons: ${sig.reasons.join(', ')}
-${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal.replace('_',' ')} vs ${sig.pairsCtx.partner} (Z-score: ${sig.pairsCtx.zscore.toFixed(2)}, ${sig.pairsCtx.n} days data)
+Reasons: ${(sig.reasons||[]).map(r=>String(r).replace(/[^\w\s%.,+\-:()]/g,'')).join(', ')}
+${sig.pairsCtx ? `PAIRS CONTEXT: ${sig.instr} is ${sig.pairsCtx.signal?.replace(/_/g,' ')||'unknown'} vs ${sig.pairsCtx.partner} (Z-score: ${(sig.pairsCtx.zscore||0).toFixed(2)}, ${sig.pairsCtx.n} days data)
 ${sig.pairsCtx.signal === 'cheap' && sig.direction === 'BUY' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this BUY — instrument cheap vs partner' :
   sig.pairsCtx.signal === 'expensive' && sig.direction === 'SELL' ? '✅ CONFLUENCE: Pairs signal CONFIRMS this SELL — instrument expensive vs partner' :
   sig.pairsCtx.signal === 'expensive' && sig.direction === 'BUY' ? '⚠️ CONTRADICTION: Pairs signal OPPOSES this BUY — instrument already expensive vs partner' :
@@ -405,7 +405,10 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
     body: JSON.stringify({ model: AI_MODEL_FAST, max_tokens: 150,
       messages: [{ role: 'user', content: prompt }] }),
   });
-  if(!r.ok){ throw new Error(`Claude API ${r.status}`); }
+  if(!r.ok){
+    const errBody = await r.text().catch(()=>'');
+    throw new Error(`Claude API ${r.status}: ${errBody.substring(0,200)}`);
+  }
   const data = await r.json();
   if(data.error){ throw new Error(`Claude error: ${data.error.message||JSON.stringify(data.error)}`); }
   const text = data.content?.[0]?.text || '{"approved":false,"confidence":0,"reasoning":"No response"}';
