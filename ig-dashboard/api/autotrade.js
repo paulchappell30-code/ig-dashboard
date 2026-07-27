@@ -202,6 +202,7 @@ const DEFAULT_CONFIG = {
   pairsRiskPct:0.04,    // 4% risk per pairs trade (up from 1% — 90.9% WR, PF 12.16 justifies)
   // Note: pairs risk is split across two legs so effective single-leg risk is 2%
   // At 4% with £526 balance = £21 risk per pairs trade
+  pairsAllowConflicts:false, // If true — allow same instrument in multiple pairs simultaneously
   // Trailing profit stop
   pairsTrailActivationPct: 2.0,  // activate when UPL >= 2% of account balance
   pairsTrailRetreatPct:   25.0,  // close if UPL retreats 25% from peak (e.g. £20 peak → close at £15)
@@ -600,6 +601,7 @@ module.exports = async (req,res) => {
     pairsZTarget:parseFloat(process.env.PAIRS_Z_TARGET||DEFAULT_CONFIG.pairsZTarget),
     pairsMaxSlots:parseInt(process.env.PAIRS_MAX_SLOTS||DEFAULT_CONFIG.pairsMaxSlots),
     pairsRiskPct:parseFloat(process.env.PAIRS_RISK_PCT||DEFAULT_CONFIG.pairsRiskPct),
+    pairsAllowConflicts:process.env.PAIRS_ALLOW_CONFLICTS==='true'||DEFAULT_CONFIG.pairsAllowConflicts,
   };
 
   // Load optimised params from DB if available
@@ -647,6 +649,7 @@ module.exports = async (req,res) => {
   if(body.maxPositions!==undefined) cfg.maxPositions=parseInt(body.maxPositions);
   if(body.defaultSize!==undefined) cfg.defaultSize=parseInt(body.defaultSize);
   if(body.eodClose!==undefined) cfg.eodClose=!!body.eodClose;
+  if(body.pairsAllowConflicts!==undefined) cfg.pairsAllowConflicts=!!body.pairsAllowConflicts;
   if(body.aiConfidenceMin!==undefined) cfg.aiConfidenceMin=parseInt(body.aiConfidenceMin);
 
   // ── MANUAL PAIRS CLOSE ───────────────────────────────────────────────────────
@@ -2282,15 +2285,17 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           if(openPairIds.has(pair.id)) continue; // already open
           if(cooledOutPairs.has(pair.id)) { L(`Pairs: ${pair.id} in cooldown — skipping`); continue; }
 
-          // Conflict check — don't open if any instrument is already in an open pairs trade
-          // e.g. don't open Copper/Gold if Silver/Copper is already open (double Copper exposure)
-          const conflictingPair = openPairs.rows.find(op =>
-            op.instr_a === pair.instrA || op.instr_b === pair.instrA ||
-            op.instr_a === pair.instrB || op.instr_b === pair.instrB
-          );
-          if(conflictingPair) {
-            L(`Pairs: ${pair.instrA}/${pair.instrB} — instrument conflict with open ${conflictingPair.pair_id} (${conflictingPair.instr_a}/${conflictingPair.instr_b}) — skipping`);
-            continue;
+          // Conflict check — skip if instrument already in open pairs trade
+          // Can be disabled via cfg.pairsAllowConflicts for higher frequency trading
+          if(!cfg.pairsAllowConflicts) {
+            const conflictingPair = openPairs.rows.find(op =>
+              op.instr_a === pair.instrA || op.instr_b === pair.instrA ||
+              op.instr_a === pair.instrB || op.instr_b === pair.instrB
+            );
+            if(conflictingPair) {
+              L(`Pairs: ${pair.instrA}/${pair.instrB} — instrument conflict with open ${conflictingPair.pair_id} (${conflictingPair.instr_a}/${conflictingPair.instr_b}) — skipping`);
+              continue;
+            }
           }
           const pz = pairsZScores[pair.instrA];
           if(!pz || pz.n < pair.minDays) continue;
