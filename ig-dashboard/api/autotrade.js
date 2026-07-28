@@ -2507,25 +2507,29 @@ Respond ONLY: {"approved":true,"confidence":72,"reasoning":"2-3 sentences"}`;
           const pzStats = pairsZScores[pair.instrA];
           let stopPtsA, stopPtsB;
 
+          // Minimum stop as percentage of price — prevents tiny stops on high-price indices
+          // FTSE at 10,900: 0.5% = 54pts (sensible) vs formula giving 10pts (too tight)
+          const minStopPctA = Math.round(priceA > 1000 ? priceA * 0.005 : priceA * 0.002);
+          const minStopPctB = Math.round(priceB > 1000 ? priceB * 0.005 : priceB * 0.002);
+
           if(usingYahooLive) {
             // Yahoo prices in commodity units — use IG minimum stops directly
             stopPtsA = Math.round(minStopA * 2.0);
             stopPtsB = Math.round(minStopB * 2.0);
           } else {
-            // IG prices — DB stores in IG pence units already
-            // For FX pairs: ratio std is in ratio units (e.g. 0.005 for GBPUSD/EURUSD)
-            // Stop in IG pts = zStopDist × std × priceB (no scale — both already in IG units)
-            // CONTRACT_PRICE_SCALE only applies for Yahoo→IG conversion, not here
+            // IG prices — derive stop from Z-score std × price
             const rawStd = pzStats?.std || 0.01;
             const rawStopA = Math.round(zStopDist * rawStd * priceB);
             const rawStopB = Math.round(zStopDist * rawStd * priceA);
-            stopPtsA = Math.max(minStopA * 1.5, rawStopA > 0 ? rawStopA : minStopA * 3);
-            stopPtsB = Math.max(minStopB * 1.5, rawStopB > 0 ? rawStopB : minStopB * 3);
+            // Use whichever is larger: formula result, IG minimum, or 0.5% of price
+            stopPtsA = Math.max(minStopA * 1.5, minStopPctA, rawStopA > 0 ? rawStopA : minStopPctA);
+            stopPtsB = Math.max(minStopB * 1.5, minStopPctB, rawStopB > 0 ? rawStopB : minStopPctB);
             // Sanity cap — stop should never exceed 5% of price
             const maxStopA = Math.round(priceA * 0.05);
             const maxStopB = Math.round(priceB * 0.05);
             if(stopPtsA > maxStopA) { L(`Pairs: ${pair.instrA} stop capped ${stopPtsA}→${maxStopA}pts (5% of price)`); stopPtsA = maxStopA; }
             if(stopPtsB > maxStopB) { L(`Pairs: ${pair.instrB} stop capped ${stopPtsB}→${maxStopB}pts (5% of price)`); stopPtsB = maxStopB; }
+            L(`Pairs: ${pair.instrA} stop ${stopPtsA}pts (${(stopPtsA/priceA*100).toFixed(2)}% of price) | ${pair.instrB} stop ${stopPtsB}pts (${(stopPtsB/priceB*100).toFixed(2)}% of price)`);
           }
 
           const sizeA = Math.max(0.01, Math.min(parseFloat((riskAmt/2/stopPtsA).toFixed(2)), cfg.maxSizePerTrade));
