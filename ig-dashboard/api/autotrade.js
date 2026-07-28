@@ -2301,8 +2301,15 @@ Time: ${now.toLocaleString('en-GB',{timeZone:'Europe/London'})}`);
           if(!pz || pz.n < pair.minDays) continue;
           const absZ = Math.abs(pz.zscore);
           // Use per-pair entry threshold from backtest optimisation
-      const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
-      if(absZ < pairEntryZ) continue;
+          const pairEntryZ = pair.entryZ || cfg.pairsZEntry;
+          const pairStopZ = pair.stopZ || cfg.pairsZStop;
+          if(absZ < pairEntryZ) continue;
+          // CRITICAL: Don't enter if Z already at or beyond stop level
+          // Entering at Z=3.17σ with stop at 3.0σ = immediate stop-out
+          if(absZ >= pairStopZ) {
+            L(`Pairs: ${pair.instrA}/${pair.instrB} Z=${absZ.toFixed(2)}σ already at/beyond stop ${pairStopZ}σ — skipping`);
+            continue;
+          }
 
       // ── TREND FILTER ─────────────────────────────────────────────────────
       // Only take reversion pairs trades when the spread is NOT in a sustained trend
