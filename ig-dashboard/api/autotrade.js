@@ -148,7 +148,7 @@ const PAIRS_DEFINITIONS = [
   // DB price: Yahoo ^N300 TOPIX ~828pts, IG Nikkei ~65,000pts → scale ~78.5×
   // S&P 500: Yahoo/IG ~7,445pts → scale 1.0
   { id:'nikkei_sp500', instrA:'Tokyo First Section', instrB:'S&P 500',
-    epicA:'IX.D.NIKKEI.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
+    epicA:'IX.D.TPXC.DAILY.IP', epicB:'IX.D.SPTRD.DAILY.IP',
     minDays:60, lookbackDays:60, entryZ:1.25, exitZ:0.5, stopZ:3.0,
     dbPriceScaleA: 78.5,  // TOPIX Yahoo ~828 → IG Nikkei ~65000
     dbPriceScaleB: 1.0,   // S&P 500 Yahoo ~7445 ≈ IG ~7445
